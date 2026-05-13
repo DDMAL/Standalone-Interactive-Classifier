@@ -16,20 +16,27 @@ from pathlib import Path
 
 from lxml import etree
 
+from ic_core.glyph import Glyph
 
-def load_glyphs(path: Path) -> list[dict]:
+
+def load_glyphs(path: Path) -> list[Glyph]:
     tree = etree.parse(str(path))
-    glyphs: list[dict] = []
+    glyphs: list[Glyph] = []
     for g in tree.iterfind(".//glyph"):
         ids = g.find("ids")
         id_el = ids.find("id")
-        glyphs.append({
-            "class_name": id_el.get("name"),
-            "confidence": float(id_el.get("confidence")),
-            "id_state_manual": ids.get("state") == "MANUAL",
-            "ulx": int(g.get("ulx")),
-            "uly": int(g.get("uly")),
-            "nrows": int(g.get("nrows")),
-            "ncols": int(g.get("ncols")),
-        })
+        rle = (g.findtext("data") or "").strip()
+        glyphs.append(
+            Glyph.new(
+                class_name=id_el.get("name"),
+                image_rle=rle,
+                ncols=int(g.get("ncols")),
+                nrows=int(g.get("nrows")),
+                ulx=int(g.get("ulx")),
+                uly=int(g.get("uly")),
+                id_state_manual=ids.get("state") == "MANUAL",
+                confidence=float(id_el.get("confidence")),
+                is_training=False,
+            )
+        )
     return glyphs
