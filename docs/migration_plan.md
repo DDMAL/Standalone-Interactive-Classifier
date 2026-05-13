@@ -51,8 +51,7 @@ interactive_classifier_core/
 │   ├── classifier.py       # kNN training + classify (replaces prepare_classifier, run_correction_stage)
 │   ├── grouping.py         # Spatial grouping (replaces group_and_correct + Gamera grouping funcs)
 │   ├── splitting.py        # Connected-component splitting (replaces gamera.segmentation)
-│   ├── io_xml.py           # GameraXML read/write (compatibility, optional)
-│   ├── io_json.py          # JSON format (new native format)
+│   ├── io_xml.py           # GameraXML read/write (authoritative on-disk format)
 │   └── state.py            # ClassifierStateEnum + session dataclass
 └── tests/
     ├── test_features.py
@@ -72,7 +71,7 @@ interactive_classifier_core/
 | `gamera.classify.BoundingBoxGroupingFunction` | Pure numpy bounding-box distance check | Trivial. |
 | `gamera.plugins.image_utilities.union_images` | `np.logical_or` over aligned binary images | Trivial — recompute the bounding box and OR the masks. |
 | `gamera.plugins.segmentation.<plugin>` | `scipy.ndimage.label` + `skimage.measure.regionprops` for connected components; expose other splitters as needed | Most-used plugin is `cc_analysis`; others can be added on demand. |
-| `gamera.gamera_xml` read/write | Hand-written parser using `lxml` | Keep schema-identical output so existing pipelines accept the files. See [intermediary/gamera_xml.py](backend/django/code/jobs/interactive_classifier/intermediary/gamera_xml.py) for the structure. |
+| `gamera.gamera_xml` read/write | Hand-written parser using `lxml` | XML is the authoritative on-disk format — we stay in XML because this work feeds into MEI-encoded pipelines downstream. Keep schema-identical output so existing pipelines accept the files. See [intermediary/gamera_xml.py](backend/django/code/jobs/interactive_classifier/intermediary/gamera_xml.py) for the structure. |
 | Gamera `ONEBIT/DENSE` image | `numpy.ndarray` with dtype `bool` (ONEBIT) or `uint8` (DENSE) | Add adapters if you need to maintain XML compatibility. |
 
 ### Algorithm semantics to preserve verbatim
@@ -190,7 +189,7 @@ The existing SPA (83 JS files) is a thoughtful piece of code despite being old. 
 
 ## Risks and gotchas
 
-1. **Feature vector incompatibility.** Gamera computes feature vectors as part of its XML output (`with_features=True` in `WriteXMLFile`). Your new system's feature vectors will be different. **Decide upfront** whether output XML files must be drop-in replacements for downstream pipelines. If yes, you have to reproduce Gamera's feature layout, which is non-trivial. If no, declare the new format a clean break and version it.
+1. **Feature vector incompatibility.** Gamera computes feature vectors as part of its XML output (`with_features=True` in `WriteXMLFile`). Your new system's feature vectors will be different. Because we are staying in the GameraXML format to feed MEI-encoded downstream pipelines, the output XML must remain schema-compatible — but the embedded feature vectors themselves are versioned and treated as a clean break (downstream consumers should not depend on them). Document the feature-vector version in the XML so old/new files can be distinguished.
 
 2. **Classification accuracy may differ.** Gamera's kNN with `perform_splits=True` and selected features is not a stock 1-NN. Stock sklearn `KNeighborsClassifier(n_neighbors=1)` on your own feature vectors will produce different decisions. Plan for accuracy validation against a held-out set early — don't discover this at the end.
 
