@@ -2,7 +2,7 @@
 
 A modern rewrite of the **Interactive Classifier** — a tool for interactively classifying chant-manuscript neumes using a k-Nearest Neighbors model.
 
-This project replaces the legacy Rodan job (Django + Celery + Gamera + Backbone.Marionette) at [`/Rodan-lite/backend/django/code/jobs/interactive_classifier/`](/Rodan-lite/backend/django/code/jobs/interactive_classifier/) with a non-Django Python service, a React + Vite frontend, and no Gamera dependency.
+This project replaces the legacy Rodan job (Django + Celery + Gamera + Backbone.Marionette) at [`/Rodan-lite/backend/django/code/jobs/interactive_classifier/`] with a non-Django Python service, a React + Vite frontend, and no Gamera dependency.
 
 ## Key differences from the legacy IC
 
