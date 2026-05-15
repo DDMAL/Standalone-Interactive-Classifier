@@ -1,0 +1,346 @@
+"""FastAPI application — HTTP surface for the Interactive Classifier.
+
+This is the Phase-2 layer per ``../docs/migration_plan.md``: a
+**thin** translation from HTTP into :mod:`ic_core.state.Session`
+operations and back. No algorithm logic lives here; the endpoints
+exist only to map JSON requests onto session methods and serialise
+the result.
+
+Lifecycle and state mapping
+---------------------------
+
+The mapping is direct: every endpoint operates on a single
+:class:`ic_core.state.Session` resolved by id from the
+:class:`ic_api.store.InMemorySessionStore`. State transitions are
+enforced inside ``Session`` and surfaced as HTTP 409 here.
+
+Error model
+-----------
+
+Every non-2xx response uses :class:`ic_api.schemas.ErrorResponse`:
+``{"detail": "...", "code": "..."}``. The ``code`` values are a
+finite enum so the frontend can dispatch on them without parsing
+free-form ``detail`` strings.
+
+What's deliberately missing in v1
+---------------------------------
+
+* **Auth.** Single-user / local-tool target — see migration plan
+  §"Auth".
+* **WebSocket progress events.** The numpy classifier is fast
+  enough on the dataset sizes we care about that synchronous JSON
+  responses are fine. Add a streaming endpoint when an operation
+  starts feeling slow.
+* **Auto-grouping endpoint.** Deferred at the algorithm layer —
+  this endpoint returns HTTP 501.
+* **Persistent storage.** The default store is in-memory only;
+  swap :mod:`ic_api.store` for a SQLite-backed implementation when
+  sessions need to outlive a process restart.
+"""
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import Depends, FastAPI, Response
+from fastapi.responses import JSONResponse
+
+from ic_api.schemas import (
+    ClassifyRequest,
+    CreateSessionRequest,
+    ErrorResponse,
+    GlyphDTO,
+    GroupRequest,
+    RenameClassRequest,
+    SessionDTO,
+    UpdateGlyphRequest,
+    glyph_to_dto,
+    session_to_dto,
+)
+from ic_api.store import InMemorySessionStore, default_store
+from ic_core.ingest import ingest_page
+from ic_core.io_xml import dumps_glyphs
+from ic_core.state import Session, StateTransitionError
+
+
+# ---------------------------------------------------------------------------
+# App & dependency wiring
+# ---------------------------------------------------------------------------
+
+
+app = FastAPI(
+    title="Interactive Classifier API",
+    version="0.1.0",
+    description=(
+        "Phase-2 HTTP layer for the Interactive Classifier rewrite. "
+        "Wraps ic_core.state.Session with REST endpoints."
+    ),
+)
+
+
+def get_store() -> InMemorySessionStore:
+    """Dependency-injection point for the session store.
+
+    The default returns the module-level :data:`ic_api.store.default_store`;
+    tests override this with a fresh store via ``app.dependency_overrides``.
+    """
+    return default_store
+
+
+Store = Annotated[InMemorySessionStore, Depends(get_store)]
+
+
+def _get_session(session_id: str, store: InMemorySessionStore) -> Session:
+    """Look up a session or raise :class:`KeyError`.
+
+    The global :func:`_key_error_handler` translates that into a
+    404 response with the structured error envelope. Routing the
+    error through the handler (rather than raising
+    :class:`HTTPException` directly here) keeps the response body
+    consistent — every 404 carries the same ``code: "not_found"``
+    discriminator.
+    """
+    return store.get(session_id)
+
+
+# ---------------------------------------------------------------------------
+# Exception handlers — translate domain errors into HTTP shapes
+# ---------------------------------------------------------------------------
+
+
+@app.exception_handler(StateTransitionError)
+async def _state_transition_handler(_request, exc: StateTransitionError) -> JSONResponse:
+    # 409 Conflict is the right code for "operation valid in some
+    # other state but not the current one" — the resource exists,
+    # the request is well-formed, just not allowed right now.
+    return JSONResponse(
+        status_code=409,
+        content=ErrorResponse(detail=str(exc), code="state_conflict").model_dump(),
+    )
+
+
+@app.exception_handler(KeyError)
+async def _key_error_handler(_request, exc: KeyError) -> JSONResponse:
+    # KeyError comes from Session.find / store.get; both map to 404.
+    return JSONResponse(
+        status_code=404,
+        content=ErrorResponse(detail=str(exc), code="not_found").model_dump(),
+    )
+
+
+@app.exception_handler(ValueError)
+async def _value_error_handler(_request, exc: ValueError) -> JSONResponse:
+    # Most ValueErrors from ic_core are input-validation: empty
+    # training pool, rename-to-UNCLASSIFIED, etc.
+    return JSONResponse(
+        status_code=400,
+        content=ErrorResponse(detail=str(exc), code="validation_error").model_dump(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Session lifecycle
+# ---------------------------------------------------------------------------
+
+
+@app.post("/sessions", response_model=SessionDTO, status_code=201)
+def create_session(body: CreateSessionRequest, store: Store) -> SessionDTO:
+    """Create a session and ingest a page + bbox file.
+
+    Returns the freshly-ingested session in ``CLASSIFYING`` state.
+    The user can immediately call ``POST /sessions/{id}/classify``
+    (once they have at least one manual or training glyph) or start
+    labelling glyphs via :func:`update_glyph`.
+    """
+    glyphs = ingest_page(body.page_image, body.annotations)
+    session = Session()
+    session.ingest(glyphs, class_names=body.class_names)
+    store.create(session)
+    return session_to_dto(session)
+
+
+@app.get("/sessions/{session_id}", response_model=SessionDTO)
+def get_session(session_id: str, store: Store) -> SessionDTO:
+    """Fetch the full current state of a session."""
+    return session_to_dto(_get_session(session_id, store))
+
+
+@app.delete("/sessions/{session_id}", status_code=204)
+def delete_session(session_id: str, store: Store) -> Response:
+    """Discard a session and free its memory."""
+    store.delete(session_id)
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Classification & editing
+# ---------------------------------------------------------------------------
+
+
+@app.post("/sessions/{session_id}/classify", response_model=SessionDTO)
+def classify(session_id: str, body: ClassifyRequest, store: Store) -> SessionDTO:
+    """Re-train and re-classify every non-manual glyph in one round."""
+    session = _get_session(session_id, store)
+    session.classify(k=body.k)
+    return session_to_dto(session)
+
+
+@app.post(
+    "/sessions/{session_id}/glyphs/{glyph_id}",
+    response_model=GlyphDTO,
+)
+def update_glyph(
+    session_id: str,
+    glyph_id: str,
+    body: UpdateGlyphRequest,
+    store: Store,
+) -> GlyphDTO:
+    """Partial update of a single glyph (class label, manual flag)."""
+    session = _get_session(session_id, store)
+    new = session.update_glyph(
+        glyph_id,
+        class_name=body.class_name,
+        id_state_manual=body.id_state_manual,
+    )
+    return glyph_to_dto(new)
+
+
+@app.delete("/sessions/{session_id}/glyphs/{glyph_id}", status_code=204)
+def delete_glyph(session_id: str, glyph_id: str, store: Store) -> Response:
+    """Drop a glyph from the working set."""
+    session = _get_session(session_id, store)
+    session.delete_glyph(glyph_id)
+    return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# Grouping
+# ---------------------------------------------------------------------------
+
+
+@app.post("/sessions/{session_id}/group", response_model=GlyphDTO)
+def manual_group(
+    session_id: str,
+    body: GroupRequest,
+    store: Store,
+) -> GlyphDTO:
+    """Union the selected glyphs into one new manual glyph."""
+    session = _get_session(session_id, store)
+    grouped = session.manual_group(body.glyph_ids, body.class_name)
+    return glyph_to_dto(grouped)
+
+
+@app.post("/sessions/{session_id}/auto-group", status_code=501)
+def auto_group(session_id: str, store: Store) -> JSONResponse:
+    """Deferred — see migration plan §'Risks and gotchas' (4).
+
+    Spatial auto-grouping needs a per-glyph page coordinate frame.
+    Our ingest path *does* now provide that (the page+bbox flow),
+    so this endpoint can be wired up once
+    :func:`ic_core.grouping.auto_group_shaped` is implemented. For
+    v1 we return 501 explicitly rather than 404 so the frontend can
+    show a meaningful 'feature not available yet' message.
+    """
+    # Touch the session lookup so a request for a nonexistent
+    # session still 404s rather than 501.
+    _get_session(session_id, store)
+    return JSONResponse(
+        status_code=501,
+        content=ErrorResponse(
+            detail=(
+                "Auto-grouping is not implemented in v1. See "
+                "docs/migration_plan.md §'Risks and gotchas' (4)."
+            ),
+            code="deferred",
+        ).model_dump(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Class-name management
+# ---------------------------------------------------------------------------
+
+
+@app.post(
+    "/sessions/{session_id}/classes/{class_name}/rename",
+    response_model=SessionDTO,
+)
+def rename_class(
+    session_id: str,
+    class_name: str,
+    body: RenameClassRequest,
+    store: Store,
+) -> SessionDTO:
+    """Rename a class across the working set, training set, and autocomplete."""
+    session = _get_session(session_id, store)
+    session.rename_class(class_name, body.new_name)
+    return session_to_dto(session)
+
+
+@app.delete(
+    "/sessions/{session_id}/classes/{class_name}",
+    response_model=SessionDTO,
+)
+def delete_class(session_id: str, class_name: str, store: Store) -> SessionDTO:
+    """Drop a class (and dotted-namespace subclasses) from the autocomplete list."""
+    session = _get_session(session_id, store)
+    session.delete_class(class_name)
+    return session_to_dto(session)
+
+
+# ---------------------------------------------------------------------------
+# Persistence checkpoints
+# ---------------------------------------------------------------------------
+
+
+@app.post("/sessions/{session_id}/save", response_model=SessionDTO)
+def save_session(session_id: str, store: Store) -> SessionDTO:
+    """No-op for the in-memory store; returns the current state.
+
+    Exposed so the frontend can call it on a 'save' button without
+    branching on the storage backend. Once :mod:`ic_api.store` is
+    replaced with a SQLite/Postgres implementation this will flush.
+    """
+    return session_to_dto(_get_session(session_id, store))
+
+
+@app.post("/sessions/{session_id}/complete")
+def complete_session(session_id: str, store: Store) -> Response:
+    """Finalise the session and stream back the GameraXML export.
+
+    The session transitions to ``EXPORT`` (terminal). The frontend
+    should treat the returned XML as the canonical artefact for
+    downstream MEI pipelines.
+
+    Response body is ``application/xml``, not JSON, because the XML
+    *is* the deliverable. The session remains in the store so the
+    caller can ``DELETE`` it explicitly once they've saved the file.
+    """
+    session = _get_session(session_id, store)
+    session.complete()
+    payload = dumps_glyphs(session.glyphs)
+    return Response(
+        content=payload,
+        media_type="application/xml",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="ic-session-{session.id}.xml"'
+            ),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Entry point for `uv run ic-api`
+# ---------------------------------------------------------------------------
+
+
+def run() -> None:
+    """Launch the dev server. Used by the ``ic-api`` console script."""
+    import uvicorn
+
+    uvicorn.run(
+        "ic_api.main:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=False,
+    )
