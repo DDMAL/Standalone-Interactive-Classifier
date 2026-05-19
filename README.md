@@ -15,7 +15,7 @@ This project replaces the legacy Rodan job (Django + Celery + Gamera + Backbone.
 | Layer       | Path         | Status                                |
 |-------------|--------------|---------------------------------------|
 | Algorithm core | `core/ic_core/` | In progress — scaffolded, partial impl |
-| API         | `api/`       | Not started                           |
+| API         | `api/`       | In progress, open to future change    |
 | Frontend    | `frontend/`  | Not started                           |
 
 ## Repository layout
