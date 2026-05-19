@@ -6,7 +6,7 @@ This project replaces the legacy Rodan job (Django + Celery + Gamera + Backbone.
 
 ## Key differences from the legacy IC
 
-- **Input is pre-cropped neume images** (one image per glyph), not page-level GameraXML. The upstream connected-components-analysis (CCA) stage is removed.
+- **Input is a full page image plus a bounding-box annotation file** (for example, MOTHRA JSON or YOLO), not page-level GameraXML. Neume crops are derived from those annotations rather than supplied as pre-cropped glyph images.
 - **Manual split (CCA on a single glyph) is deferred.** Reintroduce only if real data shows crops that contain multiple neumes.
 - **Output stays as GameraXML** so downstream MEI pipelines keep working.
 

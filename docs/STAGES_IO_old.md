@@ -212,4 +212,4 @@ Parsed by `glyphs_from_xml()` ([intermediary/gamera_xml.py:62-75](../../Rodan-li
 4. **UUIDs survive round-trips** for existing glyphs; new ones (group/split outputs) get fresh UUIDs.
 5. **Manual group:** `id_state_manual=True, confidence=1`. **Manual split:** `class_name=UNCLASSIFIED, id_state_manual=False, confidence=0`.
 6. **Confidence sort:** frontend expects ascending — lowest-confidence first.
-7. **`_split` / `_group` / `_delete` prefixes** are transient and must be stripped by `filter_parts` before training and before export.
+7. **`_group` / `_delete` prefixes** are transient and must be stripped by `filter_parts` before training and before export; **`_split` is no longer special-cased** in the Phase-1 rewrite semantics.
