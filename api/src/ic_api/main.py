@@ -39,14 +39,14 @@ What's deliberately missing in v1
 """
 from __future__ import annotations
 
+import json
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Response
+from fastapi import Depends, FastAPI, File, Form, Response, UploadFile
 from fastapi.responses import JSONResponse
 
 from ic_api.schemas import (
     ClassifyRequest,
-    CreateSessionRequest,
     ErrorResponse,
     GlyphDTO,
     GroupRequest,
@@ -57,7 +57,7 @@ from ic_api.schemas import (
     session_to_dto,
 )
 from ic_api.store import InMemorySessionStore, default_store
-from ic_core.ingest import ingest_page
+from ic_core.ingest import AnnotationFormat, ingest_page
 from ic_core.io_xml import dumps_glyphs
 from ic_core.state import Session, StateTransitionError
 
@@ -143,17 +143,65 @@ async def _value_error_handler(_request, exc: ValueError) -> JSONResponse:
 
 
 @app.post("/sessions", response_model=SessionDTO, status_code=201)
-def create_session(body: CreateSessionRequest, store: Store) -> SessionDTO:
-    """Create a session and ingest a page + bbox file.
+async def create_session(
+    page_image: Annotated[UploadFile, File(description="Full-page image.")],
+    annotations: Annotated[
+        UploadFile,
+        File(description="MOTHRA JSON or YOLO TXT bbox document."),
+    ],
+    annotations_format: Annotated[
+        AnnotationFormat,
+        Form(description="Which annotation parser to use: 'json' or 'yolo'."),
+    ],
+    # NOTE on parameter ordering and types:
+    # * Using ``Depends(get_store)`` directly (rather than the
+    #   ``Store`` Annotated alias) — FastAPI mis-classifies the body
+    #   when an ``Annotated[..., Depends(...)]`` alias precedes
+    #   File/Form parameters in the same signature.
+    # * ``class_names`` is a JSON-encoded string, not ``list[str]``
+    #   — FastAPI 0.136 treats any ``list[X]`` Form parameter sharing
+    #   an endpoint with ``UploadFile`` as a JSON body, which then
+    #   makes every multipart field look 'missing'. The JSON-string
+    #   shape is a workaround for that bug.
+    store: InMemorySessionStore = Depends(get_store),
+    class_names: Annotated[
+        str | None,
+        Form(description="Optional JSON-encoded list[str] of class names."),
+    ] = None,
+) -> SessionDTO:
+    """Create a session and ingest a page + bbox upload.
+
+    The endpoint accepts ``multipart/form-data`` with two file
+    parts (the page image and the bbox document) plus an
+    ``annotations_format`` field telling us which parser to use.
+    Server-side paths are intentionally *not* accepted — the API
+    never opens a file chosen by the client.
 
     Returns the freshly-ingested session in ``CLASSIFYING`` state.
     The user can immediately call ``POST /sessions/{id}/classify``
     (once they have at least one manual or training glyph) or start
     labelling glyphs via :func:`update_glyph`.
     """
-    glyphs = ingest_page(body.page_image, body.annotations)
+    parsed_names: list[str] | None = None
+    if class_names is not None:
+        try:
+            parsed_names = json.loads(class_names)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"class_names is not valid JSON: {e}") from e
+        if not isinstance(parsed_names, list) or not all(
+            isinstance(n, str) for n in parsed_names
+        ):
+            raise ValueError("class_names must be a JSON list of strings.")
+
+    page_bytes = await page_image.read()
+    annotations_bytes = await annotations.read()
+    glyphs = ingest_page(
+        page_bytes,
+        annotations_bytes,
+        format=annotations_format,
+    )
     session = Session()
-    session.ingest(glyphs, class_names=body.class_names)
+    session.ingest(glyphs, class_names=parsed_names)
     store.create(session)
     return session_to_dto(session)
 

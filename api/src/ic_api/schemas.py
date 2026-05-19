@@ -65,20 +65,6 @@ class SessionDTO(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class CreateSessionRequest(BaseModel):
-    """POST /sessions body."""
-
-    page_image: str = Field(..., description="Server-side path to the page image.")
-    annotations: str = Field(
-        ...,
-        description="Server-side path to a MOTHRA .json or YOLO .txt bbox file.",
-    )
-    class_names: list[str] | None = Field(
-        default=None,
-        description="Optional list of class names to seed the autocomplete.",
-    )
-
-
 class ClassifyRequest(BaseModel):
     """POST /sessions/{id}/classify body."""
 
