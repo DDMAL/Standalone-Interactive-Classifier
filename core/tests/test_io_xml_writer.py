@@ -2,8 +2,9 @@
 
 The reader tests live in :mod:`tests.test_io_xml`; this file focuses
 on round-trip semantics and on the schema details the migration plan
-calls out as load-bearing (algorithm semantics #6 UUID preservation,
-``state`` attribute discrimination, transient-prefix exclusion).
+calls out as load-bearing (for example ``state`` attribute
+discrimination, confidence formatting, input ordering, and
+transient-prefix exclusion).
 """
 from __future__ import annotations
 
