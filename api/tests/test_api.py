@@ -334,3 +334,123 @@ def test_complete_returns_xml_and_transitions_to_export(client):
     classify_resp = client.post(f"/sessions/{sid}/classify", json={})
     assert classify_resp.status_code == 409
     assert classify_resp.json()["code"] == "state_conflict"
+
+
+# ---------------------------------------------------------------------------
+# Concurrency
+# ---------------------------------------------------------------------------
+
+
+def test_store_session_context_manager_serializes_same_id():
+    """Two threads acquiring the same id must not interleave their critical sections.
+
+    Why: the public API hands out the same mutable :class:`Session`
+    object to every caller. Without serialisation, a browser
+    double-click or async UI retry can interleave mutations and
+    corrupt session state. The store's ``session()`` context manager
+    is the chokepoint, so this test pins its mutual-exclusion
+    guarantee directly.
+    """
+    import threading
+    import time
+
+    from ic_core.state import Session
+
+    store = InMemorySessionStore()
+    sess = Session()
+    store.create(sess)
+
+    events: list[tuple[str, str]] = []
+    events_lock = threading.Lock()
+    barrier = threading.Barrier(2)
+
+    def hold(label: str) -> None:
+        barrier.wait()
+        with store.session(sess.id):
+            with events_lock:
+                events.append(("enter", label))
+            # Sleep inside the critical section so any interleaving
+            # would surface as an enter/enter pair.
+            time.sleep(0.05)
+            with events_lock:
+                events.append(("exit", label))
+
+    t1 = threading.Thread(target=hold, args=("A",))
+    t2 = threading.Thread(target=hold, args=("B",))
+    t1.start(); t2.start()
+    t1.join(); t2.join()
+
+    # Expect strictly enter/exit/enter/exit with no interleave —
+    # whichever thread wins the lock first finishes before the other starts.
+    assert [e[0] for e in events] == ["enter", "exit", "enter", "exit"]
+    assert events[0][1] == events[1][1]
+    assert events[2][1] == events[3][1]
+    assert events[0][1] != events[2][1]
+
+
+def test_store_session_context_manager_allows_parallelism_across_ids():
+    """Different session ids must not block each other.
+
+    Why: serialising *all* session operations on a single lock would
+    needlessly stall concurrent users (or concurrent tabs over the
+    same backend). Per-session locks let different sessions proceed
+    in parallel; this test pins that.
+    """
+    import threading
+    import time
+
+    from ic_core.state import Session
+
+    store = InMemorySessionStore()
+    a, b = Session(), Session()
+    store.create(a); store.create(b)
+
+    start = threading.Barrier(2)
+    durations: dict[str, float] = {}
+
+    def hold(sid: str, label: str) -> None:
+        start.wait()
+        t0 = time.monotonic()
+        with store.session(sid):
+            time.sleep(0.1)
+        durations[label] = time.monotonic() - t0
+
+    ta = threading.Thread(target=hold, args=(a.id, "a"))
+    tb = threading.Thread(target=hold, args=(b.id, "b"))
+    ta.start(); tb.start()
+    ta.join(); tb.join()
+
+    # If the locks serialised across ids, total wall time would be
+    # ~2× the sleep. Both threads should finish in roughly one sleep.
+    assert max(durations.values()) < 0.18, durations
+
+
+def test_concurrent_updates_on_same_session_are_consistent(client):
+    """Hammer one session from many threads; final state must add up.
+
+    Without the per-session lock, concurrent ``update_glyph`` calls
+    on the same session could see torn intermediate state (the
+    handler reads, mutates, and serialises the same mutable object).
+    With locking each request observes a consistent snapshot.
+    """
+    import concurrent.futures as cf
+
+    sid = _create_session(client)
+    glyph_ids = [
+        g["id"] for g in client.get(f"/sessions/{sid}").json()["glyphs"][:8]
+    ]
+
+    def label(gid: str):
+        return client.post(
+            f"/sessions/{sid}/glyphs/{gid}",
+            json={"class_name": "neume.A", "id_state_manual": True},
+        )
+
+    with cf.ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(label, glyph_ids))
+
+    assert all(r.status_code == 200 for r in results), [r.text for r in results]
+
+    final = client.get(f"/sessions/{sid}").json()["glyphs"]
+    manual = {g["id"] for g in final if g["id_state_manual"]}
+    assert manual == set(glyph_ids)

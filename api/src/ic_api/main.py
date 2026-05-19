@@ -89,17 +89,15 @@ def get_store() -> InMemorySessionStore:
 Store = Annotated[InMemorySessionStore, Depends(get_store)]
 
 
-def _get_session(session_id: str, store: InMemorySessionStore) -> Session:
-    """Look up a session or raise :class:`KeyError`.
-
-    The global :func:`_key_error_handler` translates that into a
-    404 response with the structured error envelope. Routing the
-    error through the handler (rather than raising
-    :class:`HTTPException` directly here) keeps the response body
-    consistent — every 404 carries the same ``code: "not_found"``
-    discriminator.
-    """
-    return store.get(session_id)
+# Why every handler goes through ``store.session(...)``:
+# The store's registry lock keeps the dict thread-safe, but a
+# retrieved :class:`Session` is a plain mutable object. Two requests
+# that hit the same session id (browser double-click, async UI calls,
+# retry) would otherwise interleave their mutations and corrupt
+# state. ``store.session(id)`` yields the session under a per-session
+# lock so each handler's read-mutate-serialise sequence is atomic.
+# A missing id raises :class:`KeyError`, which :func:`_key_error_handler`
+# maps to a 404 with ``code: "not_found"``.
 
 
 # ---------------------------------------------------------------------------
@@ -209,7 +207,8 @@ async def create_session(
 @app.get("/sessions/{session_id}", response_model=SessionDTO)
 def get_session(session_id: str, store: Store) -> SessionDTO:
     """Fetch the full current state of a session."""
-    return session_to_dto(_get_session(session_id, store))
+    with store.session(session_id) as session:
+        return session_to_dto(session)
 
 
 @app.delete("/sessions/{session_id}", status_code=204)
@@ -227,9 +226,9 @@ def delete_session(session_id: str, store: Store) -> Response:
 @app.post("/sessions/{session_id}/classify", response_model=SessionDTO)
 def classify(session_id: str, body: ClassifyRequest, store: Store) -> SessionDTO:
     """Re-train and re-classify every non-manual glyph in one round."""
-    session = _get_session(session_id, store)
-    session.classify(k=body.k)
-    return session_to_dto(session)
+    with store.session(session_id) as session:
+        session.classify(k=body.k)
+        return session_to_dto(session)
 
 
 @app.post(
@@ -243,20 +242,20 @@ def update_glyph(
     store: Store,
 ) -> GlyphDTO:
     """Partial update of a single glyph (class label, manual flag)."""
-    session = _get_session(session_id, store)
-    new = session.update_glyph(
-        glyph_id,
-        class_name=body.class_name,
-        id_state_manual=body.id_state_manual,
-    )
-    return glyph_to_dto(new)
+    with store.session(session_id) as session:
+        new = session.update_glyph(
+            glyph_id,
+            class_name=body.class_name,
+            id_state_manual=body.id_state_manual,
+        )
+        return glyph_to_dto(new)
 
 
 @app.delete("/sessions/{session_id}/glyphs/{glyph_id}", status_code=204)
 def delete_glyph(session_id: str, glyph_id: str, store: Store) -> Response:
     """Drop a glyph from the working set."""
-    session = _get_session(session_id, store)
-    session.delete_glyph(glyph_id)
+    with store.session(session_id) as session:
+        session.delete_glyph(glyph_id)
     return Response(status_code=204)
 
 
@@ -272,9 +271,9 @@ def manual_group(
     store: Store,
 ) -> GlyphDTO:
     """Union the selected glyphs into one new manual glyph."""
-    session = _get_session(session_id, store)
-    grouped = session.manual_group(body.glyph_ids, body.class_name)
-    return glyph_to_dto(grouped)
+    with store.session(session_id) as session:
+        grouped = session.manual_group(body.glyph_ids, body.class_name)
+        return glyph_to_dto(grouped)
 
 
 @app.post("/sessions/{session_id}/auto-group", status_code=501)
@@ -290,7 +289,7 @@ def auto_group(session_id: str, store: Store) -> JSONResponse:
     """
     # Touch the session lookup so a request for a nonexistent
     # session still 404s rather than 501.
-    _get_session(session_id, store)
+    store.get(session_id)
     return JSONResponse(
         status_code=501,
         content=ErrorResponse(
@@ -319,9 +318,9 @@ def rename_class(
     store: Store,
 ) -> SessionDTO:
     """Rename a class across the working set, training set, and autocomplete."""
-    session = _get_session(session_id, store)
-    session.rename_class(class_name, body.new_name)
-    return session_to_dto(session)
+    with store.session(session_id) as session:
+        session.rename_class(class_name, body.new_name)
+        return session_to_dto(session)
 
 
 @app.delete(
@@ -330,9 +329,9 @@ def rename_class(
 )
 def delete_class(session_id: str, class_name: str, store: Store) -> SessionDTO:
     """Drop a class (and dotted-namespace subclasses) from the autocomplete list."""
-    session = _get_session(session_id, store)
-    session.delete_class(class_name)
-    return session_to_dto(session)
+    with store.session(session_id) as session:
+        session.delete_class(class_name)
+        return session_to_dto(session)
 
 
 # ---------------------------------------------------------------------------
@@ -348,7 +347,8 @@ def save_session(session_id: str, store: Store) -> SessionDTO:
     branching on the storage backend. Once :mod:`ic_api.store` is
     replaced with a SQLite/Postgres implementation this will flush.
     """
-    return session_to_dto(_get_session(session_id, store))
+    with store.session(session_id) as session:
+        return session_to_dto(session)
 
 
 @app.post("/sessions/{session_id}/complete")
@@ -363,17 +363,14 @@ def complete_session(session_id: str, store: Store) -> Response:
     *is* the deliverable. The session remains in the store so the
     caller can ``DELETE`` it explicitly once they've saved the file.
     """
-    session = _get_session(session_id, store)
-    session.complete()
-    payload = dumps_glyphs(session.glyphs)
+    with store.session(session_id) as session:
+        session.complete()
+        payload = dumps_glyphs(session.glyphs)
+        filename = f'attachment; filename="ic-session-{session.id}.xml"'
     return Response(
         content=payload,
         media_type="application/xml",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="ic-session-{session.id}.xml"'
-            ),
-        },
+        headers={"Content-Disposition": filename},
     )
 
 
