@@ -179,6 +179,45 @@ def test_update_glyph_class_only_keeps_manual_flag():
     assert new.confidence == 1.0
 
 
+def test_update_glyph_manual_to_automatic_resets_confidence():
+    # A manually-labelled glyph carries the pinned confidence=1.0. Flipping
+    # it back to automatic must drop that score so the glyph re-enters the
+    # ascending-confidence review queue at the top, rather than sinking to
+    # the bottom on a stale 1.0 it never actually earned from the classifier.
+    g = _make_glyph(
+        np.ones((4, 4)),
+        class_name="A",
+        id_state_manual=True,
+        confidence=1.0,
+    )
+    s = Session()
+    s.ingest([g])
+
+    new = s.update_glyph(g.id, id_state_manual=False)
+
+    assert new.id_state_manual is False
+    assert new.confidence == 0.0
+    assert new.class_name == "A"
+
+
+def test_update_glyph_automatic_to_automatic_preserves_confidence():
+    # Relabeling an already-automatic glyph should leave its kNN score alone.
+    g = _make_glyph(
+        np.ones((4, 4)),
+        class_name="A",
+        id_state_manual=False,
+        confidence=0.42,
+    )
+    s = Session()
+    s.ingest([g])
+
+    new = s.update_glyph(g.id, class_name="B", id_state_manual=False)
+
+    assert new.id_state_manual is False
+    assert new.confidence == 0.42
+    assert new.class_name == "B"
+
+
 def test_update_glyph_unknown_id_raises_keyerror():
     s = Session()
     s.ingest([_make_glyph(np.ones((2, 2)))])

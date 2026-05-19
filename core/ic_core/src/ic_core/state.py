@@ -271,9 +271,13 @@ class Session:
         if id_state_manual is True:
             new = old.classify_manual(class_name if class_name is not None else old.class_name)
         elif id_state_manual is False:
+            # Manual→automatic: drop the pinned 1.0 confidence so the glyph
+            # surfaces at the top of the ascending-confidence review queue
+            # until the next classify round assigns a real kNN score.
+            confidence = 0.0 if old.id_state_manual else old.confidence
             new = old.classify_automatic(
                 class_name=class_name if class_name is not None else old.class_name,
-                confidence=old.confidence,
+                confidence=confidence,
             )
         else:
             # id_state_manual unchanged — just rename the class.
