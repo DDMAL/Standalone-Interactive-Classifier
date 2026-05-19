@@ -13,11 +13,11 @@ The schema is undocumented except by example — the fixtures under
 Reader notes
 ------------
 
-* ``load_glyphs`` is **export-only** in spirit: the ingest path uses
-  cropped PNG directories, not GameraXML. The reader still exists for
-  the round-trip regression test (Phase 1 Verification §4 in the
-  migration plan) — write a session, read it back, confirm the
-  semantics survive.
+* ``load_glyphs`` is **export-only** in spirit: the main ingest path
+  uses page-image + annotation-byte inputs via ``ic_core.ingest``,
+  not GameraXML. The reader still exists for the round-trip
+  regression test (Phase 1 Verification §4 in the migration plan) —
+  write a session, read it back, confirm the semantics survive.
 
 Writer notes
 ------------
