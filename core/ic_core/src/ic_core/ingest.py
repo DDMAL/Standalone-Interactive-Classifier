@@ -1,15 +1,22 @@
 """Ingest a page image + bbox annotations into :class:`Glyph` objects.
 
-The new pipeline's primary input is **one full page image** plus a
-companion **bounding-box file** describing where each neume sits on
-that page. We crop on the fly rather than asking the caller to
+The pipeline's primary input is **one full page image** plus a
+companion **bounding-box document** describing where each neume sits
+on that page. We crop on the fly rather than asking the caller to
 pre-slice the page into per-neume PNGs.
 
-Two annotation formats are supported, both produced by the upstream
-detector (MOTHRA / YOLO):
+Inputs are passed as **raw bytes**, not filesystem paths. The HTTP
+layer above this hands us multipart upload payloads directly, and
+tests read fixtures via :func:`Path.read_bytes`. Keeping ingest off
+the filesystem means the API layer can never be tricked into
+reading server-side files chosen by the client.
 
-1. **MOTHRA JSON** (``*.json``) — pixel coordinates plus a stable
-   per-annotation UUID. Structure:
+Two annotation formats are supported, both produced by the upstream
+detector (MOTHRA / YOLO). The caller picks via the ``format``
+argument — we no longer guess from a file suffix:
+
+1. **MOTHRA JSON** (``format="json"``) — pixel coordinates plus a
+   stable per-annotation UUID. Structure:
 
    .. code-block:: json
 
@@ -28,8 +35,8 @@ detector (MOTHRA / YOLO):
    (algorithm semantic #6: existing glyphs preserve their UUIDs
    across round-trips).
 
-2. **YOLO text** (``*.txt``) — one bbox per line, normalised to
-   the image dimensions:
+2. **YOLO text** (``format="yolo"``) — one bbox per line, normalised
+   to the image dimensions:
 
    .. code-block:: text
 
@@ -62,10 +69,10 @@ Phase 1 scope.
 """
 from __future__ import annotations
 
+import io
 import json
 import uuid
-from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Literal
 
 import numpy as np
 from PIL import Image as PILImage
@@ -73,6 +80,9 @@ from PIL import Image as PILImage
 from ic_core.classifier import UNCLASSIFIED
 from ic_core.glyph import Glyph
 from ic_core.image import array_to_rle
+
+#: Discriminator for which annotation parser :func:`ingest_page` picks.
+AnnotationFormat = Literal["json", "yolo"]
 
 #: Pixel-intensity cutoff: values ≤ this become foreground (True).
 #: 127 corresponds to "everything darker than mid-grey is ink",
@@ -88,51 +98,51 @@ DEFAULT_THRESHOLD: int = 127
 
 
 def ingest_page(
-    page_image: Path | str,
-    annotations: Path | str,
+    page_image: bytes,
+    annotations: bytes,
     *,
+    format: AnnotationFormat,
     threshold: int = DEFAULT_THRESHOLD,
 ) -> list[Glyph]:
-    """Crop a page into glyphs using a bbox annotation file.
-
-    Dispatches on the annotation file's suffix:
-
-    * ``.json`` → :func:`ingest_page_json` (MOTHRA format)
-    * ``.txt`` → :func:`ingest_page_yolo` (YOLO format)
+    """Crop a page into glyphs using a bbox annotation document.
 
     Args:
-        page_image: Path to the full-page image (any format PIL can
-            open; typically PNG).
-        annotations: Path to the bbox file.
+        page_image: Raw bytes of the full-page image (any format
+            PIL can open; typically PNG).
+        annotations: Raw bytes of the bbox document.
+        format: Which annotation parser to use — ``"json"`` for the
+            MOTHRA JSON format, ``"yolo"`` for the YOLO ``.txt``
+            format. Explicit because the bytes alone don't always
+            disambiguate, and because letting callers (HTTP clients)
+            choose a parser by guessing file extensions is the same
+            anti-pattern that motivated this byte-based API.
         threshold: Foreground/background cutoff used when binarising
             each cropped region.
 
     Returns:
         One :class:`Glyph` per bounding box, in the order the
-        annotation file lists them.
+        annotation document lists them.
 
     Raises:
-        ValueError: If the annotation file's suffix is unrecognised.
-        FileNotFoundError: If either input file does not exist.
+        ValueError: If ``format`` is not one of ``"json"`` /
+            ``"yolo"``.
     """
-    annotations_path = Path(annotations)
-    suffix = annotations_path.suffix.lower()
-    if suffix == ".json":
-        return ingest_page_json(page_image, annotations_path, threshold=threshold)
-    if suffix == ".txt":
-        return ingest_page_yolo(page_image, annotations_path, threshold=threshold)
+    if format == "json":
+        return ingest_page_json(page_image, annotations, threshold=threshold)
+    if format == "yolo":
+        return ingest_page_yolo(page_image, annotations, threshold=threshold)
     raise ValueError(
-        f"Unrecognised annotation format {suffix!r}; expected .json or .txt"
+        f"Unrecognised annotation format {format!r}; expected 'json' or 'yolo'"
     )
 
 
 def ingest_page_json(
-    page_image: Path | str,
-    json_path: Path | str,
+    page_image: bytes,
+    annotations_json: bytes,
     *,
     threshold: int = DEFAULT_THRESHOLD,
 ) -> list[Glyph]:
-    """Crop using a MOTHRA JSON annotation file.
+    """Crop using a MOTHRA JSON annotation document.
 
     The JSON's ``annotations[i].id`` becomes the glyph's UUID (with
     dashes stripped to match :class:`Glyph`'s 32-hex-char
@@ -140,17 +150,14 @@ def ingest_page_json(
     space.
 
     Args:
-        page_image: Path to the page image.
-        json_path: Path to the MOTHRA JSON file.
+        page_image: Raw bytes of the page image.
+        annotations_json: Raw bytes of the MOTHRA JSON document.
         threshold: Binarisation cutoff.
 
     Returns:
         One :class:`Glyph` per annotation.
     """
-    json_path = Path(json_path)
-    with json_path.open() as f:
-        doc = json.load(f)
-
+    doc = json.loads(annotations_json)
     annotations = doc.get("annotations", [])
 
     # Open the page once; reuse the array across crops. Much cheaper
@@ -173,29 +180,28 @@ def ingest_page_json(
 
 
 def ingest_page_yolo(
-    page_image: Path | str,
-    yolo_path: Path | str,
+    page_image: bytes,
+    annotations_yolo: bytes,
     *,
     threshold: int = DEFAULT_THRESHOLD,
 ) -> list[Glyph]:
-    """Crop using a YOLO ``.txt`` annotation file.
+    """Crop using a YOLO ``.txt`` annotation document.
 
     YOLO carries no stable ids, so each glyph receives a fresh UUID.
 
     Args:
-        page_image: Path to the page image.
-        yolo_path: Path to the YOLO bbox file.
+        page_image: Raw bytes of the page image.
+        annotations_yolo: Raw bytes of the YOLO ``.txt`` document.
         threshold: Binarisation cutoff.
 
     Returns:
         One :class:`Glyph` per non-empty, non-comment line.
     """
-    yolo_path = Path(yolo_path)
     page = _load_page(page_image)
     img_h, img_w = page.shape
 
     glyphs: list[Glyph] = []
-    for ulx, uly, width, height in _iter_yolo_bboxes(yolo_path, img_w, img_h):
+    for ulx, uly, width, height in _iter_yolo_bboxes(annotations_yolo, img_w, img_h):
         glyphs.append(
             _crop_to_glyph(
                 page,
@@ -215,7 +221,7 @@ def ingest_page_yolo(
 # ---------------------------------------------------------------------------
 
 
-def _load_page(page_image: Path | str) -> np.ndarray:
+def _load_page(page_image: bytes) -> np.ndarray:
     """Load the page image once as an 8-bit greyscale ``numpy.ndarray``.
 
     Returns:
@@ -224,8 +230,7 @@ def _load_page(page_image: Path | str) -> np.ndarray:
         time so the threshold can be configured per call without
         having to re-open the page.
     """
-    page_image = Path(page_image)
-    with PILImage.open(page_image) as im:
+    with PILImage.open(io.BytesIO(page_image)) as im:
         grey = im.convert("L")
         return np.asarray(grey)
 
@@ -284,7 +289,7 @@ def _crop_to_glyph(
 
 
 def _iter_yolo_bboxes(
-    yolo_path: Path,
+    yolo_bytes: bytes,
     img_width: int,
     img_height: int,
 ) -> Iterator[tuple[int, int, int, int]]:
@@ -295,28 +300,26 @@ def _iter_yolo_bboxes(
     dimensions. The first token on each line is the class id, which
     we discard (see module docstring).
     """
-    with yolo_path.open() as f:
-        for raw in f:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            parts = line.split()
-            # Format: <class_id> <cx> <cy> <w> <h>, all floats except class_id.
-            # We tolerate either 5 tokens (no confidence) or 6 tokens
-            # (some YOLO variants append a detection confidence).
-            if len(parts) < 5:
-                raise ValueError(
-                    f"Malformed YOLO line in {yolo_path.name!r}: {line!r}"
-                )
-            _, cx, cy, w, h = parts[:5]
-            cx_f, cy_f, w_f, h_f = float(cx), float(cy), float(w), float(h)
+    text = yolo_bytes.decode("utf-8")
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        # Format: <class_id> <cx> <cy> <w> <h>, all floats except class_id.
+        # We tolerate either 5 tokens (no confidence) or 6 tokens
+        # (some YOLO variants append a detection confidence).
+        if len(parts) < 5:
+            raise ValueError(f"Malformed YOLO line: {line!r}")
+        _, cx, cy, w, h = parts[:5]
+        cx_f, cy_f, w_f, h_f = float(cx), float(cy), float(w), float(h)
 
-            # Centre-normalised → top-left pixel coords.
-            ulx = int(round((cx_f - w_f / 2.0) * img_width))
-            uly = int(round((cy_f - h_f / 2.0) * img_height))
-            width = int(round(w_f * img_width))
-            height = int(round(h_f * img_height))
-            yield ulx, uly, width, height
+        # Centre-normalised → top-left pixel coords.
+        ulx = int(round((cx_f - w_f / 2.0) * img_width))
+        uly = int(round((cy_f - h_f / 2.0) * img_height))
+        width = int(round(w_f * img_width))
+        height = int(round(h_f * img_height))
+        yield ulx, uly, width, height
 
 
 def _normalise_uuid(raw: str) -> str:
