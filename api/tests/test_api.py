@@ -432,6 +432,12 @@ def test_concurrent_updates_on_same_session_are_consistent(client):
     on the same session could see torn intermediate state (the
     handler reads, mutates, and serialises the same mutable object).
     With locking each request observes a consistent snapshot.
+
+    Each worker uses its own ``TestClient`` — the underlying
+    ``requests.Session`` isn't thread-safe, so sharing one client
+    across threads would test the harness, not the app's locking.
+    The dependency override lives on the shared ``app``, so every
+    per-thread client still routes to the same in-memory store.
     """
     import concurrent.futures as cf
 
@@ -441,10 +447,11 @@ def test_concurrent_updates_on_same_session_are_consistent(client):
     ]
 
     def label(gid: str):
-        return client.post(
-            f"/sessions/{sid}/glyphs/{gid}",
-            json={"class_name": "neume.A", "id_state_manual": True},
-        )
+        with TestClient(app) as worker:
+            return worker.post(
+                f"/sessions/{sid}/glyphs/{gid}",
+                json={"class_name": "neume.A", "id_state_manual": True},
+            )
 
     with cf.ThreadPoolExecutor(max_workers=8) as pool:
         results = list(pool.map(label, glyph_ids))
