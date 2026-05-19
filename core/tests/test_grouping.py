@@ -131,8 +131,8 @@ def test_manual_group_disjoint_masks_or_correctly():
     arr = grouped.to_array()
 
     assert arr.shape == (1, 6)
-    assert arr[0, 0] is np.True_
-    assert arr[0, 5] is np.True_
+    assert arr[0, 0]
+    assert arr[0, 5]
     # All interior pixels are background.
     assert not arr[0, 1:5].any()
 
