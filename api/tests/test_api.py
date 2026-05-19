@@ -11,6 +11,7 @@ HTTP → ingest → session → response path, not a mocked happy case.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,36 @@ SAMPLE_DIR = (
 )
 PAGE_IMAGE = SAMPLE_DIR / "NZ-Wt MSR-03 109v.png"
 JSON_PATH = SAMPLE_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
+
+# Read once at module load — multipart uploads ship bytes, and we
+# replay the same payload across most tests.
+PAGE_BYTES = PAGE_IMAGE.read_bytes()
+JSON_BYTES = JSON_PATH.read_bytes()
+
+
+def _multipart(
+    *,
+    class_names: list[str] | None = None,
+    annotations_format: str = "json",
+) -> dict:
+    """Build kwargs for ``TestClient.post`` that emulate a browser upload.
+
+    httpx accepts the ``files`` and ``data`` dict pair to assemble a
+    proper ``multipart/form-data`` body — this is what the frontend
+    will send once it exists.
+    """
+    files = {
+        "page_image": ("page.png", PAGE_BYTES, "image/png"),
+        "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+    }
+    data: dict[str, str] = {"annotations_format": annotations_format}
+    if class_names is not None:
+        # See main.py note: class_names is a JSON-encoded string,
+        # not a repeated form field, to work around a FastAPI bug
+        # in which ``list[X]`` Form params combined with UploadFile
+        # break multipart body parsing.
+        data["class_names"] = json.dumps(class_names)
+    return {"files": files, "data": data}
 
 
 @pytest.fixture
@@ -49,11 +80,7 @@ def _create_session(client: TestClient) -> str:
     """Helper: create a session from the sample input, return its id."""
     response = client.post(
         "/sessions",
-        json={
-            "page_image": str(PAGE_IMAGE),
-            "annotations": str(JSON_PATH),
-            "class_names": ["neume.A", "neume.B"],
-        },
+        **_multipart(class_names=["neume.A", "neume.B"]),
     )
     assert response.status_code == 201, response.text
     return response.json()["id"]
@@ -65,13 +92,7 @@ def _create_session(client: TestClient) -> str:
 
 
 def test_create_session_returns_classifying_state_with_glyphs(client):
-    response = client.post(
-        "/sessions",
-        json={
-            "page_image": str(PAGE_IMAGE),
-            "annotations": str(JSON_PATH),
-        },
-    )
+    response = client.post("/sessions", **_multipart())
     assert response.status_code == 201
     body = response.json()
     assert body["state"] == "classifying"
@@ -80,6 +101,30 @@ def test_create_session_returns_classifying_state_with_glyphs(client):
     first = body["glyphs"][0]
     assert "ulx" in first and "uly" in first
     assert "image_b64" in first
+
+
+def test_create_session_rejects_unknown_annotations_format(client):
+    # The endpoint constrains annotations_format to {"json","yolo"};
+    # anything else should 422 from FastAPI's Literal validation.
+    response = client.post(
+        "/sessions",
+        **_multipart(annotations_format="csv"),
+    )
+    assert response.status_code == 422
+
+
+def test_create_session_does_not_accept_path_strings(client):
+    # Regression guard: the old JSON-body API took server-side
+    # filesystem paths. Sending one as a plain JSON post must fail
+    # — proving the path-based read primitive is gone.
+    response = client.post(
+        "/sessions",
+        json={
+            "page_image": str(PAGE_IMAGE),
+            "annotations": str(JSON_PATH),
+        },
+    )
+    assert response.status_code == 422
 
 
 def test_get_session_returns_the_same_payload(client):
