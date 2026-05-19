@@ -525,11 +525,10 @@ def run_correction_stage(
         ValueError: If the assembled training pool is empty —
             propagated from :meth:`InteractiveClassifier.fit`.
     """
-    # 1. Strip transient prefixes from the working set *before*
-    #    anything else. This mirrors the legacy ordering described in
-    #    docs/migration_plan.md §"Risks and gotchas" (8): renaming a
-    #    class after deleting it would silently skip the delete, so
-    #    the cleanup must happen first.
+    # 1. Strip transient-prefix glyphs from the working set before
+    #    anything else so `_group` / `_delete` markers do not enter
+    #    the training pool and are not included in the returned
+    #    output.
     cleaned = filter_parts(glyphs)
 
     # 2. Assemble the training pool and fit.
