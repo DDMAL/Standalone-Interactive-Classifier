@@ -119,9 +119,10 @@ async def _state_transition_handler(_request, exc: StateTransitionError) -> JSON
 @app.exception_handler(KeyError)
 async def _key_error_handler(_request, exc: KeyError) -> JSONResponse:
     # KeyError comes from Session.find / store.get; both map to 404.
+    detail = exc.args[0] if exc.args else str(exc)
     return JSONResponse(
         status_code=404,
-        content=ErrorResponse(detail=str(exc), code="not_found").model_dump(),
+        content=ErrorResponse(detail=str(detail), code="not_found").model_dump(),
     )
 
 
