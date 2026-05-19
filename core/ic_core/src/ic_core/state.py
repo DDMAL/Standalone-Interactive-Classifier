@@ -176,8 +176,8 @@ class Session:
 
         * Inputs are pre-built :class:`Glyph` objects, not GameraXML
           + a CCA stage. The API layer is responsible for converting
-          its on-disk format (a directory of cropped PNGs) into
-          glyphs before calling this method.
+          the current ingest payload (page-image bytes plus bounding-
+          box annotations) into glyphs before calling this method.
         * The optional training database is split into a separate
           attribute rather than being inlined into ``glyphs``.
 
