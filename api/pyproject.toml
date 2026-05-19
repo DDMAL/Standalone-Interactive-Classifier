@@ -11,6 +11,9 @@ dependencies = [
     "fastapi>=0.118.0",
     "uvicorn[standard]>=0.32.0",
     "pydantic>=2.10.0",
+    # Required by FastAPI's UploadFile/Form parsing for the
+    # multipart POST /sessions endpoint.
+    "python-multipart>=0.0.20",
     "ic-core",
 ]
 
