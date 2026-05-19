@@ -39,6 +39,7 @@ from typing import Iterable
 
 from lxml import etree
 
+from ic_core.classifier import UNCLASSIFIED
 from ic_core.glyph import Glyph
 
 # ---------------------------------------------------------------------------
@@ -47,9 +48,6 @@ from ic_core.glyph import Glyph
 
 #: Top-level Gamera DTD version. The legacy fixtures all use "2.0".
 GAMERA_DB_VERSION: str = "2.0"
-
-#: Sentinel class name for unclassified glyphs.
-_UNCLASSIFIED: str = "UNCLASSIFIED"
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +165,6 @@ def _id_state(glyph: Glyph) -> str:
     """
     if glyph.id_state_manual:
         return "MANUAL"
-    if glyph.class_name == _UNCLASSIFIED:
+    if glyph.class_name == UNCLASSIFIED:
         return "UNCLASSIFIED"
     return "AUTOMATIC"
