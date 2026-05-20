@@ -85,6 +85,10 @@ def print_report(glyphs: list[Glyph]) -> None:
     confidences = [g.confidence for g in glyphs]
     counts = Counter(g.class_name for g in glyphs)
 
+    if glyphs == []:
+        print("No glyphs classified.")
+        return
+
     print(f"Classified {len(glyphs)} glyphs into {len(counts)} classes.")
     print(
         "Confidence: "

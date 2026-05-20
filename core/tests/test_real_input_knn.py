@@ -65,7 +65,7 @@ def page_glyphs() -> list[Glyph]:
 
 
 @pytest.fixture(scope="module")
-def vocab() -> set[str]:
+def vocab(training_db) -> set[str]:
     """Union of class labels from the CSV vocab + the GameraXML training DB.
 
     Predictions can only emit labels seen during training, so the
@@ -73,7 +73,7 @@ def vocab() -> set[str]:
     against the CSV too catches cases where the training DB drifts
     away from the canonical neume vocabulary.
     """
-    db_labels = {g.class_name for g in load_glyphs(TRAINING_XML_PATH)}
+    db_labels = {g.class_name for g in training_db}
     csv_labels: set[str] = set()
     with open(CSV_VOCAB_PATH, newline="") as f:
         reader = csv.DictReader(f)
@@ -118,6 +118,15 @@ def test_real_page_smoke(page_glyphs, training_db, vocab):
     # Classifier reports it was trained on the assembled pool.
     assert classifier.is_trained
     assert classifier.training_size > 0
+
+    # Predicted-class histogram — printed under `-v` for triaging a
+    # regression (e.g. "punctum predictions dropped from 60 to 4
+    # between commits"). Piggybacks on the smoke run so we don't
+    # re-ingest+classify just to log counts.
+    counts = Counter(g.class_name for g in classified)
+    print("\nPredicted-class histogram:")
+    for name, n in counts.most_common():
+        print(f"  {n:4d}  {name}")
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +234,7 @@ def test_xml_db_loo_accuracy(training_db):
     rng = random.Random(0)
     rng.shuffle(eligible)
     subset = eligible[:limit]
+    assert subset
 
     # Index the full DB by id for O(1) "everyone except this glyph" lookup.
     correct = 0
@@ -240,20 +250,3 @@ def test_xml_db_loo_accuracy(training_db):
     assert accuracy >= 0.70, f"k=1 LOO accuracy below 0.70: {accuracy:.4f}"
 
 
-# ---------------------------------------------------------------------------
-# 5. Sanity helper — confidence histogram visible in `-v` output
-# ---------------------------------------------------------------------------
-
-
-def test_real_page_confidence_histogram_for_eyeball():
-    """Not a pass/fail check beyond what `smoke` covers — prints stats.
-
-    Captures the predicted-class distribution so test logs are useful
-    for triaging a regression (e.g. "punctum predictions dropped from
-    60 to 4 between commits").
-    """
-    classified, _ = classify_page()
-    counts = Counter(g.class_name for g in classified)
-    print("\nPredicted-class histogram:")
-    for name, n in counts.most_common():
-        print(f"  {n:4d}  {name}")
