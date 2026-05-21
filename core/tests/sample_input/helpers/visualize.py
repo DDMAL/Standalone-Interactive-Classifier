@@ -25,7 +25,7 @@ FALLBACK_COLOR = "#f032e6"
 NON_GLYPH_CLASS_IDS = {1, 3}
 NON_GLYPH_DIM_COLOR = "#bbbbbb"
 
-AXIS_COLOR = "black"
+AXIS_COLOR = "white"
 AXIS_TEXT_STROKE = "white"
 MAJOR_TICK = 100
 MINOR_TICK = 50
@@ -51,7 +51,7 @@ def draw_coordinate_scheme(draw: ImageDraw.ImageDraw, width: int, height: int) -
     def label(xy, text):
         draw.text(
             xy, text, fill=AXIS_COLOR, font=font,
-            stroke_width=2, stroke_fill=AXIS_TEXT_STROKE,
+            stroke_width=0.2, stroke_fill=AXIS_TEXT_STROKE,
         )
 
     # Top edge: x-axis ticks
@@ -82,10 +82,14 @@ def draw_coordinate_scheme(draw: ImageDraw.ImageDraw, width: int, height: int) -
     label((bar_x_start, bar_y + 6), f"{bar_len} px")
 
 
-def draw_annotation_overlay() -> None:
+def draw_annotation_overlay(
+    image: Path = IMAGE,
+    annotations: Path = ANNOTATIONS,
+    output: Path = OUTPUT,
+) -> None:
     """Write ``…_annotated.png``: MOTHRA classId=2 boxes only, in green."""
-    data = json.loads(ANNOTATIONS.read_text())
-    img = Image.open(IMAGE).convert("RGB")
+    data = json.loads(annotations.read_text())
+    img = Image.open(image).convert("RGB")
     draw = ImageDraw.Draw(img)
     for ann in data["annotations"]:
         x, y, w, h = ann["bbox"]
@@ -93,25 +97,35 @@ def draw_annotation_overlay() -> None:
             color = CLASS_COLORS.get(ann["classId"], FALLBACK_COLOR)
             draw.rectangle([x, y, x + w, y + h], outline=color, width=2)
     draw_coordinate_scheme(draw, img.width, img.height)
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    img.save(OUTPUT)
-    print(f"wrote {OUTPUT}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    img.save(output)
+    print(f"wrote {output}")
 
 
-def draw_prediction_overlay() -> None:
+def draw_prediction_overlay(
+    image: Path = IMAGE,
+    annotations: Path = ANNOTATIONS,
+    output: Path = PREDICTED_OUTPUT,
+    classified=None,
+) -> None:
     """Write ``…_predicted.png``: classId=2 boxes coloured by predicted class.
 
     Non-glyph boxes (classId 1 and 3) are drawn dimmed for context.
-    """
-    # Import lazily so the annotation overlay still works in
-    # environments where ic_core isn't installed.
-    from evaluate import classify_page  # type: ignore[import-not-found]
 
-    data = json.loads(ANNOTATIONS.read_text())
-    # Pass through the Hufnagel page + annotations so classify_page
-    # classifies the *visualised* page rather than evaluate.py's
-    # default (MOTHRA). Training XML stays on evaluate's default.
-    classified, _ = classify_page(page_path=IMAGE, json_path=ANNOTATIONS)
+    If ``classified`` is None, the function calls
+    :func:`evaluate.classify_page` itself (using the same ``image`` and
+    ``annotations`` paths) — convenient for the standalone CLI. Pass a
+    pre-computed glyph list when a caller (e.g. ``run_pipeline.py``)
+    has already run classification and wants to avoid the double-work.
+    """
+    if classified is None:
+        # Import lazily so the annotation overlay still works in
+        # environments where ic_core isn't installed.
+        from evaluate import classify_page  # type: ignore[import-not-found]
+
+        classified, _ = classify_page(page_path=image, json_path=annotations)
+
+    data = json.loads(annotations.read_text())
 
     # Index predictions by glyph UUID. ingest_page preserves the
     # MOTHRA annotation `id` (minus dashes) as the Glyph UUID, so we
@@ -122,7 +136,7 @@ def draw_prediction_overlay() -> None:
         g.id: (g.class_name, g.confidence) for g in classified
     }
 
-    img = Image.open(IMAGE).convert("RGB")
+    img = Image.open(image).convert("RGB")
     draw = ImageDraw.Draw(img)
     font = ImageFont.load_default()
 
@@ -157,9 +171,9 @@ def draw_prediction_overlay() -> None:
         )
 
     draw_coordinate_scheme(draw, img.width, img.height)
-    PREDICTED_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    img.save(PREDICTED_OUTPUT)
-    print(f"wrote {PREDICTED_OUTPUT}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    img.save(output)
+    print(f"wrote {output}")
 
 
 def main():
