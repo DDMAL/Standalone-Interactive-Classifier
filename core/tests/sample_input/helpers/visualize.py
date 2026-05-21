@@ -11,6 +11,10 @@ IMAGE = SAMPLE_DIR / "NZ-Wt MSR-03 109v.png"
 ANNOTATIONS = SAMPLE_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
 OUTPUT = SAMPLE_DIR / "visualization" / "NZ-Wt MSR-03 109v_annotated.png"
 PREDICTED_OUTPUT = SAMPLE_DIR / "visualization" / "NZ-Wt MSR-03 109v_predicted.png"
+# IMAGE = SAMPLE_DIR / "Hufnagel-example.png"
+# ANNOTATIONS = SAMPLE_DIR / "Hufnagel-example_annotations.json"
+# OUTPUT = SAMPLE_DIR / "visualization" / "Hufnagel-example_annotated.png"
+# PREDICTED_OUTPUT = SAMPLE_DIR / "visualization" / "Hufnagel-example_predicted.png"
 
 CLASS_COLORS = {1: "#e6194B", 2: "#3cb44b", 3: "#4363d8"}
 FALLBACK_COLOR = "#f032e6"
@@ -104,7 +108,10 @@ def draw_prediction_overlay() -> None:
     from evaluate import classify_page  # type: ignore[import-not-found]
 
     data = json.loads(ANNOTATIONS.read_text())
-    classified, _ = classify_page()
+    # Pass through the Hufnagel page + annotations so classify_page
+    # classifies the *visualised* page rather than evaluate.py's
+    # default (MOTHRA). Training XML stays on evaluate's default.
+    classified, _ = classify_page(page_path=IMAGE, json_path=ANNOTATIONS)
 
     # Index predictions by glyph UUID. ingest_page preserves the
     # MOTHRA annotation `id` (minus dashes) as the Glyph UUID, so we

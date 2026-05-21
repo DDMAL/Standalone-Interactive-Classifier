@@ -35,10 +35,12 @@ JSON_PATH = SAMPLE_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
 GLYPH_CLASS_ID: int = 2
 
 #: Default training-database fixture.
+# TRAINING_XML_PATH = (
+#     SAMPLE_DIR.parent / "fixtures" / "Interactive_Classifier_GameraXML_TrainingData.xml"
+# )
 TRAINING_XML_PATH = (
-    SAMPLE_DIR.parent / "fixtures" / "Interactive_Classifier_GameraXML_TrainingData.xml"
+    SAMPLE_DIR.parent / "fixtures" / "Hufnagel-example_training_data.xml"
 )
-
 
 def load_annotations(json_path: Path = JSON_PATH) -> dict:
     """Return the parsed MOTHRA annotations document."""
