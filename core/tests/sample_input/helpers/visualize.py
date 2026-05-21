@@ -6,10 +6,11 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = Path(__file__).parent
-IMAGE = HERE / "NZ-Wt MSR-03 109v.png"
-ANNOTATIONS = HERE / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
-OUTPUT = HERE / "visualization" / "NZ-Wt MSR-03 109v_annotated.png"
-PREDICTED_OUTPUT = HERE / "visualization" / "NZ-Wt MSR-03 109v_predicted.png"
+SAMPLE_DIR = HERE.parent
+IMAGE = SAMPLE_DIR / "NZ-Wt MSR-03 109v.png"
+ANNOTATIONS = SAMPLE_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
+OUTPUT = SAMPLE_DIR / "visualization" / "NZ-Wt MSR-03 109v_annotated.png"
+PREDICTED_OUTPUT = SAMPLE_DIR / "visualization" / "NZ-Wt MSR-03 109v_predicted.png"
 
 CLASS_COLORS = {1: "#e6194B", 2: "#3cb44b", 3: "#4363d8"}
 FALLBACK_COLOR = "#f032e6"

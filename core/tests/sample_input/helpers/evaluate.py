@@ -25,8 +25,9 @@ from ic_core.ingest import ingest_page
 from ic_core.io_xml import load_glyphs
 
 HERE = Path(__file__).parent
-PAGE_PATH = HERE / "NZ-Wt MSR-03 109v.png"
-JSON_PATH = HERE / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
+SAMPLE_DIR = HERE.parent
+PAGE_PATH = SAMPLE_DIR / "NZ-Wt MSR-03 109v.png"
+JSON_PATH = SAMPLE_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
 
 #: classId values in the MOTHRA JSON that mark actual glyphs to
 #: classify. classIds 1 and 3 are non-neume artefacts (staff lines,
@@ -35,7 +36,7 @@ GLYPH_CLASS_ID: int = 2
 
 #: Default training-database fixture.
 TRAINING_XML_PATH = (
-    HERE.parent / "fixtures" / "Interactive_Classifier_GameraXML_TrainingData.xml"
+    SAMPLE_DIR.parent / "fixtures" / "Interactive_Classifier_GameraXML_TrainingData.xml"
 )
 
 

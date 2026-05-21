@@ -20,7 +20,7 @@ Four scenarios:
   
 cd core/ic_core && uv run pytest ../tests/test_real_input_knn.py -v
 IC_RUN_LOO=1 IC_LOO_LIMIT=200 uv run pytest ../tests/test_real_input_knn.py::test_xml_db_loo_accuracy -v -s
-uv run python ../tests/sample_input/visualize.py
+uv run python ../tests/sample_input/helpers/visualize.py
 
 """
 from __future__ import annotations
@@ -36,7 +36,7 @@ import pytest
 from ic_core.classifier import InteractiveClassifier
 from ic_core.glyph import Glyph
 from ic_core.io_xml import load_glyphs
-from sample_input.evaluate import (
+from sample_input.helpers.evaluate import (
     TRAINING_XML_PATH,
     classify_page,
     ingest_glyphs_to_classify,
