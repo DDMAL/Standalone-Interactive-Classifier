@@ -9,7 +9,7 @@ manual group/split operations receive fresh ones.
 from __future__ import annotations
 
 import uuid
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -29,6 +29,18 @@ class Glyph:
     id_state_manual: bool
     confidence: float
     is_training: bool = False
+    # Optional per-glyph feature cache. Populated by the classifier
+    # (and read by the XML exporter) so the "full re-train every
+    # round" loop doesn't recompute features for stable glyphs.
+    # ``feature_version`` records which ``FEATURE_VERSION`` produced
+    # the vector so a version bump invalidates stale caches; the
+    # vector itself is excluded from ``__eq__`` / ``__hash__`` /
+    # ``repr`` because ndarray equality doesn't fit the dataclass
+    # default and printing a 29-element array adds noise to logs.
+    feature_vector: np.ndarray | None = field(
+        default=None, compare=False, repr=False
+    )
+    feature_version: str | None = field(default=None, compare=False, repr=False)
 
     @classmethod
     def new(
@@ -44,6 +56,8 @@ class Glyph:
         confidence: float,
         is_training: bool = False,
         id: str | None = None,
+        feature_vector: np.ndarray | None = None,
+        feature_version: str | None = None,
     ) -> "Glyph":
         return cls(
             id=id if id is not None else uuid.uuid4().hex,
@@ -56,6 +70,8 @@ class Glyph:
             id_state_manual=id_state_manual,
             confidence=confidence,
             is_training=is_training,
+            feature_vector=feature_vector,
+            feature_version=feature_version,
         )
 
     def is_manual_id(self) -> bool:
@@ -90,4 +106,8 @@ class Glyph:
         d = asdict(self)
         d["image"] = d.pop("image_rle")
         d["image_b64"] = self.to_base64_png()
+        # Feature cache is an internal optimisation; not part of any
+        # JSON/dict surface, and ndarray isn't JSON-encodable anyway.
+        d.pop("feature_vector", None)
+        d.pop("feature_version", None)
         return d

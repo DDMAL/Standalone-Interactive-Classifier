@@ -50,6 +50,7 @@ from ic_core.classifier import (
     run_correction_stage,
     sort_by_confidence_ascending,
 )
+from ic_core.features import ensure_features
 from ic_core.glyph import Glyph
 from ic_core.grouping import manual_group as union_glyphs
 
@@ -220,6 +221,16 @@ class Session:
                 from :class:`ic_core.classifier.InteractiveClassifier`).
         """
         self._require_state(ClassifierState.CLASSIFYING)
+
+        # Materialise the per-glyph feature cache before training.
+        # Glyph.classify_manual / classify_automatic preserve the
+        # cache through ``replace()`` (image is unchanged), so once a
+        # glyph has been through one classify round its features
+        # survive into the next round and the re-train loop becomes
+        # almost free for stable training pools.
+        self.glyphs = [ensure_features(g) for g in self.glyphs]
+        self.training_glyphs = [ensure_features(g) for g in self.training_glyphs]
+
         new_glyphs, _ = run_correction_stage(
             self.glyphs,
             self.training_glyphs,
