@@ -37,7 +37,7 @@ from collections import Counter
 from pathlib import Path
 
 from ic_core.classifier import run_correction_stage
-from ic_core.io_xml import load_glyphs
+from ic_core.io_xml import load_glyphs, write_glyphs
 
 from evaluate import (  # type: ignore[import-not-found]
     JSON_PATH as DEFAULT_TEST_JSON,
@@ -79,6 +79,7 @@ def run(
 
     annotated_out = output_dir / f"{test_page.stem}_annotated.png"
     predicted_out = output_dir / f"{test_page.stem}_predicted.png"
+    classified_xml = output_dir / f"{test_page.stem}_classified.xml"
     draw_annotation_overlay(
         image=test_page, annotations=test_json, output=annotated_out
     )
@@ -88,6 +89,8 @@ def run(
         output=predicted_out,
         classified=classified,
     )
+    write_glyphs(classified, classified_xml)
+    print(f"Wrote {len(classified)} classified glyphs to {classified_xml}")
 
 
 def main() -> None:
