@@ -9,3 +9,8 @@ dist/
 build/
 .vscode/
 core/tests/fixtures/meta
+
+# Derived training artifacts and visualizations — regenerable from
+# core/data/train/ via core/scripts/convert_hufnagel_csv.py and
+# core/scripts/run_pipeline.py. Not tracked to keep diffs clean.
+core/data/derived/
