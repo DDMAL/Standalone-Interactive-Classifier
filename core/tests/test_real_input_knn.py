@@ -20,7 +20,7 @@ Four scenarios:
   
 cd core/ic_core && uv run pytest ../tests/test_real_input_knn.py -v
 IC_RUN_LOO=1 IC_LOO_LIMIT=200 uv run pytest ../tests/test_real_input_knn.py::test_xml_db_loo_accuracy -v -s
-uv run python ../tests/sample_input/helpers/visualize.py
+uv run python ../scripts/visualize.py
 
 """
 from __future__ import annotations
@@ -29,22 +29,14 @@ import csv
 import os
 import random
 from collections import Counter, defaultdict
-from pathlib import Path
 
 import pytest
 
 from ic_core.classifier import InteractiveClassifier
 from ic_core.glyph import Glyph
 from ic_core.io_xml import load_glyphs
-from sample_input.helpers.evaluate import (
-    TRAINING_XML_PATH,
-    classify_page,
-    ingest_glyphs_to_classify,
-)
-
-CSV_VOCAB_PATH = (
-    Path(__file__).parent / "sample_input" / "csv-square_notation_neume_level_newest.csv"
-)
+from evaluate import classify_page, ingest_glyphs_to_classify
+from paths import CSV_VOCAB, TRAINING_XML
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +47,7 @@ CSV_VOCAB_PATH = (
 @pytest.fixture(scope="module")
 def training_db() -> list[Glyph]:
     """The legacy GameraXML training database, loaded once per module."""
-    return load_glyphs(TRAINING_XML_PATH)
+    return load_glyphs(TRAINING_XML)
 
 
 @pytest.fixture(scope="module")
@@ -75,7 +67,7 @@ def vocab(training_db) -> set[str]:
     """
     db_labels = {g.class_name for g in training_db}
     csv_labels: set[str] = set()
-    with open(CSV_VOCAB_PATH, newline="") as f:
+    with open(CSV_VOCAB, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             label = (row.get("classification") or "").strip()

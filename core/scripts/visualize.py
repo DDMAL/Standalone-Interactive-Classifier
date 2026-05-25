@@ -5,16 +5,12 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-HERE = Path(__file__).parent
-SAMPLE_DIR = HERE.parent
-IMAGE = SAMPLE_DIR / "NZ-Wt MSR-03 109v.png"
-ANNOTATIONS = SAMPLE_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
-OUTPUT = SAMPLE_DIR / "visualization" / "NZ-Wt MSR-03 109v_annotated.png"
-PREDICTED_OUTPUT = SAMPLE_DIR / "visualization" / "NZ-Wt MSR-03 109v_predicted.png"
-# IMAGE = SAMPLE_DIR / "Hufnagel-example.png"
-# ANNOTATIONS = SAMPLE_DIR / "Hufnagel-example_annotations.json"
-# OUTPUT = SAMPLE_DIR / "visualization" / "Hufnagel-example_annotated.png"
-# PREDICTED_OUTPUT = SAMPLE_DIR / "visualization" / "Hufnagel-example_predicted.png"
+from paths import TEST_PAGE, TEST_JSON, VIS_DIR
+
+IMAGE = TEST_PAGE
+ANNOTATIONS = TEST_JSON
+OUTPUT = VIS_DIR / f"{IMAGE.stem}_annotated.png"
+PREDICTED_OUTPUT = VIS_DIR / f"{IMAGE.stem}_predicted.png"
 
 CLASS_COLORS = {1: "#e6194B", 2: "#3cb44b", 3: "#4363d8"}
 FALLBACK_COLOR = "#f032e6"

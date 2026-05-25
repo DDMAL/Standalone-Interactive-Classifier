@@ -1,16 +1,15 @@
 """Tests for :mod:`ic_core.ingest`.
 
-Uses the real sample input under ``tests/sample_input/`` so the
-test exercises the actual MOTHRA JSON and YOLO formats the
-upstream detector produces. Ingest now consumes raw bytes (not
-paths), so fixtures are read once at module load and passed by
-value to each call.
+Uses the real sample input under ``core/data/test/`` so the test
+exercises the actual MOTHRA JSON and YOLO formats the upstream
+detector produces. Ingest now consumes raw bytes (not paths), so
+fixtures are read once at module load and passed by value to each
+call.
 """
 from __future__ import annotations
 
 import json
 import uuid
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -18,11 +17,11 @@ from PIL import Image as PILImage
 
 from ic_core.classifier import UNCLASSIFIED
 from ic_core.ingest import ingest_page, ingest_page_json, ingest_page_yolo
+from paths import TEST_JSON, TEST_PAGE, TEST_YOLO
 
-SAMPLE_DIR = Path(__file__).parent / "sample_input"
-PAGE_BYTES = (SAMPLE_DIR / "NZ-Wt MSR-03 109v.png").read_bytes()
-JSON_BYTES = (SAMPLE_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json").read_bytes()
-YOLO_BYTES = (SAMPLE_DIR / "NZ-Wt MSR-03 109v.txt").read_bytes()
+PAGE_BYTES = TEST_PAGE.read_bytes()
+JSON_BYTES = TEST_JSON.read_bytes()
+YOLO_BYTES = TEST_YOLO.read_bytes()
 
 
 # ---------------------------------------------------------------------------

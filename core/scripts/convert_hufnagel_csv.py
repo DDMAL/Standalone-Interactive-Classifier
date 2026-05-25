@@ -1,44 +1,41 @@
 """Convert Hufnagel VIA-format CSV + page-image pairs into GameraXML training data.
 
-A Hufnagel annotation CSV (e.g. ``fixtures/Hufnagel-example.csv`` or
-``sample_input/hufnagel_annotations_*.csv``) is a VIA export: one
-bbox per row plus a free-form class label. We crop each bbox out of
-the companion page image, binarise, and emit a GameraXML database
-matching the schema of
-``fixtures/Interactive_Classifier_GameraXML_TrainingData.xml`` — so
-the resulting glyphs can be loaded by :func:`ic_core.io_xml.load_glyphs`
-and used as KNN training data.
+A Hufnagel annotation CSV (e.g. ``data/train/Hufnagel-example.csv`` or
+``data/train/hufnagel_annotations_*.csv``) is a VIA export: one bbox
+per row plus a free-form class label. We crop each bbox out of the
+companion page image, binarise, and emit a GameraXML database that
+``ic_core.io_xml.load_glyphs`` can read for KNN training.
 
 Two invocation modes:
 
-* **Batch (default).** Auto-scan ``sample_input/`` for canonical pairs
-  named ``hufnagel_annotations_{id}.csv`` / ``Hufnagel_example_{id}.png``
-  (see :mod:`rename_hufnagel_pairs`) and merge every glyph from every
-  pair into a single training XML at
-  ``fixtures/Hufnagel_training_data.xml``.
+* **Batch (default).** Auto-scan ``data/train/`` for canonical pairs
+  named ``hufnagel_annotations_{id}.csv`` /
+  ``hufnagel_example_{id}.png`` (see :mod:`rename_hufnagel_pairs`)
+  and merge every glyph from every pair into a single training XML
+  at ``data/derived/Hufnagel_training_data.xml``.
 
-* **Single pair.** Pass ``--csv`` and ``--page`` to convert one pair
-  exactly like the original script did, writing a per-pair XML plus a
-  MOTHRA-shaped JSON sidecar for :mod:`visualize`.
+* **Single pair.** Pass ``--csv`` and ``--page`` to convert one pair,
+  writing a per-pair XML to ``data/derived/`` plus a MOTHRA-shaped
+  JSON sidecar (in ``data/train/`` next to the page) for
+  :mod:`visualize`.
 
 Quirks handled:
 
 * The original Hufnagel-example CSV uses ``"type"`` as the class
-  attribute key; the new CSVs in ``sample_input/`` use ``"neume"``.
+  attribute key; the new CSVs in ``data/train/`` use ``"neume"``.
   We accept either.
-* Some new CSVs (notably ``Hufnag_annotations_St.Gall.176v.csv``)
-  ship without a header row. We auto-detect and use the standard VIA
-  column order.
+* Some CSVs (notably the St.Gall.176v export) ship without a header
+  row. We auto-detect and use the standard VIA column order.
 
 Class labels in the original Hufnagel CSV (``f-clef``, ``puncta``,
 ``pes``, …) don't all line up with the GameraXML vocabulary, so
-:data:`HUFNAGEL_TO_GAMERA` translates the recognised ones. The new
+:data:`HUFNAGEL_TO_GAMERA` translates the recognised ones. The newer
 CSVs already store mapped names (``clef.f``, ``neume.punctum``, …),
 which fall through the mapping unchanged.
 
 Run::
 
-    cd core/ic_core && uv run python ../tests/sample_input/helpers/convert_hufnagel_csv.py
+    cd core/ic_core && uv run python ../scripts/convert_hufnagel_csv.py
 """
 from __future__ import annotations
 
@@ -55,28 +52,28 @@ from ic_core.glyph import Glyph
 from ic_core.ingest import ingest_page
 from ic_core.io_xml import write_glyphs
 
-HERE = Path(__file__).parent
-SAMPLE_DIR = HERE.parent
-FIXTURES = SAMPLE_DIR.parent / "fixtures"
+from paths import DERIVED_DIR, TRAIN_DIR, TRAINING_XML
 
-DEFAULT_CSV = FIXTURES / "Hufnagel-example.csv"
-DEFAULT_PAGE = SAMPLE_DIR / "Hufnagel-example.png"
-DEFAULT_OUTPUT_XML = FIXTURES / "Hufnagel-example_training_data.xml"
+DEFAULT_CSV = TRAIN_DIR / "Hufnagel-example.csv"
+DEFAULT_PAGE = TRAIN_DIR / "Hufnagel-example.png"
+#: Per-pair output for single-pair mode. Lives in ``data/derived/``
+#: so it never clobbers the writer-oracle XML in ``tests/fixtures/``.
+DEFAULT_OUTPUT_XML = DERIVED_DIR / "Hufnagel-example_training_data.xml"
 #: MOTHRA-shaped JSON sidecar for visualize.py / ingest_page_json
 #: consumers. Lives next to the page image so it's picked up by
-#: relative paths like SAMPLE_DIR / "Hufnagel-example_annotations.json".
-DEFAULT_OUTPUT_JSON = SAMPLE_DIR / "Hufnagel-example_annotations.json"
+#: relative paths like TRAIN_DIR / "Hufnagel-example_annotations.json".
+DEFAULT_OUTPUT_JSON = TRAIN_DIR / "Hufnagel-example_annotations.json"
 
-#: Merged-output destination for batch mode. Separate from the legacy
-#: single-page Hufnagel-example XML so the original file isn't
-#: clobbered by accident.
-DEFAULT_MERGED_XML = FIXTURES / "Hufnagel_training_data.xml"
+#: Merged-output destination for batch mode. Same path that
+#: :data:`paths.TRAINING_XML` resolves to, so downstream consumers
+#: (``evaluate.classify_page``) pick it up by default.
+DEFAULT_MERGED_XML = TRAINING_XML
 
 #: Filename glob used by batch mode to find canonical CSVs renamed by
 #: :mod:`rename_hufnagel_pairs`.
 PAIR_CSV_GLOB = "hufnagel_annotations_*.csv"
 #: Companion PNG template; ``{id}`` is the same hex id used in the CSV.
-PAIR_PNG_TEMPLATE = "Hufnagel_example_{id}.png"
+PAIR_PNG_TEMPLATE = "hufnagel_example_{id}.png"
 _PAIR_CSV_RE = re.compile(r"^hufnagel_annotations_(.+)\.csv$")
 
 #: Standard VIA column order, used when a CSV is shipped without its
@@ -94,7 +91,7 @@ VIA_COLUMNS = (
 #: Map raw Hufnagel CSV class strings to GameraXML vocabulary. Entries
 #: where the value equals the key are pass-throughs — they emit the
 #: raw label and need a real mapping decision. The newer CSVs in
-#: sample_input/ already store mapped names (``clef.c``,
+#: data/train/ already store mapped names (``clef.c``,
 #: ``neume.podatus2``, …); those simply fall through unchanged because
 #: they are not keys here.
 HUFNAGEL_TO_GAMERA: dict[str, str] = {
@@ -128,7 +125,7 @@ def parse_via_csv(csv_path: Path) -> list[tuple[int, int, int, int, str]]:
     """Return ``(x, y, w, h, raw_class)`` tuples in CSV row order.
 
     Non-rect shapes are skipped. Accepts both ``"type"`` (original
-    Hufnagel-example CSV) and ``"neume"`` (newer sample_input CSVs)
+    Hufnagel-example CSV) and ``"neume"`` (newer data/train CSVs)
     as the class-label key inside ``region_attributes``.
     """
     rows: list[tuple[int, int, int, int, str]] = []
@@ -224,6 +221,7 @@ def convert(
     annotations = parse_via_csv(csv_path)
     ids = _stable_ids(csv_path, len(annotations))
 
+    output_xml.parent.mkdir(parents=True, exist_ok=True)
     write_glyphs(training, output_xml)
 
     if output_json is not None:
@@ -244,7 +242,7 @@ def convert(
     return training
 
 
-def discover_pairs(directory: Path = SAMPLE_DIR) -> list[tuple[Path, Path]]:
+def discover_pairs(directory: Path = TRAIN_DIR) -> list[tuple[Path, Path]]:
     """Return ``(csv, png)`` pairs in canonical naming form.
 
     Looks for files matching :data:`PAIR_CSV_GLOB` and, for each,
@@ -266,7 +264,7 @@ def discover_pairs(directory: Path = SAMPLE_DIR) -> list[tuple[Path, Path]]:
 
 
 def convert_batch(
-    directory: Path = SAMPLE_DIR,
+    directory: Path = TRAIN_DIR,
     output_xml: Path = DEFAULT_MERGED_XML,
 ) -> list[Glyph]:
     """Convert every canonical pair in ``directory`` into one merged XML.
@@ -286,6 +284,7 @@ def convert_batch(
         glyphs = _glyphs_for_pair(csv_path, png_path)
         print(f"  + {csv_path.name} ({len(glyphs)} glyphs) <- {png_path.name}")
         merged.extend(glyphs)
+    output_xml.parent.mkdir(parents=True, exist_ok=True)
     write_glyphs(merged, output_xml)
     return merged
 
@@ -306,7 +305,7 @@ def _print_histogram(glyphs: list[Glyph], raw_classes: list[str]) -> None:
 
     A label is "needs mapping" iff (a) it wasn't translated by
     :data:`HUFNAGEL_TO_GAMERA` and (b) it doesn't already look like a
-    canonical GameraXML name. The newer sample_input CSVs already
+    canonical GameraXML name. The newer data/train CSVs already
     store canonical names, so those rows shouldn't be flagged.
     """
     unmapped = {
@@ -354,7 +353,7 @@ def main() -> None:
     parser.add_argument(
         "--dir",
         type=Path,
-        default=SAMPLE_DIR,
+        default=TRAIN_DIR,
         help="Batch mode: directory to scan for canonical pairs.",
     )
     args = parser.parse_args()

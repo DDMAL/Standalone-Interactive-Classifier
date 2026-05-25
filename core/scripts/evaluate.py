@@ -5,7 +5,7 @@ Shared between ``tests/test_real_input_knn.py`` and the
 the glyph-only ``classId == 2`` subset, classifying them against the
 legacy GameraXML training database, and reporting a quick summary.
 
-Lives under ``tests/`` (not ``ic_core/``) because the MOTHRA
+Lives under ``scripts/`` (not ``ic_core/``) because the MOTHRA
 ``classId`` is a detector-side concept and ingest is deliberately
 classId-agnostic — see :mod:`ic_core.ingest` module docstring.
 """
@@ -24,32 +24,22 @@ from ic_core.glyph import Glyph
 from ic_core.ingest import ingest_page
 from ic_core.io_xml import load_glyphs
 
-HERE = Path(__file__).parent
-SAMPLE_DIR = HERE.parent
-PAGE_PATH = SAMPLE_DIR / "NZ-Wt MSR-03 109v.png"
-JSON_PATH = SAMPLE_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
+from paths import TEST_PAGE, TEST_JSON, TRAINING_XML
 
 #: classId values in the MOTHRA JSON that mark actual glyphs to
 #: classify. classIds 1 and 3 are non-neume artefacts (staff lines,
 #: stray ink) and are excluded.
 GLYPH_CLASS_ID: int = 2
 
-#: Default training-database fixture.
-# TRAINING_XML_PATH = (
-#     SAMPLE_DIR.parent / "fixtures" / "Interactive_Classifier_GameraXML_TrainingData.xml"
-# )
-TRAINING_XML_PATH = (
-    SAMPLE_DIR.parent / "fixtures" / "Hufnagel-example_training_data.xml"
-)
 
-def load_annotations(json_path: Path = JSON_PATH) -> dict:
+def load_annotations(json_path: Path = TEST_JSON) -> dict:
     """Return the parsed MOTHRA annotations document."""
     return json.loads(json_path.read_bytes())
 
 
 def ingest_glyphs_to_classify(
-    page_path: Path = PAGE_PATH,
-    json_path: Path = JSON_PATH,
+    page_path: Path = TEST_PAGE,
+    json_path: Path = TEST_JSON,
 ) -> list[Glyph]:
     """Ingest the MOTHRA page, keeping only ``classId == 2`` boxes.
 
@@ -69,9 +59,9 @@ def ingest_glyphs_to_classify(
 
 
 def classify_page(
-    page_path: Path = PAGE_PATH,
-    json_path: Path = JSON_PATH,
-    training_xml: Path = TRAINING_XML_PATH,
+    page_path: Path = TEST_PAGE,
+    json_path: Path = TEST_JSON,
+    training_xml: Path = TRAINING_XML,
 ) -> tuple[list[Glyph], InteractiveClassifier]:
     """Run the full ingest → train → classify pipeline on the sample page.
 

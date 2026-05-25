@@ -7,22 +7,22 @@ extension to ``.png``), mint a short random id, and rename both files
 in place to::
 
     hufnagel_annotations_{id}.csv
-    Hufnagel_example_{id}.png
+    hufnagel_example_{id}.png
 
 Once renamed, :mod:`convert_hufnagel_csv` can auto-discover the pairs
 by matching ids regardless of the original filenames.
 
 Quirks handled:
 
-* VIA exports occasionally omit the header row (e.g.
-  ``Hufnag_annotations_St.Gall.176v.csv``). We auto-detect that and
-  treat the file as headerless with the standard VIA columns.
+* VIA exports occasionally omit the header row (e.g. the St.Gall.176v
+  export). We auto-detect that and treat the file as headerless with
+  the standard VIA columns.
 * Some CSVs put the PNG name in their ``filename`` column with a ``.jpg``
   extension even when the actual file on disk is ``.png``. We swap.
 
 Run::
 
-    cd core/ic_core && uv run python ../tests/sample_input/helpers/rename_hufnagel_pairs.py
+    cd core/ic_core && uv run python ../scripts/rename_hufnagel_pairs.py
 """
 from __future__ import annotations
 
@@ -31,8 +31,7 @@ import csv
 import secrets
 from pathlib import Path
 
-HERE = Path(__file__).parent
-SAMPLE_DIR = HERE.parent
+from paths import TRAIN_DIR
 
 CSV_PATTERN = "hufnagel_annotations_{id}.csv"
 PNG_PATTERN = "hufnagel_example_{id}.png"
@@ -121,7 +120,7 @@ def discover_pairs(directory: Path) -> list[tuple[Path, Path]]:
 
 
 def rename_pairs(
-    directory: Path = SAMPLE_DIR, dry_run: bool = False
+    directory: Path = TRAIN_DIR, dry_run: bool = False
 ) -> list[tuple[Path, Path, str]]:
     """Rename every unrenamed pair in ``directory``.
 
@@ -157,8 +156,8 @@ def main() -> None:
     parser.add_argument(
         "--dir",
         type=Path,
-        default=SAMPLE_DIR,
-        help="Directory to scan for pairs (default: sample_input/).",
+        default=TRAIN_DIR,
+        help="Directory to scan for pairs (default: data/train/).",
     )
     parser.add_argument(
         "--dry-run",

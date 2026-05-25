@@ -23,12 +23,12 @@ configuration that ``evaluate.classify_page()`` uses by default.
 
 Run::
 
-    cd core/ic_core && uv run python ../tests/sample_input/helpers/run_pipeline.py
+    cd core/ic_core && uv run python ../scripts/run_pipeline.py
     # Or e.g. train + classify the Hufnagel page against itself:
-    uv run python ../tests/sample_input/helpers/run_pipeline.py \\
-        --train-xml ../tests/fixtures/Hufnagel-example_training_data.xml \\
-        --test-page "../tests/sample_input/Hufnagel-example.png" \\
-        --test-json "../tests/sample_input/Hufnagel-example_annotations.json"
+    uv run python ../scripts/run_pipeline.py \\
+        --train-xml ../data/derived/Hufnagel_training_data.xml \\
+        --test-page "../data/train/Hufnagel-example.png" \\
+        --test-json "../data/train/Hufnagel-example_annotations.json"
 """
 from __future__ import annotations
 
@@ -39,19 +39,17 @@ from pathlib import Path
 from ic_core.classifier import run_correction_stage
 from ic_core.io_xml import load_glyphs, write_glyphs
 
-from evaluate import (  # type: ignore[import-not-found]
-    JSON_PATH as DEFAULT_TEST_JSON,
-    PAGE_PATH as DEFAULT_TEST_PAGE,
-    SAMPLE_DIR,
-    TRAINING_XML_PATH as DEFAULT_TRAIN_XML,
-    ingest_glyphs_to_classify,
+from evaluate import ingest_glyphs_to_classify  # type: ignore[import-not-found]
+from paths import (
+    TEST_JSON as DEFAULT_TEST_JSON,
+    TEST_PAGE as DEFAULT_TEST_PAGE,
+    TRAINING_XML as DEFAULT_TRAIN_XML,
+    VIS_DIR as DEFAULT_OUTPUT_DIR,
 )
 from visualize import (  # type: ignore[import-not-found]
     draw_annotation_overlay,
     draw_prediction_overlay,
 )
-
-DEFAULT_OUTPUT_DIR = SAMPLE_DIR / "visualization"
 
 
 def run(
@@ -77,6 +75,7 @@ def run(
     for name, n in counts.most_common():
         print(f"  {n:4d}  {name}")
 
+    output_dir.mkdir(parents=True, exist_ok=True)
     annotated_out = output_dir / f"{test_page.stem}_annotated.png"
     predicted_out = output_dir / f"{test_page.stem}_predicted.png"
     classified_xml = output_dir / f"{test_page.stem}_classified.xml"
