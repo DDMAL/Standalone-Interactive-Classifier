@@ -60,6 +60,27 @@ ic_new/
 │   │       │                       # block carrying version="ic-core/v1"
 │   │       ├── state.py            # ClassifierState enum + Session dataclass (direct mutation)
 │   │       └── splitting.py        # Docstring-only stub; NOT wired into the pipeline
+│   ├── data/                       # corpora used by tests AND CLI scripts
+│   │   ├── train/                  # raw training inputs
+│   │   │   ├── Hufnagel-example.png
+│   │   │   ├── Hufnagel-example.csv               # original VIA CSV
+│   │   │   ├── Hufnagel-example_annotations.json
+│   │   │   ├── hufnagel_annotations_{id}.csv     # VIA-format Hufnagel annotations
+│   │   │   ├── hufnagel_example_{id}.png         # paired page image, same {id}
+│   │   │   └── csv-square_notation_neume_level_newest.csv
+│   │   ├── test/                   # held-out page used by tests + the API integration suite
+│   │   │   ├── NZ-Wt MSR-03 109v.png
+│   │   │   ├── NZ-Wt MSR-03 109v.txt              # YOLO-format bboxes
+│   │   │   └── MOTHRA_NZ-Wt MSR-03 109v_annotations.json
+│   │   └── derived/                # GITIGNORED — regenerable from data/train/ via scripts/
+│   │       ├── Hufnagel_training_data.xml         # output of convert_hufnagel_csv (batch)
+│   │       └── visualization/                     # overlay PNGs from run_pipeline.py
+│   ├── scripts/                    # CLI helpers (added to pytest sys.path)
+│   │   ├── rename_hufnagel_pairs.py   # canonicalise CSV/PNG pair filenames
+│   │   ├── convert_hufnagel_csv.py    # batch VIA CSV → GameraXML training data
+│   │   ├── run_pipeline.py            # train → classify → visualise on the test page
+│   │   ├── evaluate.py                # shared classify_page / ingest helpers
+│   │   └── visualize.py               # overlay drawing (annotated + predicted)
 │   └── tests/
 │       ├── test_classifier.py
 │       ├── test_features.py
@@ -70,16 +91,9 @@ ic_new/
 │       ├── test_real_input_knn.py
 │       ├── test_state.py
 │       ├── conftest.py
-│       ├── fixtures/
-│       │   ├── Hufnagel-example_training_data.xml         # legacy oracle for writer shape
-│       │   └── Square_notation-example_training_data.xml  # canonical <features> block example
-│       └── sample_input/           # page+JSON pairs for end-to-end runs + helper scripts
-│           ├── Hufnagel-example.png
-│           ├── Hufnagel-example_annotations.json
-│           ├── NZ-Wt MSR-03 109v.png
-│           ├── MOTHRA_NZ-Wt MSR-03 109v_annotations.json
-│           ├── helpers/            # run_pipeline.py, evaluate.py, visualize.py, csv converter
-│           └── visualization/      # generated diagnostics (safe to delete and regenerate)
+│       └── fixtures/                # writer-oracle XMLs only
+│           ├── Hufnagel-example_training_data.xml         # legacy oracle for writer shape
+│           └── Square_notation-example_training_data.xml  # canonical <features> block example
 ├── api/                            # Phase 2: FastAPI service (implemented)
 │   ├── pyproject.toml
 │   ├── uv.lock
