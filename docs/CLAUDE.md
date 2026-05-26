@@ -49,7 +49,8 @@ ic_new/
 │   │   ├── uv.lock
 │   │   └── src/ic_core/
 │   │       ├── glyph.py            # Glyph dataclass; optional feature_vector / feature_version
-│   │       │                       # cache fields (excluded from __eq__ / repr)
+│   │       │                       # cache fields (excluded from __eq__ / repr). to_dict() is
+│   │       │                       # hand-built (not asdict) so the ndarray cache isn't copied
 │   │       ├── image.py            # numpy ↔ PIL conversion, RLE encode/decode, base64 PNG preview
 │   │       ├── features.py         # Feature extraction; LOGICAL_FEATURES, FEATURE_VERSION,
 │   │       │                       # get_features (cache-aware), ensure_features
@@ -76,6 +77,7 @@ ic_new/
 │   │       ├── Hufnagel_training_data.xml         # output of convert_hufnagel_csv (batch)
 │   │       └── visualization/                     # overlay PNGs from run_pipeline.py
 │   ├── scripts/                    # CLI helpers (added to pytest sys.path)
+│   │   ├── paths.py                   # central path config; every default overridable via IC_*
 │   │   ├── rename_hufnagel_pairs.py   # canonicalise CSV/PNG pair filenames
 │   │   ├── convert_hufnagel_csv.py    # batch VIA CSV → GameraXML training data
 │   │   ├── run_pipeline.py            # train → classify → visualise on the test page
@@ -119,11 +121,12 @@ cd core/ic_core
 uv sync                       # install dependencies into .venv
 uv run pytest                 # run the test suite
 uv run pytest ../tests/test_features.py    # single file
+uv run python ../scripts/run_pipeline.py   # end-to-end smoke: train → classify → overlays
 uv run ruff check .           # lint
 uv run ruff format .          # format
 ```
 
-Tests live in `core/tests/` (sibling to the package), not inside `core/ic_core/`.
+Tests live in `core/tests/` (sibling to the package), not inside `core/ic_core/`. Data and CLI scripts default to paths under `core/data/`; every default in [scripts/paths.py](../core/scripts/paths.py) can be overridden via `IC_*` env vars (`IC_TRAINING_XML`, `IC_TEST_PAGE`, …) to run scripts and tests against alternate inputs without code edits.
 
 ## Architecture Notes
 
@@ -183,7 +186,8 @@ Legacy GameraXML inputs are **not** supported on the ingestion path; XML is expo
 - **`splitting.py` is a docstring-only stub.** Out of scope. Do not wire it into the pipeline or expose a `/split` endpoint without re-opening the scope discussion. A crop containing multiple neumes is an upstream-detector defect.
 - **`grouping.py` splits into implemented + deferred halves.** `manual_group` is real code, called by `Session.manual_group` and exposed at `POST /sessions/{id}/group`. `auto_group_shaped` / `auto_group_bounding_box` raise `NotImplementedError` and the matching API endpoint returns 501 — adding real implementations requires picking an adjacency function and gating runaway graphs.
 - **Glyph equality and the feature cache.** `feature_vector` is `compare=False, repr=False` so dataclass `__eq__` / `__hash__` / printing keep working with `ndarray`. Don't accidentally include it in equality checks elsewhere.
-- **Legacy fixture filename:** `core/tests/fixtures/` holds `Hufnagel-example_training_data.xml` and `Square_notation-example_training_data.xml`. An older test (`test_features.py`) still references a renamed `Interactive_Classifier_GameraXML_TrainingData.xml` — that's a known pre-existing failure unrelated to current work; fix the path when convenient. Use these fixtures as **export shape oracles** for the writer, not as ingestion samples (ingestion takes page+bbox bytes).
+- **Fixture role:** `core/tests/fixtures/` holds `Hufnagel-example_training_data.xml` and `Square_notation-example_training_data.xml`. Use them as **export shape oracles** for the writer, not as ingestion samples — ingestion takes page+bbox bytes. The `Square_notation` fixture is the canonical example of the `<features>` block element shape and is referenced by `test_features.py` / `test_io_xml.py`.
+- **`test_real_input_knn.py` self-bootstraps the training XML.** `paths.TRAINING_XML` defaults to `core/data/derived/Hufnagel_training_data.xml`, which is **gitignored**. On a clean checkout the test detects the missing file and calls `convert_hufnagel_csv.convert_batch()` into a per-session tempdir, then patches `paths.TRAINING_XML` to point there. So `uv run pytest` works without first running `convert_hufnagel_csv.py` by hand. The override is short-circuited if `IC_TRAINING_XML` is already set in the env or the default path already exists on disk.
 
 ## Pointers
 
