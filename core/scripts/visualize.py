@@ -134,7 +134,9 @@ def draw_annotation_overlay(
     output: Path = OUTPUT,
 ) -> None:
     """Write ``…_annotated.png``: MOTHRA classId=2 boxes only, in green."""
-    data = json.loads(annotations.read_text())
+    data = json.loads(annotations.read_bytes())
+    if isinstance(data, list):
+        data = data[0]
     img = Image.open(image).convert("RGBA")
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -174,6 +176,8 @@ def draw_prediction_overlay(
         classified, _ = classify_page(page_path=image, json_path=annotations)
 
     data = json.loads(annotations.read_text())
+    if isinstance(data, list):
+        data = data[0]
 
     # Index predictions by glyph UUID. ingest_page preserves the
     # MOTHRA annotation `id` (minus dashes) as the Glyph UUID, so we

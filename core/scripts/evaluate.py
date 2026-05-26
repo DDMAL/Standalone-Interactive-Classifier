@@ -34,7 +34,10 @@ GLYPH_CLASS_ID: int = 2
 
 def load_annotations(json_path: Path = TEST_JSON) -> dict:
     """Return the parsed MOTHRA annotations document."""
-    return json.loads(json_path.read_bytes())
+    doc = json.loads(json_path.read_bytes())
+    if isinstance(doc, list):
+        doc = doc[0]
+    return doc
 
 
 def ingest_glyphs_to_classify(

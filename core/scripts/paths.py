@@ -47,10 +47,10 @@ TEST_DIR = _env_path("IC_TEST_DIR", DATA_DIR / "test")
 DERIVED_DIR = _env_path("IC_DERIVED_DIR", DATA_DIR / "derived")
 VIS_DIR = _env_path("IC_VIS_DIR", DERIVED_DIR / "visualization")
 
-TEST_PAGE = _env_path("IC_TEST_PAGE", TEST_DIR / "NZ-Wt MSR-03 109v.png")
+TEST_PAGE = _env_path("IC_TEST_PAGE", TEST_DIR / "image_hfn_sample.png")
 TEST_JSON = _env_path(
     "IC_TEST_JSON",
-    TEST_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json",
+    TEST_DIR / "image_hfn_sample_annotations.json",
 )
 TEST_YOLO = _env_path("IC_TEST_YOLO", TEST_DIR / "NZ-Wt MSR-03 109v.txt")
 TRAINING_XML = _env_path(
