@@ -21,10 +21,63 @@ FALLBACK_COLOR = "#f032e6"
 NON_GLYPH_CLASS_IDS = {1, 3}
 NON_GLYPH_DIM_COLOR = "#bbbbbb"
 
+# Alpha values (0–255) control how much of the parchment shows through.
+BOX_OUTLINE_ALPHA = 220
+BOX_FILL_ALPHA = 55
+NON_GLYPH_OUTLINE_ALPHA = 140
+LABEL_BG_ALPHA = 205
+
 AXIS_COLOR = "white"
 AXIS_TEXT_STROKE = "white"
 MAJOR_TICK = 100
 MINOR_TICK = 50
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    h = hex_color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _with_alpha(hex_color: str, alpha: int) -> tuple[int, int, int, int]:
+    r, g, b = _hex_to_rgb(hex_color)
+    return r, g, b, alpha
+
+
+def _draw_translucent_box(
+    draw: ImageDraw.ImageDraw, x: float, y: float, w: float, h: float,
+    hex_color: str, width: int = 2,
+) -> None:
+    draw.rectangle(
+        [x, y, x + w, y + h],
+        fill=_with_alpha(hex_color, BOX_FILL_ALPHA),
+        outline=_with_alpha(hex_color, BOX_OUTLINE_ALPHA),
+        width=width,
+    )
+
+
+def _draw_label_pill(
+    draw: ImageDraw.ImageDraw, font: ImageFont.ImageFont,
+    x: float, y: float, text: str, hex_color: str,
+) -> None:
+    """Label inside a translucent coloured pill, white text on top."""
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    pad_x, pad_y = 3, 1
+    pill_x0 = x
+    pill_y0 = max(0, y - th - 2 * pad_y - 1)
+    pill_x1 = pill_x0 + tw + 2 * pad_x
+    pill_y1 = pill_y0 + th + 2 * pad_y
+    draw.rectangle(
+        [pill_x0, pill_y0, pill_x1, pill_y1],
+        fill=_with_alpha(hex_color, LABEL_BG_ALPHA),
+    )
+    draw.text(
+        (pill_x0 + pad_x, pill_y0 + pad_y - bbox[1]),
+        text,
+        fill=(255, 255, 255, 255),
+        font=font,
+    )
 
 
 def color_for_class(class_name: str) -> str:
@@ -85,16 +138,18 @@ def draw_annotation_overlay(
 ) -> None:
     """Write ``…_annotated.png``: MOTHRA classId=2 boxes only, in green."""
     data = json.loads(annotations.read_text())
-    img = Image.open(image).convert("RGB")
-    draw = ImageDraw.Draw(img)
+    img = Image.open(image).convert("RGBA")
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
     for ann in data["annotations"]:
         x, y, w, h = ann["bbox"]
         if ann["classId"] == 2:
             color = CLASS_COLORS.get(ann["classId"], FALLBACK_COLOR)
-            draw.rectangle([x, y, x + w, y + h], outline=color, width=2)
+            _draw_translucent_box(draw, x, y, w, h, color)
     draw_coordinate_scheme(draw, img.width, img.height)
+    composited = Image.alpha_composite(img, overlay).convert("RGB")
     output.parent.mkdir(parents=True, exist_ok=True)
-    img.save(output)
+    composited.save(output)
     print(f"wrote {output}")
 
 
@@ -132,15 +187,18 @@ def draw_prediction_overlay(
         g.id: (g.class_name, g.confidence) for g in classified
     }
 
-    img = Image.open(image).convert("RGB")
-    draw = ImageDraw.Draw(img)
+    img = Image.open(image).convert("RGBA")
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
     font = ImageFont.load_default()
 
     for ann in data["annotations"]:
         x, y, w, h = ann["bbox"]
         if ann["classId"] in NON_GLYPH_CLASS_IDS:
             draw.rectangle(
-                [x, y, x + w, y + h], outline=NON_GLYPH_DIM_COLOR, width=1
+                [x, y, x + w, y + h],
+                outline=_with_alpha(NON_GLYPH_DIM_COLOR, NON_GLYPH_OUTLINE_ALPHA),
+                width=1,
             )
             continue
 
@@ -149,26 +207,19 @@ def draw_prediction_overlay(
         if match is None:
             # Shouldn't happen — every classId=2 box should be
             # ingested — but draw something legible if it does.
-            draw.rectangle([x, y, x + w, y + h], outline=FALLBACK_COLOR, width=2)
+            _draw_translucent_box(draw, x, y, w, h, FALLBACK_COLOR)
             continue
 
         class_name, confidence = match
         color = color_for_class(class_name)
-        draw.rectangle([x, y, x + w, y + h], outline=color, width=2)
-        # Label above the box: class name + confidence to two places.
+        _draw_translucent_box(draw, x, y, w, h, color)
         label = f"{class_name} {confidence:.2f}"
-        draw.text(
-            (x, max(0, y - 12)),
-            label,
-            fill=color,
-            font=font,
-            stroke_width=2,
-            stroke_fill="white",
-        )
+        _draw_label_pill(draw, font, x, y, label, color)
 
     draw_coordinate_scheme(draw, img.width, img.height)
+    composited = Image.alpha_composite(img, overlay).convert("RGB")
     output.parent.mkdir(parents=True, exist_ok=True)
-    img.save(output)
+    composited.save(output)
     print(f"wrote {output}")
 
 
