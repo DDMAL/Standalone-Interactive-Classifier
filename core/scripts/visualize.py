@@ -98,10 +98,7 @@ def draw_coordinate_scheme(draw: ImageDraw.ImageDraw, width: int, height: int) -
     font = ImageFont.load_default()
 
     def label(xy, text):
-        draw.text(
-            xy, text, fill=AXIS_COLOR, font=font,
-            stroke_width=0.2, stroke_fill=AXIS_TEXT_STROKE,
-        )
+        draw.text(xy, text, fill=AXIS_COLOR, font=font)
 
     # Top edge: x-axis ticks
     for x in range(0, width + 1, MINOR_TICK):
