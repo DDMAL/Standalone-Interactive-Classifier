@@ -9,7 +9,7 @@ manual group/split operations receive fresh ones.
 from __future__ import annotations
 
 import uuid
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -103,11 +103,18 @@ class Glyph:
         return array_to_png_base64(self.to_array())
 
     def to_dict(self) -> dict[str, Any]:
-        d = asdict(self)
-        d["image"] = d.pop("image_rle")
-        d["image_b64"] = self.to_base64_png()
-        # Feature cache is an internal optimisation; not part of any
-        # JSON/dict surface, and ndarray isn't JSON-encodable anyway.
-        d.pop("feature_vector", None)
-        d.pop("feature_version", None)
-        return d
+        # Built explicitly (rather than via ``asdict``) so the ndarray-valued
+        # ``feature_vector`` cache isn't deep-copied just to be discarded.
+        return {
+            "id": self.id,
+            "class_name": self.class_name,
+            "image": self.image_rle,
+            "ncols": self.ncols,
+            "nrows": self.nrows,
+            "ulx": self.ulx,
+            "uly": self.uly,
+            "id_state_manual": self.id_state_manual,
+            "confidence": self.confidence,
+            "is_training": self.is_training,
+            "image_b64": self.to_base64_png(),
+        }
