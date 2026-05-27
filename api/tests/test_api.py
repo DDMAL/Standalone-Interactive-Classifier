@@ -207,8 +207,12 @@ def test_classify_with_no_training_data_returns_400(client):
 def test_classify_with_one_manual_label_succeeds(client):
     sid = _create_session(client)
     glyphs = client.get(f"/sessions/{sid}").json()["glyphs"]
-    # Manually label the first two glyphs so classify has training data.
-    for g in glyphs[:2]:
+    # Only Neumes are classified, so the training pool must be seeded with
+    # manually-labelled *neume* glyphs — labelling Text/Staves would leave
+    # the neume classifier with nothing to learn from.
+    neumes = [g for g in glyphs if g["category"] == "Neumes"]
+    assert len(neumes) >= 2, "fixture should contain neume glyphs"
+    for g in neumes[:2]:
         r = client.post(
             f"/sessions/{sid}/glyphs/{g['id']}",
             json={"class_name": "neume.A", "id_state_manual": True},
@@ -218,11 +222,20 @@ def test_classify_with_one_manual_label_succeeds(client):
     response = client.post(f"/sessions/{sid}/classify", json={"k": 1})
     assert response.status_code == 200
     sess = response.json()
-    # Every non-manual glyph should now have a non-UNCLASSIFIED class.
-    auto_classes = {
-        g["class_name"] for g in sess["glyphs"] if not g["id_state_manual"]
+
+    # Every non-manual *neume* should now carry the trained label.
+    auto_neume_classes = {
+        g["class_name"]
+        for g in sess["glyphs"]
+        if not g["id_state_manual"] and g["category"] == "Neumes"
     }
-    assert auto_classes == {"neume.A"}
+    assert auto_neume_classes == {"neume.A"}
+
+    # Text and Staves are out of IC's scope: they stay UNCLASSIFIED.
+    non_neume_classes = {
+        g["class_name"] for g in sess["glyphs"] if g["category"] != "Neumes"
+    }
+    assert non_neume_classes == {"UNCLASSIFIED"}
 
 
 # ---------------------------------------------------------------------------
