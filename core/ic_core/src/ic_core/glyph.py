@@ -16,6 +16,21 @@ import numpy as np
 
 from ic_core.image import array_to_png_base64, rle_to_array
 
+# ---------------------------------------------------------------------------
+# MOTHRA detector categories
+# ---------------------------------------------------------------------------
+# The upstream MOTHRA detector tags every bbox with a coarse ``classId``
+# (1/2/3) describing *what kind* of mark it is. IC only classifies neumes;
+# Text and Staves are carried through so the UI can group and hide them, but
+# they never enter the kNN classifier. These string constants are the
+# canonical category labels used end-to-end (ingest → state → API → UI).
+CATEGORY_TEXT = "Text"
+CATEGORY_NEUMES = "Neumes"
+CATEGORY_STAVES = "Staves"
+
+#: All valid categories, in display order (Text, Neumes, Staves).
+CATEGORIES: tuple[str, ...] = (CATEGORY_TEXT, CATEGORY_NEUMES, CATEGORY_STAVES)
+
 
 @dataclass(slots=True, frozen=True)
 class Glyph:
@@ -28,6 +43,11 @@ class Glyph:
     uly: int
     id_state_manual: bool
     confidence: float
+    # Coarse MOTHRA detector category (Text / Neumes / Staves). Only
+    # ``CATEGORY_NEUMES`` glyphs are classified; the others pass through
+    # untouched. Defaults to Neumes so glyphs born outside the JSON ingest
+    # path (YOLO, manual grouping) land in the category IC actually works on.
+    category: str = CATEGORY_NEUMES
     is_training: bool = False
     # Optional per-glyph feature cache. Populated by the classifier
     # (and read by the XML exporter) so the "full re-train every
@@ -54,6 +74,7 @@ class Glyph:
         uly: int,
         id_state_manual: bool,
         confidence: float,
+        category: str = CATEGORY_NEUMES,
         is_training: bool = False,
         id: str | None = None,
         feature_vector: np.ndarray | None = None,
@@ -69,6 +90,7 @@ class Glyph:
             uly=uly,
             id_state_manual=id_state_manual,
             confidence=confidence,
+            category=category,
             is_training=is_training,
             feature_vector=feature_vector,
             feature_version=feature_version,
@@ -115,6 +137,7 @@ class Glyph:
             "uly": self.uly,
             "id_state_manual": self.id_state_manual,
             "confidence": self.confidence,
+            "category": self.category,
             "is_training": self.is_training,
             "image_b64": self.to_base64_png(),
         }
