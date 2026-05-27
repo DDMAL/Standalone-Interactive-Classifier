@@ -40,9 +40,12 @@ What's deliberately missing in v1
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, Form, Response, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from ic_api.schemas import (
@@ -58,7 +61,7 @@ from ic_api.schemas import (
 )
 from ic_api.store import InMemorySessionStore, default_store
 from ic_core.ingest import AnnotationFormat, ingest_page
-from ic_core.io_xml import dumps_glyphs
+from ic_core.io_xml import dumps_glyphs, load_glyphs
 from ic_core.state import Session, StateTransitionError
 
 
@@ -76,6 +79,13 @@ app = FastAPI(
     ),
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 def get_store() -> InMemorySessionStore:
     """Dependency-injection point for the session store.
@@ -87,6 +97,57 @@ def get_store() -> InMemorySessionStore:
 
 
 Store = Annotated[InMemorySessionStore, Depends(get_store)]
+
+
+# ---------------------------------------------------------------------------
+# Built-in training sets
+# ---------------------------------------------------------------------------
+#
+# Pre-built GameraXML training databases live under ``core/data/derived``
+# (e.g. ``Hufnagel_training_data.xml``). The frontend offers them as a
+# dropdown on the upload screen; picking one seeds the session's training
+# pool so the first classify round applies that vocabulary directly.
+#
+# The directory is resolved relative to the repo root and may be
+# overridden via ``IC_DERIVED_DIR`` to stay consistent with
+# ``core/scripts/paths.py``. The API only ever opens files it has itself
+# enumerated in this directory — a client-supplied name is validated
+# against that listing before any disk access, so path traversal
+# (``../secrets.xml``) cannot escape the directory.
+
+
+def derived_dir() -> Path:
+    """Directory holding the pre-built training-set XML databases."""
+    override = os.environ.get("IC_DERIVED_DIR")
+    if override:
+        return Path(override)
+    # main.py → ic_api → src → api → <repo root>
+    repo_root = Path(__file__).resolve().parents[3]
+    return repo_root / "core" / "data" / "derived"
+
+
+def list_training_sets() -> list[str]:
+    """Return the sorted filenames of every ``*.xml`` in :func:`derived_dir`."""
+    root = derived_dir()
+    if not root.is_dir():
+        return []
+    return sorted(p.name for p in root.glob("*.xml") if p.is_file())
+
+
+def resolve_training_set(name: str) -> Path:
+    """Map a client-supplied training-set filename to a safe on-disk path.
+
+    Raises:
+        ValueError: If ``name`` is not one of the files enumerated by
+            :func:`list_training_sets` (guards against path traversal and
+            typos alike).
+    """
+    if name not in list_training_sets():
+        available = ", ".join(list_training_sets()) or "(none)"
+        raise ValueError(
+            f"Unknown training set {name!r}. Available: {available}"
+        )
+    return derived_dir() / name
 
 
 # Why every handler goes through ``store.session(...)``:
@@ -141,6 +202,18 @@ async def _value_error_handler(_request, exc: ValueError) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
+@app.get("/training-sets", response_model=list[str])
+def get_training_sets() -> list[str]:
+    """List the pre-built training-set filenames available for selection.
+
+    These are the ``*.xml`` GameraXML databases under
+    ``core/data/derived``. The frontend renders them as a dropdown on the
+    upload screen; the chosen filename is passed back as the
+    ``training_xml`` field of :func:`create_session`.
+    """
+    return list_training_sets()
+
+
 @app.post("/sessions", response_model=SessionDTO, status_code=201)
 async def create_session(
     page_image: Annotated[UploadFile, File(description="Full-page image.")],
@@ -167,6 +240,18 @@ async def create_session(
         str | None,
         Form(description="Optional JSON-encoded list[str] of class names."),
     ] = None,
+    training_xml: Annotated[
+        str | None,
+        Form(
+            description=(
+                "Optional filename of a pre-built training set under "
+                "core/data/derived (see GET /training-sets). When given, its "
+                "glyphs seed the training pool and a classify round runs "
+                "automatically so the working set is labelled with that "
+                "training vocabulary before the session is returned."
+            ),
+        ),
+    ] = None,
 ) -> SessionDTO:
     """Create a session and ingest a page + bbox upload.
 
@@ -180,6 +265,11 @@ async def create_session(
     The user can immediately call ``POST /sessions/{id}/classify``
     (once they have at least one manual or training glyph) or start
     labelling glyphs via :func:`update_glyph`.
+
+    When ``training_xml`` names a pre-built training set, its glyphs are
+    loaded into the training pool and a classify round runs before the
+    response is sent, so the returned session is already labelled with
+    that training vocabulary.
     """
     parsed_names: list[str] | None = None
     if class_names is not None:
@@ -192,6 +282,12 @@ async def create_session(
         ):
             raise ValueError("class_names must be a JSON list of strings.")
 
+    # Resolve the optional training set *before* touching uploads so a
+    # bad filename fails fast with a 400 rather than after the work.
+    training_glyphs: list | None = None
+    if training_xml:
+        training_glyphs = load_glyphs(resolve_training_set(training_xml))
+
     page_bytes = await page_image.read()
     annotations_bytes = await annotations.read()
     glyphs = ingest_page(
@@ -200,7 +296,16 @@ async def create_session(
         format=annotations_format,
     )
     session = Session()
-    session.ingest(glyphs, class_names=parsed_names)
+    session.ingest(
+        glyphs,
+        training_glyphs=training_glyphs,
+        class_names=parsed_names,
+    )
+    # A selected training set means "label this page with that vocabulary
+    # now" — run the first classify round server-side so the frontend
+    # lands on an already-classified session.
+    if training_glyphs:
+        session.classify()
     store.create(session)
     return session_to_dto(session)
 
@@ -248,6 +353,7 @@ def update_glyph(
             glyph_id,
             class_name=body.class_name,
             id_state_manual=body.id_state_manual,
+            category=body.category,
         )
         return glyph_to_dto(new)
 
