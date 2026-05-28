@@ -1,4 +1,5 @@
 import { ClassNameInput } from "@/components/ClassNameInput";
+import { MultiEditPanel } from "@/components/MultiEditPanel";
 import { Button } from "@/components/ui/Button";
 import { useClassify } from "@/hooks/useClassify";
 import { sessionKey } from "@/hooks/useSession";
@@ -14,20 +15,28 @@ interface EditPanelProps {
   sessionId: string;
   primaryGlyph: GlyphDTO | null;
   selectionSize: number;
+  selectedGlyphs: GlyphDTO[];
   classNames: string[];
 }
 
-// Branches on selection size: 1 → Phase A editor, ≥2 → multi-selection
-// placeholder. Mounted with a key derived from selection mode + primary id,
-// so local state resets on every transition.
+// Branches on selection size: 1 → Phase A editor, ≥2 → MultiEditPanel.
+// Mounted with a key derived from selection mode + primary id, so local
+// state resets on every transition.
 export function EditPanel({
   sessionId,
   primaryGlyph,
   selectionSize,
+  selectedGlyphs,
   classNames,
 }: EditPanelProps) {
   if (selectionSize >= 2) {
-    return <MultiSelectionPanel count={selectionSize} />;
+    return (
+      <MultiEditPanel
+        sessionId={sessionId}
+        selectedGlyphs={selectedGlyphs}
+        classNames={classNames}
+      />
+    );
   }
   if (selectionSize === 1 && primaryGlyph) {
     return (
@@ -39,52 +48,6 @@ export function EditPanel({
     );
   }
   return null;
-}
-
-function MultiSelectionPanel({ count }: { count: number }) {
-  const clearSelection = useUiStore((s) => s.clearSelection);
-  const selectedGlyphIds = useUiStore((s) => s.selectedGlyphIds);
-  const softDeleteGlyphs = useUiStore((s) => s.softDeleteGlyphs);
-
-  function handleDelete() {
-    softDeleteGlyphs([...selectedGlyphIds]);
-  }
-
-  return (
-    <aside className="w-72 shrink-0 overflow-auto border-l border-slate-200 bg-white p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-800">
-          Multi-selection
-        </h2>
-        <Button
-          variant="ghost"
-          onClick={() => clearSelection()}
-          className="px-2 py-0.5"
-        >
-          ✕
-        </Button>
-      </div>
-      <p className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-        <span className="font-semibold">{count} selected</span> — multi-edit in
-        Phase C.
-      </p>
-      <Button
-        variant="secondary"
-        onClick={handleDelete}
-        className="mt-3 w-full border-red-300 text-red-700 hover:bg-red-50"
-      >
-        Delete {count} glyphs
-      </Button>
-      <p className="mt-3 text-xs text-slate-400">
-        Deleted glyphs move to the “Deleted” section below Staves and can be put
-        back until you export. Press{" "}
-        <kbd className="rounded border border-slate-300 bg-slate-50 px-1">
-          Esc
-        </kbd>{" "}
-        to clear the selection.
-      </p>
-    </aside>
-  );
 }
 
 interface SingleEditorProps {

@@ -68,6 +68,25 @@ export const updateGlyph = (
 export const deleteGlyph = (id: string, glyphId: string) =>
   http.delete(`/sessions/${id}/glyphs/${glyphId}`);
 
+export interface ManualGroupArgs {
+  glyph_ids: string[];
+  class_name: string;
+}
+
+export const manualGroup = (id: string, body: ManualGroupArgs) =>
+  http.post<GlyphDTO>(`/sessions/${id}/group`, body);
+
+export const renameClass = (id: string, name: string, new_name: string) =>
+  http.post<SessionDTO>(
+    `/sessions/${id}/classes/${encodeURIComponent(name)}/rename`,
+    { new_name },
+  );
+
+export const deleteClass = (id: string, name: string) =>
+  http.deleteFor<SessionDTO>(
+    `/sessions/${id}/classes/${encodeURIComponent(name)}`,
+  );
+
 export const saveSession = (id: string) =>
   http.post<SessionDTO>(`/sessions/${id}/save`);
 

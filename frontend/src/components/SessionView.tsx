@@ -1,3 +1,4 @@
+import { ClassTreePanel } from "@/components/ClassTreePanel";
 import { EditPanel } from "@/components/EditPanel";
 import { GlyphGrid } from "@/components/GlyphGrid";
 import { PageImagePane } from "@/components/PageImagePane";
@@ -28,6 +29,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     () => session?.glyphs.find((g) => g.id === primaryGlyphId) ?? null,
     [session, primaryGlyphId],
   );
+
+  const selectedGlyphs = useMemo(() => {
+    if (!session || selectedGlyphIds.size === 0) return [];
+    return session.glyphs.filter((g) => selectedGlyphIds.has(g.id));
+  }, [session, selectedGlyphIds]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -79,6 +85,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     <div className="flex h-full flex-col">
       <Toolbar sessionId={sessionId} glyphCount={session.glyphs.length} />
       <div className="flex min-h-0 flex-1">
+        <ClassTreePanel sessionId={sessionId} session={session} />
         <PageImagePane glyphs={session.glyphs} zoomPan={zoomPan} />
         <GlyphGrid glyphs={sortedGlyphs} />
         {showEditPanel && (
@@ -87,6 +94,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
             sessionId={sessionId}
             primaryGlyph={primaryGlyph}
             selectionSize={selectionSize}
+            selectedGlyphs={selectedGlyphs}
             classNames={session.class_names}
           />
         )}

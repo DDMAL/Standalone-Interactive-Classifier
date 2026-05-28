@@ -15,6 +15,11 @@ interface UiState {
   // via restoreGlyph. Committed to the backend at Complete & Export time.
   deletedGlyphIds: Set<string>;
 
+  // Whether the left-rail class tree is collapsed. Page-specific; resets
+  // on setSession/clearSession.
+  classTreeCollapsed: boolean;
+  setClassTreeCollapsed: (v: boolean) => void;
+
   setSession: (id: string, objectUrl: string) => void;
   clearSession: () => void;
 
@@ -43,6 +48,9 @@ export const useUiStore = create<UiState>((set, get) => ({
   primaryGlyphId: null,
   hoverGlyphId: null,
   deletedGlyphIds: new Set(),
+  classTreeCollapsed: false,
+
+  setClassTreeCollapsed: (v) => set({ classTreeCollapsed: v }),
 
   setSession: (id, objectUrl) => {
     const prev = get().pageObjectUrl;
@@ -54,6 +62,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       primaryGlyphId: null,
       hoverGlyphId: null,
       deletedGlyphIds: new Set(),
+      classTreeCollapsed: false,
     });
   },
 
@@ -67,6 +76,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       primaryGlyphId: null,
       hoverGlyphId: null,
       deletedGlyphIds: new Set(),
+      classTreeCollapsed: false,
     });
   },
 

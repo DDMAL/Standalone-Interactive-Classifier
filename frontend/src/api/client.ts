@@ -37,6 +37,7 @@ export const http = {
   postForm: <T>(path: string, form: FormData) =>
     request<T>(path, { method: "POST", body: form }),
   delete: (path: string) => request<void>(path, { method: "DELETE" }),
+  deleteFor: <T>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
 // Raw blob fetch for the XML export, which is not JSON.
