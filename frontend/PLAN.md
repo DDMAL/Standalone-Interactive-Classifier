@@ -428,12 +428,232 @@ If a step fails, isolate to: coordinate space (overlay viewBox), selection wirin
 
 If a step fails, isolate to: coordinate space (overlay viewBox), selection wiring (set vs. primary), or input focus (keyboard listener leaking into the autocomplete).
 
-## Phase C — Multi-edit + class management + manual grouping (sketch only)
+## Phase C — Multi-edit, class management, manual grouping (implement next)
 
-- **Multi-edit modal** (Radix `Dialog`) opens when `selectedGlyphIds.size > 1`; one `ClassNameInput`; submit fires N parallel `updateGlyph` mutations via `Promise.all`, then one `classify`, then invalidate.
-- **Class tree sidebar** — parse `session.class_names` on dot-separated namespaces (e.g. `neume.punctum`) into a tree; per-node actions: Rename (`POST /classes/{name}/rename`), Delete (`DELETE /classes/{name}`), Select-all-with-this-class (populates `selectedGlyphIds`).
-- **Manual grouping** — toolbar button enabled when `selectedGlyphIds.size >= 2`; prompts for class name, then `POST /group`; invalidate session.
-- `POST /auto-group` is 501 — keep its UI hidden until the core implements it.
+### Goals
+
+Phase B made the page+grid interactive and built up a real selection set, but the editor still only knows what to do with one glyph at a time, and the class vocabulary is read-only. Phase C closes both gaps:
+
+- **Multi-edit** — apply one class name to N selected glyphs in one round-trip pattern, replacing the `MultiSelectionPanel`'s "multi-edit in Phase C" placeholder with a real editor.
+- **Class management sidebar** — surface `session.class_names` as a tree the user can navigate, rename, delete, and use as a selector ("select all glyphs in `neume.punctum`").
+- **Manual grouping** — merge a multi-selection into a single new glyph with a user-supplied class name, exercising `POST /sessions/{id}/group`.
+- **Auto-grouping** (DEFFERED) stays hidden — backend still returns 501 from `POST /auto-group`; no UI surface for it.
+
+All three features share the same selection set built in Phase B, so the selection model itself doesn't change; only what we do with it does.
+
+### Workflow Phase C supports
+
+1. With **2+ glyphs selected**, the right-side panel shows a `MultiEditPanel` (not a placeholder): one `ClassNameInput`, an "Apply to N glyphs" button, a "Group as new glyph" button, and the existing bulk-delete button. Apply fires N parallel `updateGlyph` calls, one `classify`, one invalidation. Non-Neume members of the selection are skipped server-side-safely (the panel filters them out before mutating and shows a "Skipping K non-Neume glyphs" hint).
+2. With **exactly 1 glyph selected**, the Phase B `SingleEditor` is unchanged.
+3. **Group N glyphs** opens a `GroupDialog` (Radix `Dialog`) with a `ClassNameInput` seeded from the most common class in the selection. Submit calls `POST /sessions/{id}/group`, invalidates the session, then selects only the new glyph (its id is in the response).
+4. A new left rail, **`ClassTreePanel`**, mounts between the toolbar and `PageImagePane` (collapsible — `<` toggle on its header collapses it to a 24 px strip so users who don't need it can hide it). It renders `session.class_names` parsed as a tree on `.`-separated namespaces.
+5. Per tree node:
+   - Hover → a small action row: **Select**, **Rename**, **Delete**.
+   - **Select** populates `selectedGlyphIds` with every working-set glyph whose `class_name` equals the node's full path (or starts with `node.path + "."` if the node is an interior node — i.e. the whole subtree).
+   - **Rename** opens an inline `<input>` on the node; Enter calls `POST /sessions/{id}/classes/{name}/rename` with `{new_name: <full path>}`, invalidates session.
+   - **Delete** opens a confirm `Dialog` ("Delete class 'X' and N descendant classes?"); confirm calls `DELETE /sessions/{id}/classes/{name}`, invalidates session.
+6. Manually-classified glyphs that no longer match any class in the tree (e.g. after a `Delete`) still appear in the grid with their old `class_name` — the backend keeps them but the tree no longer offers that class for autocomplete. The grid tile shows the orphaned class name in italic slate so it's discoverable.
+7. The "Apply to N glyphs" and "Group" actions live behind the same Enter-from-anywhere wiring as the `SingleEditor` apply (keymap honors selection size).
+
+### Selection model — no change
+
+`uiStore`'s set-first selection from Phase B is exactly what Phase C needs. `selectFromClass(name)` is a new store action that calls `setSelection(ids)` after walking `session.glyphs` for matches — it's a thin wrapper that lives on the `ClassTreePanel`'s side rather than in the store (the store has no session reference), see `useClassSelection` below.
+
+### Files
+
+New under `src/`:
+
+```
+components/
+├── MultiEditPanel.tsx         # replaces MultiSelectionPanel for size>=2
+├── GroupDialog.tsx            # Radix Dialog wrapping ClassNameInput; used by both apply-group and tree-rename's confirm
+├── ClassTreePanel.tsx         # left rail: tree + per-node actions + collapse toggle
+├── ClassTreeNode.tsx          # one recursive row inside ClassTreePanel
+├── ConfirmDialog.tsx          # small Radix Dialog wrapper used by delete-class
+hooks/
+├── useUpdateGlyphs.ts         # bulk update: N updateGlyph + 1 classify + invalidate
+├── useGroup.ts                # POST /group; on success, replace selection with returned glyph id
+├── useRenameClass.ts          # POST /classes/{name}/rename
+├── useDeleteClass.ts          # DELETE /classes/{name}
+├── useClassSelection.ts       # walks session.glyphs for a class/prefix, calls setSelection
+lib/
+├── classTree.ts               # parses string[] of class names into ClassNode tree (dot-separated)
+```
+
+Modified:
+
+- `api/sessions.ts` — adds `updateGlyphsBulk(...)` helper (not strictly required — `Promise.all(updateGlyph(...))` works fine and keeps the surface minimal; only add a single-call helper if profiling later shows N tiny POSTs are the bottleneck), `manualGroup(id, body)`, `renameClass(id, name, newName)`, `deleteClass(id, name)`.
+- `components/SessionView.tsx` — adds `<ClassTreePanel />` as the first child of the row that currently holds `PageImagePane | GlyphGrid | EditPanel`; manages its open/collapsed state in `uiStore` so it survives session-view re-renders.
+- `components/EditPanel.tsx` — branch on selection size now routes `>=2` to `MultiEditPanel` instead of `MultiSelectionPanel`; the file keeps `SingleEditor` exactly as is.
+- `components/Toolbar.tsx` — no new button (group lives in `MultiEditPanel`); only adds a small `class_names.length` chip next to the glyph count if helpful for orienting the user against the tree.
+- `store/uiStore.ts` — adds `classTreeCollapsed: boolean` + `setClassTreeCollapsed(v: boolean)`; resets on `setSession`/`clearSession`.
+- `lib/format.ts` — no change.
+- `lib/keymap.ts` — no new keys; the Enter-from-anywhere handler in `MultiEditPanel` mirrors the one in `SingleEditor` (separate window listener, same `applyRef` trick).
+
+Removed:
+
+- `components/EditPanel.tsx`'s `MultiSelectionPanel` (deleted — `MultiEditPanel` subsumes it). The bulk-delete button moves with it.
+
+### `MultiEditPanel`
+
+Same width and chrome as `SingleEditor` so the layout doesn't reflow when selection size crosses the 1↔2 boundary.
+
+Top: "N selected · K Neumes, M non-Neumes" header with a Clear (`×`) button. Below, a stacked layout:
+
+- **Class-name editor** — `ClassNameInput` seeded with the most common `class_name` across the K Neume members (`""` if none classified yet). `onApply` calls `applyToMany(value)`.
+- **Apply button** — `Apply to K Neumes` (disabled when K is 0 or `pending` or empty input). Spinner text mirrors `SingleEditor`.
+- **Group button** — `Group as new glyph` opens `GroupDialog`. Disabled when fewer than 2 glyphs are selected (the panel itself only renders for `>=2`, so the gate is really only the Neume-count check — grouping rejects empty/single sets on the backend with a 400, which we let bubble).
+- **Delete button** — `Delete N glyphs` (same red-bordered ghost as today, calls `softDeleteGlyphs`).
+
+`applyToMany(name)`:
+```
+const ids = neumeIds(selectedGlyphIds, session.glyphs);
+if (ids.length === 0 || !name.trim()) return;
+await Promise.all(ids.map(id =>
+  updateGlyph.mutateAsync({ glyphId: id, patch: { class_name: name.trim(), id_state_manual: true } })
+));
+await classify.mutateAsync(1);
+queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
+```
+
+Local state mirrors `SingleEditor` (a `useUpdateGlyphs` hook can wrap this, but the inline shape above is fine and keeps the mutation accounting visible — pick whichever after the first build).
+
+**Enter-from-anywhere**: a window `keydown` listener identical in shape to the one in `SingleEditor`, gated by `isEditableTarget`, calls `applyRef.current()` on Enter. Both listeners coexist safely: only one of `SingleEditor` / `MultiEditPanel` is mounted at a time because `EditPanel` branches on `selectionSize`.
+
+### `GroupDialog`
+
+Radix `Dialog.Root` controlled by `MultiEditPanel`. Body: a `ClassNameInput` (seeded with the dominant class), a Submit button, a Cancel. Submit calls `useGroup`:
+
+```
+const newGlyph = await groupMutation.mutateAsync({ glyph_ids: ids, class_name: name });
+queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
+selectGlyph(newGlyph.id);   // replace selection with the merged glyph
+```
+
+The dialog uses `Dialog.Portal + Dialog.Overlay + Dialog.Content` and Tailwind `data-[state=open]`/`data-[state=closed]` selectors for fade in/out (no extra animation library — Radix sets the data attribute and Tailwind's `data-*` variants handle the rest). Focus management is Radix's default (focus trap on Content, return on close).
+
+### `ClassTreePanel` + `ClassTreeNode`
+
+Width: 200 px expanded, 24 px collapsed. The collapse toggle is a chevron button in the header. State lives in `uiStore` (`classTreeCollapsed`).
+
+Parses `session.class_names` once into a tree via `lib/classTree.ts`:
+
+```ts
+export interface ClassNode {
+  segment: string;          // e.g. "punctum"
+  path: string;             // e.g. "neume.punctum"
+  children: ClassNode[];
+  /** True iff `path` itself appears in the input list (vs. only as a prefix). */
+  isLeafClass: boolean;
+}
+export function buildClassTree(names: string[]): ClassNode[];
+```
+
+Memoize via `useMemo(() => buildClassTree(session.class_names), [session.class_names])`. The default sort is alphabetical per level.
+
+Each `ClassTreeNode` row:
+- `<button>` with twist-arrow + segment label + a small count badge showing how many working-set glyphs match (`useMemo` against `session.glyphs`). Clicking the row toggles expand/collapse.
+- On hover (or focus-within for keyboard), an inline action group slides in to the right with `Select`, `Rename`, `Delete` icons (small Lucide-style SVG inlines kept in `components/ui/icons.tsx` — no icon package needed for three icons).
+- Rename uses an inline edit-in-place: the segment becomes an `<input>` initialized with the current segment. Enter dispatches `useRenameClass` with the full path (renaming only happens on the leaf segment; the API renames the full string in the class list, and re-classifies references — that's a property of the backend's `session.rename_class`, see [api/src/ic_api/main.py#L548-L561](api/src/ic_api/main.py#L548-L561)). Esc cancels.
+- Delete pops `ConfirmDialog`. On confirm, dispatches `useDeleteClass`.
+- Select fires `useClassSelection(node.path, includeSubtree=!node.isLeafClass || node.children.length > 0)`.
+
+Empty state ("No classes yet — apply a class to a glyph to start populating this tree") shows when `class_names` is empty.
+
+### `useClassSelection`
+
+```ts
+export function useClassSelection() {
+  const { data: session } = useSession(/* current sessionId from store */);
+  const setSelection = useUiStore((s) => s.setSelection);
+  return (path: string, includeSubtree: boolean) => {
+    if (!session) return;
+    const prefix = path + ".";
+    const ids = session.glyphs
+      .filter(g => g.class_name === path || (includeSubtree && g.class_name.startsWith(prefix)))
+      .map(g => g.id);
+    setSelection(ids);
+  };
+}
+```
+
+Walking the full glyph list per click is fine — sessions in the working size targeted by Phase B (a few hundred glyphs per page) make this a sub-millisecond pass; no need to index by class name.
+
+### API client additions — `api/sessions.ts`
+
+```ts
+export const manualGroup = (id: string, body: { glyph_ids: string[]; class_name: string }) =>
+  http.post<GlyphDTO>(`/sessions/${id}/group`, body);
+
+export const renameClass = (id: string, name: string, new_name: string) =>
+  http.post<SessionDTO>(`/sessions/${id}/classes/${encodeURIComponent(name)}/rename`, { new_name });
+
+export const deleteClass = (id: string, name: string) =>
+  http.delete<SessionDTO>(`/sessions/${id}/classes/${encodeURIComponent(name)}`);
+```
+
+(The backend returns `SessionDTO` for rename/delete, so the mutation hooks can also `setQueryData(['session', id], dto)` directly and skip an invalidate-refetch round trip — match the Phase A `useCreateSession` pattern.)
+
+### Auto-grouping
+
+Hidden in the UI. Keep `auto-group` out of the API client until the core ships `auto_group_shaped`. If a user ever lands on a 501 (e.g. from a future placeholder button), the existing `ApiError{code:"deferred"}` shape already prints a meaningful message via the toolbar's error state.
+
+### Error handling
+
+All four new mutations route through the existing `http`/`ApiError` plumbing, so:
+
+- `409 state_conflict` (e.g. trying to rename a class on a completed session) bubbles a `state_conflict` toast and the panel becomes read-only.
+- `400 validation_error` for renaming a class to `UNCLASSIFIED` (forbidden by core, see [core/ic_core/state.py](core/ic_core/state.py)) shows inline next to the rename input.
+- `404 not_found` for renaming/deleting a class that's no longer in the list is silently swallowed after a session invalidate (the tree refreshes and the node disappears).
+- A failed bulk-apply leaves partial state intact (the mutations are independent on the backend). The hook collects per-id errors and shows a small "K of N applied" status under the apply button; the user can hit Apply again to re-run on the still-mismatched glyphs.
+
+### Keyboard map (additions)
+
+| Key            | Action                                                                  |
+| -------------- | ----------------------------------------------------------------------- |
+| `Enter`        | Apply current class to all Neumes in the multi-selection (outside input)|
+| `Cmd/Ctrl+G`   | Open `GroupDialog` (when `selectionSize >= 2` and Neume-count >= 2)     |
+| `Cmd/Ctrl+E`   | Focus the multi-edit `ClassNameInput`                                   |
+
+Wired in `keymap.ts` (new `KeyAction` variants `openGroupDialog` / `focusClassEditor`) and dispatched from `SessionView`'s existing window listener. Both gate on `selectionSize >= 2` and `isEditableTarget` short-circuit so they don't fire while typing in the input.
+
+### Packages
+
+No new runtime deps. `@radix-ui/react-dialog` is already in Phase A's package list and is exactly what `GroupDialog` and `ConfirmDialog` use. Three small inline SVG icons live in `components/ui/icons.tsx`; no `lucide-react` import.
+
+### Performance budget
+
+- Bulk apply with 200 glyphs is 200 small POSTs. At ~5 ms/req on localhost, that's ~1 s total; well inside the user's expected feel for a bulk action. If the dataset grows past that, the right move is a backend `PATCH /sessions/{id}/glyphs` taking an array — not orchestration tricks on the client. Don't add it pre-emptively.
+- The class tree rebuild on `session.class_names` change is `O(N log N)` for the sort + `O(N · avg depth)` for the tree build. Sessions have on the order of ~10²-10³ classes max; trivial.
+
+### Verification
+
+End-to-end manual test (Phase C complete = all steps pass):
+
+1. Run `ic-api` + `vite dev`, import a page as in Phase A, do a Phase B lasso to grab 5 Neume glyphs.
+2. `MultiEditPanel` shows in the right rail with "5 selected · 5 Neumes, 0 non-Neumes". Type `punctum`, press Enter (outside any input — i.e. with focus on a tile or bbox). All five glyphs flip to `punctum` with the green manual badge; the grid resorts; the classifier ran once.
+3. Lasso a mixed set (3 Neumes, 2 Text). Header reads "5 selected · 3 Neumes, 2 non-Neumes". Apply: only the 3 Neumes change class; the 2 Text glyphs are untouched and the "Skipping 2 non-Neume glyphs" hint shows.
+4. With 4 glyphs selected, click **Group as new glyph**. `GroupDialog` opens with the dominant class pre-filled; type `clivis`, submit. The 4 source glyphs disappear; one new glyph appears with class `clivis` and the union bbox; selection now contains only the new glyph's id; the right panel switches to `SingleEditor`.
+5. Open `ClassTreePanel`. With `neume.punctum`, `neume.clivis`, `neume.virga`, `text.lyrics` in the class list, the tree shows `neume/` (3 children) and `text/` (1 child). Click the `neume` row's `Select`: every working-set glyph whose class starts with `neume.` is selected (multi-edit panel reappears).
+6. Hover `neume.punctum`, click `Rename`, change to `punctum`, Enter. The tree refreshes (`punctum` is now top-level; the previously-classified glyphs' tiles show the new class name).
+7. Hover `text.lyrics`, click `Delete`. `ConfirmDialog` opens; confirm. The class disappears from the tree; any glyph that had `class_name === "text.lyrics"` keeps its label visible in italic slate but the autocomplete no longer offers it.
+8. Press `Cmd/Ctrl+G` with 2+ glyphs selected — opens `GroupDialog`. Press `Cmd/Ctrl+E` — focuses the multi-edit `ClassNameInput`. Both keys do nothing while typing inside any input.
+9. Collapse the `ClassTreePanel` via its chevron; the page image and grid expand. Reopen the session (or refresh): the panel is back open (state lives in `uiStore` and resets on `setSession`, which is the right behaviour — page-specific, not browser-persisted).
+10. Click "Complete & Export". XML reflects the renamed classes, the merged group glyph, and the still-soft-deleted exclusions from Phase B.
+
+If a step fails, isolate to: bulk-mutation orchestration (`Promise.all` ordering vs. invalidate timing), class-tree parsing (off-by-one on `isLeafClass`), or the `selectionSize` branching in `EditPanel`.
+
+### Future — split one bbox into many (sketch)
+
+Inverse of manual grouping: take one glyph whose detector bbox spans several true glyphs (a common MOTHRA failure mode) and cut it into N replacement glyphs.
+
+- **Trigger** — toolbar/`SingleEditor` button "Split…" visible when exactly one glyph is selected. Opens a `SplitDialog` (Radix `Dialog`, larger than `GroupDialog`).
+- **Dialog content** — the page-image region covered by the source glyph's bbox, cropped and zoomed to fill the dialog (reuse `PageImagePane`'s `<svg viewBox>` trick so coordinates stay in image space). User drags one or more lassos inside the crop; each release commits a sub-rect to a local `parts: Rect[]` list, drawn in a distinct color and labelled by index. Per-part: a small inline `ClassNameInput` seeded from the source glyph's `class_name`, and an `×` to drop the part.
+- **Submit** — calls a new `POST /sessions/{id}/glyphs/{gid}/split` endpoint with `{parts: [{ulx, uly, ncols, nrows, class_name}, ...]}`. Backend responsibility: crop each rect out of the source glyph's image, create N new glyphs (manual, since the user drew them), delete the source. Frontend invalidates the session and selects the new glyph ids.
+- **Lasso reuse** — the same `useLasso` machine from Phase B drives the inside-dialog drag, just bound to a smaller container and with no Neume-only filter (it's drawing rects, not picking glyphs). Marquee styling is shared via `LassoLayer`.
+- **Why deferred** — the backend endpoint and the pixel-cropping in `ic_core` don't exist yet. The MOTHRA category model also has no place for "child of split source", which we may or may not need to track for provenance. Hold for Phase D / a dedicated split spike.
+
+Until that lands, users work around the case by deleting the over-spanning bbox and re-running MOTHRA upstream — not great, but no data is lost.
 
 ## Critical files
 
