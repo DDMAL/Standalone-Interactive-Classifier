@@ -180,13 +180,167 @@ clsx ^2.1
 
 Single binary, one config file, ~10× faster than eslint+prettier, native TS/JSX. No Phase A imports need eslint-only plugins.
 
-## Phase B — Page-image lasso + zoom (sketch only)
+## Phase B — Page-image overlay, multi-select, zoom (implement next)
 
-- Replace `<img>` with `<canvas>` (or layered `<img>` + absolutely-positioned `<svg>` for crisp bbox strokes); wrap in a CSS-transform zoom container.
-- Render one rect per glyph from `ulx/uly/ncols/nrows`; fill on hover, stroke on `selectedGlyphIds.has(id)`.
-- Pointer-down on empty area starts a lasso rect; pointer-up commits intersecting ids into `uiStore.selectedGlyphIds`. Shift-drag = union, plain drag = replace.
-- Keyboard: `+`/`=` zoom in, `-` zoom out (anchor at cursor), `0` reset, arrow keys pan.
-- `GlyphGrid` reads the same selection set and scrolls the first selection into view via the virtualizer's `scrollToIndex`.
+### Goals
+
+Make the page image first-class. Phase A treats it as a passive thumbnail; Phase B lights up bboxes, links the page pane and the glyph grid through a shared selection set, and adds zoom/pan/lasso. **No mutations change** — Phase B is pure UI plumbing on top of `SessionDTO`. Multi-edit is deferred to Phase C, so when ≥2 glyphs are selected the `EditPanel` shows a count + hint, not an editor.
+
+### Workflow Phase B must support
+
+1. Page image renders with one bbox per glyph drawn from `ulx/uly/ncols/nrows`. Hover highlights, click selects.
+2. Click on a tile in the grid highlights its bbox on the page; click on a bbox scrolls the matching tile into view in the grid and opens (or keeps) the `EditPanel`.
+3. Pointer-drag on empty page area draws a lasso; release commits intersecting glyph ids to `selectedGlyphIds`. `Shift`/`Cmd`-drag unions with the current selection; plain drag replaces.
+4. `Shift`/`Cmd`-click on either a tile or a bbox toggles that id in the selection set.
+5. `+` / `=` zooms in, `-` zooms out (anchored at the cursor), `0` resets, arrow keys pan, `Esc` clears selection.
+6. Selecting 2+ glyphs disables the single-glyph editor and shows a "N selected — multi-edit in Phase C" placeholder; selecting exactly 1 behaves like Phase A.
+
+### Selection model — promote `selectedGlyphIds` to source of truth
+
+`uiStore` becomes set-first. `selectedGlyphId` is derived as "the most recently added id" (the primary, used for `EditPanel` framing).
+
+```ts
+interface UiState {
+  // ...
+  selectedGlyphIds: Set<string>;
+  primaryGlyphId: string | null;            // last clicked / lasso-anchor; null when set is empty
+  selectGlyph(id: string | null): void;     // replace selection with {id}
+  toggleGlyph(id: string): void;            // shift/cmd-click
+  setSelection(ids: Iterable<string>): void;// lasso commit (replace)
+  extendSelection(ids: Iterable<string>): void; // lasso commit with modifier (union)
+  clearSelection(): void;
+}
+```
+
+`ClassSection` and `EditPanel` switch from reading `selectedGlyphId` to reading `selectedGlyphIds` (membership test) and `primaryGlyphId` (for the panel). The old `selectGlyph(id)` keeps its replace-semantics so existing call sites are unchanged.
+
+### Files
+
+New under `src/`:
+
+```
+components/
+├── PageOverlay.tsx     # absolutely-positioned <svg> sibling of the <img>
+├── BBoxLayer.tsx       # one <rect> per glyph, memoized
+├── LassoLayer.tsx      # mounts during pointer-drag, draws marquee
+├── ZoomPanContainer.tsx# CSS-transform wrapper; consumes useZoomPan
+hooks/
+├── useZoomPan.ts       # scale + translate state, wheel/keyboard handlers
+├── useLasso.ts         # pointerdown→move→up state machine, returns rect + committing ids
+├── useSelectionSync.ts # scrolls primary tile into view when primary changes
+lib/
+├── bbox.ts             # rect intersect, image-space ↔ overlay-space conversion
+└── keymap.ts           # central key→action table for Phase B shortcuts
+```
+
+Modify:
+
+- `components/PageImagePane.tsx` — replace bare `<img>` with `ZoomPanContainer > {img, PageOverlay}`; capture `naturalWidth/Height` from `img.onload` for coordinate scaling.
+- `components/SessionView.tsx` — own the keyboard listener (`useEffect` on `window`), dispatch to `useZoomPan` + `uiStore`.
+- `components/GlyphTile.tsx` — accept `selected` from set membership; `onClick` reads `event.shiftKey || event.metaKey` to call `toggleGlyph` vs `selectGlyph`.
+- `components/ClassSection.tsx` — pull `selectedGlyphIds` (not `selectedGlyphId`); attach a `ref` to the primary tile so `useSelectionSync` can scroll it into view.
+- `components/EditPanel.tsx` — branch on `selectedGlyphIds.size`: 0 → empty state, 1 → existing editor, ≥2 → multi-selection placeholder.
+- `store/uiStore.ts` — see "Selection model" above; on `clearSession`, also clear `primaryGlyphId`.
+
+### `PageOverlay` and coordinate space
+
+Page image is drawn at its natural size scaled by CSS (`max-w-full` today). The overlay `<svg>` mounts as a sibling with `position: absolute; inset: 0` and `viewBox="0 0 naturalWidth naturalHeight"` so bbox coordinates can be used **as-is** — no per-rect math. `preserveAspectRatio="xMinYMin meet"` keeps it locked to the image even while the zoom container scales the wrapper.
+
+```tsx
+<svg
+  viewBox={`0 0 ${naturalW} ${naturalH}`}
+  preserveAspectRatio="xMinYMin meet"
+  className="absolute inset-0 h-full w-full pointer-events-auto"
+>
+  {glyphs.map(g => (
+    <rect
+      key={g.id}
+      x={g.ulx} y={g.uly} width={g.ncols} height={g.nrows}
+      className={bboxClass(g.id, selectedIds, hoverId)}
+      vectorEffect="non-scaling-stroke"  // crisp 1px stroke at every zoom level
+      onPointerEnter={...} onPointerLeave={...} onClick={...}
+    />
+  ))}
+</svg>
+```
+
+`vectorEffect="non-scaling-stroke"` is the key trick — strokes stay 1 CSS pixel wide regardless of zoom level, so deep zoom doesn't paint fat outlines.
+
+### `useZoomPan`
+
+State: `{ scale: number; tx: number; ty: number }`. Applied as `transform: translate(tx, ty) scale(scale)` on `ZoomPanContainer`'s inner div.
+
+- Wheel with `ctrlKey` (trackpad pinch) or plain wheel → zoom around cursor: compute new scale (clamped to `[0.25, 8]`), then adjust `tx/ty` so the cursor's image-space point stays under the cursor.
+- Wheel without modifier → pan (`tx -= dx; ty -= dy`).
+- `+`/`=`/`-`/`0` from `keymap.ts` call into the same zoom-at-anchor helper, using the container center as the anchor.
+- Arrow keys nudge `tx/ty` by a constant step (e.g. 40 px / scale).
+
+Expose `screenToImage(point)` for the lasso hook.
+
+### `useLasso`
+
+State machine, returns `{ rect | null, modifier }`. Phases:
+
+1. `pointerdown` on overlay background (not on a `<rect>`) → record anchor in image coords, set capture, remember `event.shiftKey || event.metaKey`.
+2. `pointermove` → update rect; ask `BBoxLayer` for hover preview (id set whose bbox intersects rect).
+3. `pointerup` → commit: `extendSelection(ids)` if modifier else `setSelection(ids)`. If rect collapsed to ~0px and didn't move, treat as background click → `clearSelection()`.
+
+Intersection helper in `lib/bbox.ts`:
+
+```ts
+export function intersects(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+```
+
+For pages with many glyphs (>2k), the lasso move-handler can become a redraw bottleneck. Mitigate by:
+- Updating the marquee `<rect>` via `requestAnimationFrame` (not per `pointermove`).
+- Computing the hit set only on `pointerup`, not during drag (no live preview of which boxes are inside — only the marquee draws).
+
+### Keyboard map
+
+| Key                          | Action                                       |
+| ---------------------------- | -------------------------------------------- |
+| `+` / `=`                    | Zoom in, anchored at container center        |
+| `-`                          | Zoom out                                     |
+| `0`                          | Reset zoom + pan                             |
+| `Esc`                        | `clearSelection()`                           |
+| Arrow keys                   | Pan                                          |
+| `Shift`/`Cmd`-click          | Toggle id in selection (tile *or* bbox)      |
+| `Shift`/`Cmd`-drag on page   | Lasso union with current selection           |
+
+Handlers live in a single `useEffect` in `SessionView`; bail out if `document.activeElement` is an input (so the autocomplete in `EditPanel` isn't intercepted).
+
+### `useSelectionSync`
+
+Subscribes to `primaryGlyphId`. When it changes and the primary glyph isn't on screen in the grid, calls `tileRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" })`. `ClassSection` registers tile refs in a `Map<glyphId, HTMLButtonElement>` exposed via `useImperativeHandle` or a small store-scoped ref bag (`lib/tileRefs.ts`).
+
+This replaces the originally-sketched `virtualizer.scrollToIndex`, which doesn't apply — Phase A's grid is CSS-grid, not virtualized.
+
+### Performance budget
+
+The session sizes we expect (a few hundred glyphs per page) render fine as plain SVG. Add a fallback only if measured. Threshold guidance:
+
+- ≤ ~2,000 rects: keep all-SVG; one DOM node per glyph is cheap.
+- > ~2,000: split layers — render unselected bboxes into an offscreen `<canvas>` (single draw per zoom/data change), keep selected/hover on SVG (small N, easy hit testing). Defer this branch until profiling justifies it.
+
+### Packages
+
+No new runtime deps. `vectorEffect`, `pointer events`, and CSS transforms are baseline. Reuse `clsx` for the rect className table.
+
+### Verification
+
+End-to-end manual test (Phase B complete = all six steps pass):
+
+1. Run `ic-api` + `vite dev` and import a page as in Phase A.
+2. Confirm one bbox is drawn per glyph, aligned to the underlying art at every zoom level (no drift on zoom — that's the `vectorEffect` + `viewBox` test).
+3. Hover a bbox: it highlights. Hover the corresponding tile in the grid: the same bbox highlights. (Two-way hover linkage.)
+4. Click a bbox: the matching tile scrolls into view in the grid, `EditPanel` shows that glyph.
+5. Drag a lasso across several glyphs: on release, all overlapping tiles show selected styling. `Shift`-drag again over a different region: the new ids union with the previous selection. `Esc` clears.
+6. Press `+` three times then `-` once, then `0`. The image scales and resets; bbox strokes stay 1px throughout. Arrow keys pan within the container; trackpad pinch zoom anchors at the cursor.
+7. With 3 glyphs selected, the `EditPanel` shows "3 selected — multi-edit in Phase C" and the autocomplete is hidden. Selecting exactly 1 restores the Phase A editor.
+
+If a step fails, isolate to: coordinate space (overlay viewBox), selection wiring (set vs. primary), or input focus (keyboard listener leaking into the autocomplete).
 
 ## Phase C — Multi-edit + class management + manual grouping (sketch only)
 
