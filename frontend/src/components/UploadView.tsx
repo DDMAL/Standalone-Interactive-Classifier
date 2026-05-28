@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/Button";
 import { useCreateSession } from "@/hooks/useCreateSession";
 import { useTrainingSets } from "@/hooks/useTrainingSets";
+import { useVocabularies, useVocabularyClasses } from "@/hooks/useVocabularies";
 import type { AnnotationFormat } from "@/types/api";
 import { type FormEvent, useState } from "react";
 
@@ -9,8 +10,11 @@ export function UploadView() {
   const [annotations, setAnnotations] = useState<File | null>(null);
   const [format, setFormat] = useState<AnnotationFormat>("json");
   const [trainingXml, setTrainingXml] = useState("");
+  const [vocabulary, setVocabulary] = useState("");
   const create = useCreateSession();
   const trainingSets = useTrainingSets();
+  const vocabularies = useVocabularies();
+  const vocabClasses = useVocabularyClasses(vocabulary);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -20,6 +24,7 @@ export function UploadView() {
       annotations,
       annotationsFormat: format,
       trainingXml: trainingXml || undefined,
+      vocabulary: vocabulary || undefined,
     });
   }
 
@@ -97,6 +102,56 @@ export function UploadView() {
                 : "Pick a pre-built training set to auto-classify the page."}
           </span>
         </label>
+
+        <label className="block text-sm">
+          <span className="mb-1 block font-medium text-slate-700">
+            Vocabulary{" "}
+            <span className="font-normal text-slate-400">(optional)</span>
+          </span>
+          <select
+            value={vocabulary}
+            onChange={(e) => setVocabulary(e.target.value)}
+            disabled={vocabularies.isLoading}
+            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+          >
+            <option value="">None</option>
+            {(vocabularies.data ?? []).map((name) => (
+              <option key={name} value={name}>
+                {name}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1 block text-xs font-normal text-slate-400">
+            {vocabularies.isError
+              ? "Could not load vocabularies."
+              : "Pick a vocabulary to seed the available class names."}
+          </span>
+        </label>
+
+        {vocabulary && (
+          <div className="text-sm">
+            <span className="mb-1 block font-medium text-slate-700">
+              Available classes{" "}
+              {vocabClasses.data && (
+                <span className="font-normal text-slate-400">
+                  ({vocabClasses.data.length})
+                </span>
+              )}
+            </span>
+            <textarea
+              readOnly
+              value={
+                vocabClasses.isLoading
+                  ? "Loading…"
+                  : vocabClasses.isError
+                    ? "Could not load class names."
+                    : (vocabClasses.data ?? []).join("\n")
+              }
+              rows={6}
+              className="w-full resize-y rounded border border-slate-200 bg-slate-50 px-2 py-1.5 font-mono text-xs text-slate-600"
+            />
+          </div>
+        )}
 
         {create.isError && (
           <p className="text-sm text-red-600">

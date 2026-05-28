@@ -14,6 +14,7 @@ export default defineConfig({
     proxy: {
       "/sessions": "http://127.0.0.1:8000",
       "/training-sets": "http://127.0.0.1:8000",
+      "/vocabularies": "http://127.0.0.1:8000",
     },
   },
 });

@@ -13,6 +13,8 @@ export interface CreateSessionArgs {
   classNames?: string[];
   /** Filename of a pre-built training set (see {@link listTrainingSets}). */
   trainingXml?: string;
+  /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
+  vocabulary?: string;
 }
 
 export function createSession(args: CreateSessionArgs): Promise<SessionDTO> {
@@ -26,12 +28,21 @@ export function createSession(args: CreateSessionArgs): Promise<SessionDTO> {
   if (args.trainingXml) {
     form.append("training_xml", args.trainingXml);
   }
+  if (args.vocabulary) {
+    form.append("vocabulary", args.vocabulary);
+  }
   return http.postForm<SessionDTO>("/sessions", form);
 }
 
 /** List the pre-built training-set XML filenames under core/data/derived. */
-export const listTrainingSets = () =>
-  http.get<string[]>("/training-sets");
+export const listTrainingSets = () => http.get<string[]>("/training-sets");
+
+/** List the vocabulary CSV filenames under core/data/train. */
+export const listVocabularies = () => http.get<string[]>("/vocabularies");
+
+/** Fetch the distinct class names of a vocabulary CSV for preview. */
+export const getVocabularyClasses = (name: string) =>
+  http.get<string[]>(`/vocabularies/${encodeURIComponent(name)}/classes`);
 
 export const getSession = (id: string) =>
   http.get<SessionDTO>(`/sessions/${id}`);
