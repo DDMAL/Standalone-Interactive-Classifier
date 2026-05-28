@@ -2,24 +2,60 @@ import { EditPanel } from "@/components/EditPanel";
 import { GlyphGrid } from "@/components/GlyphGrid";
 import { PageImagePane } from "@/components/PageImagePane";
 import { Toolbar } from "@/components/Toolbar";
+import { useSelectionSync } from "@/hooks/useSelectionSync";
 import { useSession } from "@/hooks/useSession";
+import { useZoomPan } from "@/hooks/useZoomPan";
 import { byConfidenceAsc } from "@/lib/format";
+import { actionForKey, isEditableTarget } from "@/lib/keymap";
 import { useUiStore } from "@/store/uiStore";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 export function SessionView({ sessionId }: { sessionId: string }) {
   const { data: session, isLoading, isError, error } = useSession(sessionId);
-  const selectedGlyphId = useUiStore((s) => s.selectedGlyphId);
+  const selectedGlyphIds = useUiStore((s) => s.selectedGlyphIds);
+  const primaryGlyphId = useUiStore((s) => s.primaryGlyphId);
+  const clearSelection = useUiStore((s) => s.clearSelection);
+  const zoomPan = useZoomPan();
+
+  useSelectionSync();
 
   const sortedGlyphs = useMemo(
     () => (session ? [...session.glyphs].sort(byConfidenceAsc) : []),
     [session],
   );
 
-  const selectedGlyph = useMemo(
-    () => session?.glyphs.find((g) => g.id === selectedGlyphId) ?? null,
-    [session, selectedGlyphId],
+  const primaryGlyph = useMemo(
+    () => session?.glyphs.find((g) => g.id === primaryGlyphId) ?? null,
+    [session, primaryGlyphId],
   );
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (isEditableTarget(e.target)) return;
+      const action = actionForKey(e);
+      if (!action) return;
+      switch (action.type) {
+        case "zoomIn":
+          zoomPan.zoomIn();
+          break;
+        case "zoomOut":
+          zoomPan.zoomOut();
+          break;
+        case "zoomReset":
+          zoomPan.reset();
+          break;
+        case "clearSelection":
+          clearSelection();
+          break;
+        case "pan":
+          zoomPan.pan(action.dx, action.dy);
+          break;
+      }
+      e.preventDefault();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [zoomPan, clearSelection]);
 
   if (isLoading) {
     return (
@@ -36,17 +72,21 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     );
   }
 
+  const selectionSize = selectedGlyphIds.size;
+  const showEditPanel = selectionSize >= 1;
+
   return (
     <div className="flex h-full flex-col">
       <Toolbar sessionId={sessionId} glyphCount={session.glyphs.length} />
       <div className="flex min-h-0 flex-1">
-        <PageImagePane />
+        <PageImagePane glyphs={session.glyphs} zoomPan={zoomPan} />
         <GlyphGrid glyphs={sortedGlyphs} />
-        {selectedGlyph && (
+        {showEditPanel && (
           <EditPanel
-            key={selectedGlyph.id}
+            key={selectionSize === 1 ? (primaryGlyphId ?? "primary") : "multi"}
             sessionId={sessionId}
-            glyph={selectedGlyph}
+            primaryGlyph={primaryGlyph}
+            selectionSize={selectionSize}
             classNames={session.class_names}
           />
         )}

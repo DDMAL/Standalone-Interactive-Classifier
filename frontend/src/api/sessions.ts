@@ -65,6 +65,9 @@ export const updateGlyph = (
   patch: UpdateGlyphArgs,
 ) => http.post<GlyphDTO>(`/sessions/${id}/glyphs/${glyphId}`, patch);
 
+export const deleteGlyph = (id: string, glyphId: string) =>
+  http.delete(`/sessions/${id}/glyphs/${glyphId}`);
+
 export const saveSession = (id: string) =>
   http.post<SessionDTO>(`/sessions/${id}/save`);
 
