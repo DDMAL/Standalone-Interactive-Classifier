@@ -39,6 +39,7 @@ What's deliberately missing in v1
 """
 from __future__ import annotations
 
+import csv
 import json
 import os
 from pathlib import Path
@@ -150,6 +151,96 @@ def resolve_training_set(name: str) -> Path:
     return derived_dir() / name
 
 
+# ---------------------------------------------------------------------------
+# Vocabulary files
+# ---------------------------------------------------------------------------
+#
+# A "vocabulary" is the set of class names the user wants available for a
+# session, independent of any training database. They live as CSV files
+# under ``core/data/train`` (e.g. ``csv-hufnagel_neume_level_newest.csv``)
+# and the class names are the distinct values of the ``classification``
+# column. The frontend offers them as a second dropdown on the upload
+# screen and previews the resulting class list; the chosen file's classes
+# seed the session's autocomplete vocabulary.
+#
+# The directory may be overridden via ``IC_TRAIN_DIR``. As with training
+# sets, a client-supplied name is validated against the enumerated listing
+# before any disk access, so path traversal cannot escape the directory.
+
+# Column whose distinct values make up a vocabulary's class names.
+VOCABULARY_CLASS_COLUMN = "classification"
+
+
+def train_dir() -> Path:
+    """Directory holding the vocabulary CSV files."""
+    override = os.environ.get("IC_TRAIN_DIR")
+    if override:
+        return Path(override)
+    # main.py → ic_api → src → api → <repo root>
+    repo_root = Path(__file__).resolve().parents[3]
+    return repo_root / "core" / "data" / "train"
+
+
+def _has_classification_column(path: Path) -> bool:
+    """True if ``path`` is a CSV whose header includes the class column.
+
+    This is what separates a vocabulary file from the other CSVs in the
+    directory (VIA annotation exports, etc.), which have no
+    ``classification`` column.
+    """
+    try:
+        with path.open(newline="", encoding="utf-8") as fh:
+            header = next(csv.reader(fh), [])
+    except (OSError, UnicodeDecodeError):
+        return False
+    return VOCABULARY_CLASS_COLUMN in header
+
+
+def list_vocabularies() -> list[str]:
+    """Return the sorted filenames of every vocabulary CSV in :func:`train_dir`."""
+    root = train_dir()
+    if not root.is_dir():
+        return []
+    return sorted(
+        p.name
+        for p in root.glob("*.csv")
+        if p.is_file() and _has_classification_column(p)
+    )
+
+
+def resolve_vocabulary(name: str) -> Path:
+    """Map a client-supplied vocabulary filename to a safe on-disk path.
+
+    Raises:
+        ValueError: If ``name`` is not one of the files enumerated by
+            :func:`list_vocabularies` (guards against path traversal and
+            typos alike).
+    """
+    if name not in list_vocabularies():
+        available = ", ".join(list_vocabularies()) or "(none)"
+        raise ValueError(
+            f"Unknown vocabulary {name!r}. Available: {available}"
+        )
+    return train_dir() / name
+
+
+def vocabulary_classes(name: str) -> list[str]:
+    """Return the sorted distinct class names in a vocabulary CSV.
+
+    The class names are the non-empty values of the
+    :data:`VOCABULARY_CLASS_COLUMN` column. ``name`` is validated via
+    :func:`resolve_vocabulary` first.
+    """
+    path = resolve_vocabulary(name)
+    with path.open(newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        names = {
+            (row.get(VOCABULARY_CLASS_COLUMN) or "").strip()
+            for row in reader
+        }
+    return sorted(n for n in names if n)
+
+
 # Why every handler goes through ``store.session(...)``:
 # The store's registry lock keeps the dict thread-safe, but a
 # retrieved :class:`Session` is a plain mutable object. Two requests
@@ -214,6 +305,28 @@ def get_training_sets() -> list[str]:
     return list_training_sets()
 
 
+@app.get("/vocabularies", response_model=list[str])
+def get_vocabularies() -> list[str]:
+    """List the vocabulary CSV filenames available for selection.
+
+    These are the CSVs under ``core/data/train`` that carry a
+    ``classification`` column. The frontend renders them as a dropdown on
+    the upload screen; the chosen filename is passed back as the
+    ``vocabulary`` field of :func:`create_session`.
+    """
+    return list_vocabularies()
+
+
+@app.get("/vocabularies/{name}/classes", response_model=list[str])
+def get_vocabulary_classes(name: str) -> list[str]:
+    """Return the sorted distinct class names in a vocabulary CSV.
+
+    The frontend fetches this when a vocabulary is selected to preview the
+    available class names before the session starts.
+    """
+    return vocabulary_classes(name)
+
+
 @app.post("/sessions", response_model=SessionDTO, status_code=201)
 async def create_session(
     page_image: Annotated[UploadFile, File(description="Full-page image.")],
@@ -252,6 +365,17 @@ async def create_session(
             ),
         ),
     ] = None,
+    vocabulary: Annotated[
+        str | None,
+        Form(
+            description=(
+                "Optional filename of a vocabulary CSV under core/data/train "
+                "(see GET /vocabularies). When given, the distinct values of "
+                "its 'classification' column seed the session's class-name "
+                "list (autocomplete vocabulary)."
+            ),
+        ),
+    ] = None,
 ) -> SessionDTO:
     """Create a session and ingest a page + bbox upload.
 
@@ -281,6 +405,13 @@ async def create_session(
             isinstance(n, str) for n in parsed_names
         ):
             raise ValueError("class_names must be a JSON list of strings.")
+
+    # A selected vocabulary contributes its class names to the same
+    # autocomplete pool as an explicit ``class_names`` list. Resolving it
+    # here (before uploads) also fails fast on a bad filename with a 400.
+    if vocabulary:
+        vocab_names = vocabulary_classes(vocabulary)
+        parsed_names = sorted(set(parsed_names or []) | set(vocab_names))
 
     # Resolve the optional training set *before* touching uploads so a
     # bad filename fails fast with a 400 rather than after the work.
