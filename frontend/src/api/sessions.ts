@@ -76,6 +76,14 @@ export interface ManualGroupArgs {
 export const manualGroup = (id: string, body: ManualGroupArgs) =>
   http.post<GlyphDTO>(`/sessions/${id}/group`, body);
 
+export interface SplitArgs {
+  /** Page-coordinate rectangles as [ulx, uly, ncols, nrows] tuples. */
+  regions: [number, number, number, number][];
+}
+
+export const splitGlyph = (id: string, glyphId: string, body: SplitArgs) =>
+  http.post<GlyphDTO[]>(`/sessions/${id}/glyphs/${glyphId}/split`, body);
+
 export const renameClass = (id: string, name: string, new_name: string) =>
   http.post<SessionDTO>(
     `/sessions/${id}/classes/${encodeURIComponent(name)}/rename`,

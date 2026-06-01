@@ -233,8 +233,8 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
           Split glyph…
         </Button>
         <p className="mt-2 text-xs text-slate-400">
-          Cut this bbox into multiple glyphs. Placeholder — backend support
-          ships in a later phase.
+          Draw rectangles over this glyph to cut it into multiple unclassified
+          children, re-labelled on the next round.
         </p>
       </div>
 
@@ -255,6 +255,7 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
       <SplitDialog
         open={splitOpen}
         onOpenChange={setSplitOpen}
+        sessionId={sessionId}
         glyph={glyph}
       />
     </aside>
