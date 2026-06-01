@@ -643,17 +643,17 @@ End-to-end manual test (Phase C complete = all steps pass):
 
 If a step fails, isolate to: bulk-mutation orchestration (`Promise.all` ordering vs. invalidate timing), class-tree parsing (off-by-one on `isLeafClass`), or the `selectionSize` branching in `EditPanel`.
 
-### Future — split one bbox into many (sketch)
+### Split one bbox into many — shipped
 
-Inverse of manual grouping: take one glyph whose detector bbox spans several true glyphs (a common MOTHRA failure mode) and cut it into N replacement glyphs.
+Inverse of manual grouping: take one glyph whose detector bbox spans several true glyphs (a common MOTHRA failure mode) and cut it into N replacement glyphs. The CCA-based auto-splitter was rejected — real neume crops have touching strokes, ligatures, and binarisation noise that defeats connected-components analysis. The manual rectangle-drawing flow handles both the easy and the hard cases at the cost of a user click.
 
-- **Trigger** — toolbar/`SingleEditor` button "Split…" visible when exactly one glyph is selected. Opens a `SplitDialog` (Radix `Dialog`, larger than `GroupDialog`).
-- **Dialog content** — the page-image region covered by the source glyph's bbox, cropped and zoomed to fill the dialog (reuse `PageImagePane`'s `<svg viewBox>` trick so coordinates stay in image space). User drags one or more lassos inside the crop; each release commits a sub-rect to a local `parts: Rect[]` list, drawn in a distinct color and labelled by index. Per-part: a small inline `ClassNameInput` seeded from the source glyph's `class_name`, and an `×` to drop the part.
-- **Submit** — calls a new `POST /sessions/{id}/glyphs/{gid}/split` endpoint with `{parts: [{ulx, uly, ncols, nrows, class_name}, ...]}`. Backend responsibility: crop each rect out of the source glyph's image, create N new glyphs (manual, since the user drew them), delete the source. Frontend invalidates the session and selects the new glyph ids.
-- **Lasso reuse** — the same `useLasso` machine from Phase B drives the inside-dialog drag, just bound to a smaller container and with no Neume-only filter (it's drawing rects, not picking glyphs). Marquee styling is shared via `LassoLayer`.
-- **Why deferred** — the backend endpoint and the pixel-cropping in `ic_core` don't exist yet. The MOTHRA category model also has no place for "child of split source", which we may or may not need to track for provenance. Hold for Phase D / a dedicated split spike.
+- **Trigger** — `SingleEditor`'s "Split glyph…" button (always present when exactly one glyph is selected). Opens `SplitDialog`.
+- **Dialog content** — the source glyph's image_b64 rendered with `image-rendering: pixelated` so binarisations stay legible under zoom, with an absolute-positioned `<svg viewBox="0 0 ncols nrows">` sibling whose coordinate space matches the parent's pixel grid. Drag commits one rectangle to local `rects: Rect[]` state per drag; each rect is rendered with a numbered emerald badge and a `×` button (via `<foreignObject>`) for removal. A `Clear all` button wipes the list. Pointer events are bounded to the glyph's bbox, so users can't draw outside.
+- **Submit** — calls `POST /sessions/{id}/glyphs/{gid}/split` with `{regions: [[ulx, uly, ncols, nrows], ...]}` in **page coordinates** (rects are translated from glyph-local on submit by adding the source's `ulx`/`uly`). Backend returns the list of children; frontend invalidates the session and clears the selection (children are `UNCLASSIFIED` with `confidence=0`, so they surface at the top of the ascending-confidence queue for one-at-a-time labelling — sending them through multi-edit would be the wrong default since they likely don't share a class).
+- **Coordinate snap** — `snapToPixels` rounds drag corners to integers and clips to `[0, ncols) × [0, nrows)`; zero-area rects are discarded silently (the backend would reject `ncols <= 0` anyway). Drawing is its own state machine inline in `SplitDialog` rather than reusing `useLasso`, because lasso semantics commit to a global selection while split semantics commit to a local list.
+- **Error handling** — the API's "every region misses the parent's bbox" 400 surfaces as inline red text under the canvas; the dialog stays open so the user can adjust without losing their work. Other errors (state_conflict, etc.) propagate through the standard `ApiError` plumbing.
 
-Until that lands, users work around the case by deleting the over-spanning bbox and re-running MOTHRA upstream — not great, but no data is lost.
+Files: [components/SplitDialog.tsx](src/components/SplitDialog.tsx), [hooks/useSplit.ts](src/hooks/useSplit.ts), `splitGlyph` in [api/sessions.ts](src/api/sessions.ts). Wires through to `ic_core.splitting.manual_split` via `Session.manual_split`.
 
 ## Critical files
 

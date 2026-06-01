@@ -8,7 +8,9 @@ You want to move it into a **non-Django Python web app, without Gamera, with a R
 
 **Input format change:** the original IC sat downstream of a connected-components-analysis (CCA) job that segmented a full page into glyphs and emitted a GameraXML file. **This project removes that upstream CCA stage.** The new system takes **a full-page image paired with a bounding-box annotation document** (MOTHRA JSON or YOLO TXT, produced by an upstream detector) and crops glyphs on the fly at ingestion time. No CC XML, no pre-segmented per-neume PNGs.
 
-**Scope decision — manual grouping kept, auto-grouping deferred.** The legacy IC supported two grouping flavours: *manual* (union N user-selected glyphs into one new training example) and *automatic* (build a spatial-adjacency graph over the working set, propose merges). We **keep manual grouping** because it gives the user a way to build composite training examples in-session, and the page-coordinate frame inherited from the bbox annotations makes the union geometry well-defined. We **defer auto-grouping** because the call on which adjacency function to use (`ShapedGroupingFunction` vs. `BoundingBoxGroupingFunction`) and how to gate runaway graphs hasn't been made yet; the public API for it exists as a stub that raises `NotImplementedError`, and the HTTP endpoint returns 501. Splitting (`_split`) remains out of scope — a crop containing multiple neumes is a defect in the upstream detector, not something IC should patch over.
+**Scope decision — manual grouping kept, auto-grouping deferred.** The legacy IC supported two grouping flavours: *manual* (union N user-selected glyphs into one new training example) and *automatic* (build a spatial-adjacency graph over the working set, propose merges). We **keep manual grouping** because it gives the user a way to build composite training examples in-session, and the page-coordinate frame inherited from the bbox annotations makes the union geometry well-defined. We **defer auto-grouping** because the call on which adjacency function to use (`ShapedGroupingFunction` vs. `BoundingBoxGroupingFunction`) and how to gate runaway graphs hasn't been made yet; the public API for it exists as a stub that raises `NotImplementedError`, and the HTTP endpoint returns 501.
+
+**Scope decision — manual splitting kept, algorithmic splitting dropped.** Splitting follows the same manual-only pattern. **Manual splitting (user-drawn rectangles)** is implemented in `splitting.manual_split`: the user draws N axis-aligned rectangles on a parent glyph, and the core slices the parent's mask into N new `UNCLASSIFIED` glyphs (fresh UUIDs, `confidence=0`, `id_state_manual=False`) so the next classify round labels them. **Algorithmic splitting** via Gamera's `segmentation.cc_analysis` (or any CCA-based heuristic) stays out of scope — real-world neume crops are too complex for connected-components analysis to handle reliably (touching strokes, ligatures, binarisation artefacts that bridge marks). The manual escape hatch handles both easy and hard cases at the cost of a user click and avoids the false-confidence failure mode of a fragile auto-splitter.
 
 **Scope decision — kNN is implemented dependency-free.** Rather than reach for `scikit-learn`, we ship a hand-rolled numpy kNN inside `ic_core` (see Phase 1). The math is small (standardise features, compute pairwise Euclidean distances, take the `k` smallest), the dataset sizes we care about (≪10⁵ training glyphs) run fast in plain numpy, and dropping the sklearn dependency keeps the wheel lean and the algorithm fully auditable. If we ever outgrow this, a KD-/Ball-tree can be swapped in behind the same `InteractiveClassifier` API.
 
@@ -35,7 +37,7 @@ Three loosely coupled layers, each independently testable:
 │  Algorithm core (pure Python pkg) ← replaces interactive_classifier.py
 │    + intermediary/  (Gamera-free)                               │
 │    feature extraction, dependency-free kNN, manual grouping,    │
-│    XML export. Auto-grouping & splitting are deferred stubs.    │
+│    XML export. Manual splitting works; auto-grouping deferred. │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,17 +70,20 @@ core/ic_core/
     │                       # <features> block with version="ic-core/v1"
     ├── state.py            # ClassifierState enum + Session dataclass (direct-mutation
     │                       # state machine; calls ensure_features() before classify rounds)
-    └── splitting.py        # Docstring-only stub; not wired into the pipeline
+    └── splitting.py        # manual_split() — slices a Glyph into N new
+                            # UNCLASSIFIED Glyphs along user-drawn rectangles
 ```
 
-Tests live in `core/tests/` (sibling to the package) and currently cover: `test_classifier.py`, `test_features.py`, `test_grouping.py`, `test_ingest.py`, `test_io_xml.py`, `test_io_xml_writer.py`, `test_real_input_knn.py`, `test_state.py`.
+Tests live in `core/tests/` (sibling to the package) and currently cover: `test_classifier.py`, `test_features.py`, `test_grouping.py`, `test_ingest.py`, `test_io_xml.py`, `test_io_xml_writer.py`, `test_real_input_knn.py`, `test_splitting.py`, `test_state.py`.
 
 Fixtures and data live in two places:
 - `core/tests/fixtures/` — legacy training XML files (`Hufnagel-example_training_data.xml`, `Square_notation-example_training_data.xml`) used as export-round-trip oracles and as canonical examples of the legacy `<features>` block shape that our writer emulates.
 - `core/data/{train,test}/` — real-world ingest pairs (`*.png` + `*_annotations.json` / VIA CSVs) used by `test_real_input_knn.py` and by the CLI helpers under `core/scripts/` (rename_hufnagel_pairs, convert_hufnagel_csv, run_pipeline, evaluate, visualize). Outputs land in `core/data/derived/` (gitignored).
 
+**Manual splitting — implemented in `splitting.py`.** `manual_split(glyph, regions)` takes a parent `Glyph` plus a sequence of axis-aligned rectangles `(ulx, uly, ncols, nrows)` in **page coordinates** (the same frame the parent's bbox lives in, so the frontend can hand off what it draws without translating). Each rectangle is clipped to the parent's bbox; the corresponding slice of the parent's binary mask becomes a new `Glyph` with `class_name="UNCLASSIFIED"`, `confidence=0`, `id_state_manual=False`, and a fresh UUID. Overlapping rectangles are allowed (overlap pixels appear in both children); pixels outside every rectangle are discarded; rectangles that miss the parent entirely are dropped (no empty `Glyph` is emitted). The new glyphs are re-classified on the next round, matching the legacy split UX.
+
 **Out of scope — not built at all:**
-- `splitting.py` (Gamera's `segmentation.cc_analysis` and friends) — the manual-split UX action that ran CCA on a single glyph to break it apart. **Not in scope** because the upstream detector is expected to produce one bbox per neume. If real data later shows crops that contain multiple neumes, that is a defect in the upstream detector and should be fixed there, not patched over in IC. `splitting.py` exists as a docstring-only file for documentation continuity.
+- Algorithmic splitting via Gamera's `segmentation.cc_analysis` (or any CCA-based heuristic). The hard cases (touching neumes, ligatures, binarisation noise bridging strokes) defeat connected-components analysis, and a fragile auto-splitter would produce confidently-wrong outputs on the cases that matter most. The manual escape hatch in `splitting.py` handles both easy and hard cases at the cost of a user click.
 
 **Deferred but stubbed — public API surface preserved:**
 - Auto-grouping (`auto_group_shaped` / `auto_group_bounding_box` in `grouping.py`, and `POST /sessions/{id}/auto-group` in the API). The stubs raise `NotImplementedError` / return 501. The design call on which adjacency function to use, how to gate `max_graph_size`, and the criterion for accepting a merge has not been made. The new page+bbox ingest path *does* give us a shared page coordinate frame, so the deferral is no longer blocked on data shape — only on the design.
@@ -92,7 +97,7 @@ Fixtures and data live in two places:
 | `gamera.classify.ShapedGroupingFunction` | `ic_core.grouping.auto_group_shaped` — **deferred stub** | Raises `NotImplementedError`. The page+bbox ingest path provides the page-coordinate frame this needs, so the deferral is on design (adjacency function choice, graph-size gating) not data shape. |
 | `gamera.classify.BoundingBoxGroupingFunction` | `ic_core.grouping.auto_group_bounding_box` — **deferred stub** | Same status as `auto_group_shaped`. |
 | `gamera.plugins.image_utilities.union_images` | `ic_core.grouping.manual_group` — **implemented** | Bitwise-OR over the input masks into a shared canvas spanning the union of their bounding boxes. The result is a new `Glyph` with `id_state_manual=True`, `confidence=1.0`, and a fresh UUID — joins the training pool immediately. |
-| `gamera.plugins.segmentation.<plugin>` | **Not implemented — out of scope** | Splitting is a defect in the upstream detector if it ever becomes necessary; do not bring it into IC. |
+| `gamera.plugins.segmentation.<plugin>` | **Not implemented — algorithmic splitting out of scope** | CCA-based splitting can't be trusted on real neume crops (touching strokes, ligatures). The manual escape hatch is `ic_core.splitting.manual_split` — user-drawn rectangles slice the parent's mask. See "Scope decision" above. |
 | `gamera.gamera_xml` read/write | Hand-written parser using `lxml` | Used for **export only** (no longer read at ingestion). XML stays as the on-disk export format because downstream MEI-encoded pipelines consume it. Keep schema-identical output so existing pipelines accept the files. See [intermediary/gamera_xml.py](../Rodan-lite/backend/django/code/jobs/interactive_classifier/intermediary/gamera_xml.py) for the structure. |
 | Gamera `ONEBIT/DENSE` image | `numpy.ndarray` with dtype `bool` (ONEBIT) or `uint8` (DENSE) | Add adapters if you need to maintain XML compatibility. |
 
@@ -123,11 +128,11 @@ These are documented in `KNN_ALGORITHM.md` and must round-trip identically, or y
 1. **Full re-train every round** — discard and rebuild the classifier on each user submission.
 2. **`k=1`** as default — winner-takes-all, no voting.
 3. **Confidence sort order** — frontend sorts ascending by confidence; the API must return it that way or the frontend re-sort must replicate it.
-4. **Special prefixes `_group`, `_delete`** — stripped by `filter_parts` before training and before export. ([interactive_classifier.py](../Rodan-lite/backend/django/code/jobs/interactive_classifier/interactive_classifier.py)) Recognised on ingestion (e.g. when loading legacy GameraXML for round-trip tests) even though no current UI action emits a `_group`-prefixed class name. The legacy `_split` prefix is dropped along with the deferred split action.
+4. **Special prefixes `_group`, `_delete`** — stripped by `filter_parts` before training and before export. ([interactive_classifier.py](../Rodan-lite/backend/django/code/jobs/interactive_classifier/interactive_classifier.py)) Recognised on ingestion (e.g. when loading legacy GameraXML for round-trip tests) even though no current UI action emits a `_group`-prefixed class name. The legacy `_split` prefix is not recognised — `manual_split` emits `UNCLASSIFIED` outputs, matching the legacy split UX which used `UNCLASSIFIED` rather than a `_split`-prefixed class name.
 5. **Manual glyphs feed training, not classification** — the `id_state_manual` flag is the boundary.
 6. **UUIDs survive round-trips** — glyphs carry an `id` field generated in `GameraGlyph.__init__` ([intermediary/gamera_glyph.py:10](../Rodan-lite/backend/django/code/jobs/interactive_classifier/intermediary/gamera_glyph.py#L10)). New glyphs (from ingestion or manual grouping) get fresh UUIDs; existing ones preserve theirs.
 7. **`manual_group` sets `id_state_manual=True, confidence=1`** — the union'd glyph becomes training data immediately rather than waiting for the next classify round. Implemented in [core/ic_core/src/ic_core/grouping.py](../core/ic_core/src/ic_core/grouping.py) and exposed via `POST /sessions/{id}/group`.
-8. ~~**Manual split outputs `UNCLASSIFIED`, `confidence=0`, `id_state_manual=False`**~~ — dropped with the split action; not implemented.
+8. **Manual split outputs `UNCLASSIFIED`, `confidence=0`, `id_state_manual=False`** — implemented in [core/ic_core/src/ic_core/splitting.py](../core/ic_core/src/ic_core/splitting.py) as `manual_split`, which slices the parent's mask along user-drawn rectangles rather than running CCA. Each child gets a fresh UUID and is re-classified on the next round.
 
 ### Verification for Phase 1
 
@@ -154,6 +159,7 @@ DELETE /sessions/{id}                     discard the session (204)
 POST   /sessions/{id}/classify            run a classify round; body: {"k": int}
 POST   /sessions/{id}/glyphs/{gid}        partial update (class_name?, id_state_manual?)
 DELETE /sessions/{id}/glyphs/{gid}        drop a glyph from the working set
+POST   /sessions/{id}/glyphs/{gid}/split  slice a glyph into N children along user-drawn rectangles
 POST   /sessions/{id}/group               manual group N selected glyphs into one new manual glyph
 POST   /sessions/{id}/auto-group          501 — deferred (see Phase 1 "Deferred but stubbed")
 POST   /sessions/{id}/classes/{name}/rename    rename across glyphs + training + autocomplete
@@ -164,7 +170,7 @@ POST   /sessions/{id}/complete            transition CLASSIFYING → EXPORT, ret
 
 Errors use a uniform `{"detail": "...", "code": "..."}` envelope (`not_found` → 404, `state_conflict` → 409, `validation_error` → 400, `deferred` → 501). The numpy classifier is fast enough on the sizes we care about that all endpoints respond synchronously — no WebSocket progress stream in v1.
 
-> **Intentionally not implemented:** `POST /sessions/{id}/split` — splitting is an upstream-detector concern. See Phase 1 "Out of scope".
+> **Manual splitting:** `POST /sessions/{id}/glyphs/{gid}/split` — wires `ic_core.splitting.manual_split` to the API via `Session.manual_split`. Request body: `{"regions": [[ulx, uly, w, h], ...]}` in page coordinates. The parent glyph is replaced at its working-set index by the new `UNCLASSIFIED` children. If every region misses the parent's bbox the call fails with 400 (`validation_error`) rather than silently deleting the parent — use `DELETE /sessions/{id}/glyphs/{gid}` for that.
 
 ### State persistence
 
@@ -194,7 +200,7 @@ The existing SPA (83 JS files) is a thoughtful piece of code despite being old. 
 
 - The grid-of-glyphs interaction model
 - Class panel with rename/delete
-- Modal flows for delete confirmation and manual group (the split modal is dropped along with the split action; the auto-group modal is parked behind the 501 endpoint until that work is unblocked)
+- Modal flows for delete confirmation, manual group, and manual split (the split modal draws axis-aligned rectangles on the parent glyph and posts them to `/split`; the auto-group modal is parked behind the 501 endpoint until that work is unblocked)
 - Undo stack
 - Ascending-confidence sort order
 - Keyboard shortcuts (read `ic_frontend/public/js/app/views/` for the inventory)
@@ -269,14 +275,14 @@ After all three phases, you should be able to:
 
 1. **Algorithm-only:** `cd core/ic_core && uv run pytest ../tests` — all unit tests pass; class-assignment agreement with old Gamera code is ≥ 90% on the regression fixtures.
 2. **API smoke test:** `cd api && uv run ic-api`, then `POST /sessions` with a page image + bbox JSON (or YOLO TXT), walk through `/classify` → manual `/glyphs/{gid}` corrections → optional `/group` → `/complete`, get a valid output GameraXML.
-3. **Manual UI test:** load the new React/Vue frontend in a browser, upload a page+bbox pair, perform: auto-classify, manual reassignment, manual group, save, complete. Compare visually against the old SPA running on the existing Rodan deployment, accounting for the input-format difference (split is not exercised — it is out of scope; auto-group is parked behind the 501 endpoint).
+3. **Manual UI test:** load the new React/Vue frontend in a browser, upload a page+bbox pair, perform: auto-classify, manual reassignment, manual group, manual split, save, complete. Compare visually against the old SPA running on the existing Rodan deployment, accounting for the input-format difference (auto-group is parked behind the 501 endpoint).
 4. **Regression against Rodan:** keep the old Rodan instance running in parallel for a few weeks; run the same input through both, diff the classified glyph output. Investigate any disagreement above the noise floor before retiring the old system.
 
 ---
 
 ## TL;DR migration order
 
-1. Stand up `core/ic_core/` as a pure-Python package. Port semantics from `../Rodan-lite/.../interactive_classifier.py` and `intermediary/`. **Ingest a page image + bbox annotation file (MOTHRA JSON / YOLO TXT); skip the CCA and splitting modules; implement manual grouping but leave auto-grouping as a deferred stub.** Implement the kNN with numpy directly — no `sklearn`. Implement the feature set as described in "Feature calculation" above and embed the result in the exported XML behind a `version="ic-core/v1"` attribute. Unit-test everything. Validate accuracy vs. Gamera on fixtures (using a shared glyph set so the comparison is meaningful despite the input-format and feature-vector changes).
-2. Wrap it in a FastAPI service. Replace the Rodan state machine with direct-mutation endpoints + an in-memory session store; defer DB-backed persistence until single-user is no longer enough. `/group` works; `/auto-group` returns 501; no `/split`.
-3. Build a fresh React/Vite frontend using the old SPA as a UX spec. Manual-group UI is in scope; auto-group and split modals are not.
-4. Run the new and old systems side-by-side on real data until you're confident, then retire the Rodan job. If real data turns out to contain multi-neume crops, that is a defect in the upstream detector — fix it there, not in IC.
+1. Stand up `core/ic_core/` as a pure-Python package. Port semantics from `../Rodan-lite/.../interactive_classifier.py` and `intermediary/`. **Ingest a page image + bbox annotation file (MOTHRA JSON / YOLO TXT); skip the upstream CCA ingestion module; implement manual grouping and manual splitting (user-drawn rectangles, not CCA) but leave auto-grouping as a deferred stub.** Implement the kNN with numpy directly — no `sklearn`. Implement the feature set as described in "Feature calculation" above and embed the result in the exported XML behind a `version="ic-core/v1"` attribute. Unit-test everything. Validate accuracy vs. Gamera on fixtures (using a shared glyph set so the comparison is meaningful despite the input-format and feature-vector changes).
+2. Wrap it in a FastAPI service. Replace the Rodan state machine with direct-mutation endpoints + an in-memory session store; defer DB-backed persistence until single-user is no longer enough. `/group` and `/glyphs/{gid}/split` (manual, rectangle-based) wire through to `manual_group` / `manual_split`; `/auto-group` returns 501.
+3. Build a fresh React/Vite frontend using the old SPA as a UX spec. Manual-group and manual-split UIs are in scope; the auto-group modal is parked behind the 501 endpoint.
+4. Run the new and old systems side-by-side on real data until you're confident, then retire the Rodan job. Multi-neume crops are handled by the manual-split escape hatch; if they become frequent, file a defect against the upstream detector rather than leaning on the manual fix in IC.
