@@ -114,6 +114,26 @@ DEFAULT_THRESHOLD: int = 127
 # ---------------------------------------------------------------------------
 
 
+def binarize_page(
+    page_image: bytes,
+    *,
+    threshold: int = DEFAULT_THRESHOLD,
+) -> np.ndarray:
+    """Decode a page image and binarise it to a full-page foreground mask.
+
+    Same threshold convention as :func:`ingest_page` (pixels ≤
+    ``threshold`` are foreground). The returned array is needed by
+    manual grouping so pixels falling *between* child glyph bboxes —
+    which the per-glyph crops at ingest time never captured — can be
+    recovered when the user groups those children later.
+
+    Returns:
+        Boolean array of shape ``(height, width)``; ``True`` where
+        the page has foreground ink.
+    """
+    return _load_page(page_image) <= threshold
+
+
 def ingest_page(
     page_image: bytes,
     annotations: bytes,

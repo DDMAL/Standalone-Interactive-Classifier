@@ -43,6 +43,8 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Iterable
 
+import numpy as np
+
 from ic_core.classifier import (
     DEFAULT_K,
     UNCLASSIFIED,
@@ -107,6 +109,10 @@ class Session:
             preserved across rounds even if no glyph currently uses
             them, so the UI can offer them as autocomplete
             suggestions.
+        page_mask: Optional full-page binarised foreground mask kept
+            so :meth:`manual_group` can recover pixels that fall in
+            the gap between child glyphs' tight bboxes. ``None`` when
+            ingest had no page image (e.g. tests, legacy XML import).
 
     The session is intentionally **mutable**. Each operation method
     mutates ``self`` in place and returns ``None``; the API layer is
@@ -119,6 +125,7 @@ class Session:
     glyphs: list[Glyph] = field(default_factory=list)
     training_glyphs: list[Glyph] = field(default_factory=list)
     imported_class_names: set[str] = field(default_factory=set)
+    page_mask: np.ndarray | None = None
 
     # ------------------------------------------------------------------
     # Convenience accessors
@@ -170,6 +177,7 @@ class Session:
         *,
         training_glyphs: Iterable[Glyph] | None = None,
         class_names: Iterable[str] | None = None,
+        page_mask: np.ndarray | None = None,
     ) -> None:
         """Load the initial glyph set and transition into ``CLASSIFYING``.
 
@@ -189,6 +197,10 @@ class Session:
             training_glyphs: Optional external training database.
             class_names: Optional iterable of class names to seed
                 the autocomplete list.
+            page_mask: Optional full-page binarised mask. Stored on
+                the session so :meth:`manual_group` can recover
+                between-bbox pixels later. Pass ``None`` when no page
+                image was used (legacy XML import, tests).
 
         Raises:
             StateTransitionError: If called from anywhere except
@@ -199,6 +211,7 @@ class Session:
         self.training_glyphs = list(training_glyphs or [])
         if class_names is not None:
             self.imported_class_names.update(class_names)
+        self.page_mask = page_mask
         self.state = ClassifierState.CLASSIFYING
 
     # ------------------------------------------------------------------
@@ -371,7 +384,7 @@ class Session:
                 raise KeyError(f"No glyph with id {gid!r} in working set")
             targets.append(g)
 
-        grouped = union_glyphs(targets, class_name)
+        grouped = union_glyphs(targets, class_name, page_mask=self.page_mask)
 
         # Drop the originals and append the grouped result. We keep
         # working-set order otherwise stable so the UI doesn't

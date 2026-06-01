@@ -62,7 +62,7 @@ from ic_api.schemas import (
     session_to_dto,
 )
 from ic_api.store import InMemorySessionStore, default_store
-from ic_core.ingest import AnnotationFormat, ingest_page
+from ic_core.ingest import AnnotationFormat, binarize_page, ingest_page
 from ic_core.io_xml import dumps_glyphs, load_glyphs
 from ic_core.state import Session, StateTransitionError
 
@@ -427,11 +427,16 @@ async def create_session(
         annotations_bytes,
         format=annotations_format,
     )
+    # Keep the full-page mask so manual grouping can recover ink that
+    # falls in the gap between child glyph bboxes (those pixels were
+    # never copied into any per-glyph crop at ingest time).
+    page_mask = binarize_page(page_bytes)
     session = Session()
     session.ingest(
         glyphs,
         training_glyphs=training_glyphs,
         class_names=parsed_names,
+        page_mask=page_mask,
     )
     # A selected training set means "label this page with that vocabulary
     # now" — run the first classify round server-side so the frontend
