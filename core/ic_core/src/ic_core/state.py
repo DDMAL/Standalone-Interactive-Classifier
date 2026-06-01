@@ -53,6 +53,7 @@ from ic_core.classifier import (
 from ic_core.features import ensure_features
 from ic_core.glyph import CATEGORY_NEUMES, Glyph
 from ic_core.grouping import manual_group as union_glyphs
+from ic_core.splitting import manual_split as split_glyph
 
 # ---------------------------------------------------------------------------
 # State enum
@@ -379,6 +380,63 @@ class Session:
         self.glyphs = [g for g in self.glyphs if g.id not in target_ids]
         self.glyphs.append(grouped)
         return grouped
+
+    def manual_split(
+        self,
+        glyph_id: str,
+        regions: Iterable[tuple[int, int, int, int]],
+    ) -> list[Glyph]:
+        """Slice a glyph into N children along user-drawn rectangles.
+
+        Wraps :func:`ic_core.splitting.manual_split`. The parent is
+        *removed* from the working set and replaced (at the same
+        index, so UI ordering is preserved) by the N child glyphs.
+        Each child is ``UNCLASSIFIED`` / ``confidence=0`` /
+        ``id_state_manual=False`` with a fresh UUID (algorithm
+        semantic #8) so the next classify round labels it.
+
+        ``regions`` are ``(ulx, uly, ncols, nrows)`` tuples in **page
+        coordinates** — the same frame the parent's bbox lives in —
+        so the frontend can post the rectangles it drew without
+        translating them.
+
+        If every region misses the parent's bbox the call is rejected
+        with :class:`ValueError`: producing zero children would
+        silently delete the parent and is almost certainly a UI bug.
+        Use :meth:`delete_glyph` if removal is the intent.
+
+        Args:
+            glyph_id: UUID of the parent glyph in the working set.
+            regions: One or more ``(ulx, uly, ncols, nrows)`` tuples
+                in page coordinates.
+
+        Returns:
+            The list of child :class:`Glyph` objects inserted into
+            the working set.
+
+        Raises:
+            StateTransitionError: If called outside ``CLASSIFYING``.
+            KeyError: If no glyph with that id exists in the working set.
+            ValueError: If ``regions`` is empty, any region has
+                non-positive size, or every region misses the parent.
+        """
+        self._require_state(ClassifierState.CLASSIFYING)
+        idx, parent = self._find_index(glyph_id)
+        # Coerce up front: callers (FastAPI handlers, tests) pass
+        # arbitrary iterables; ``split_glyph`` needs a sequence it can
+        # validate before doing any work.
+        regions_list = list(regions)
+        children = split_glyph(parent, regions_list)
+        if not children:
+            raise ValueError(
+                "manual_split produced no children — every region misses "
+                "the parent's bbox. Adjust the rectangles or use "
+                "delete_glyph if removal is the intent."
+            )
+        # Replace parent with children at the same index so the UI
+        # ordering doesn't reshuffle unrelated glyphs.
+        self.glyphs[idx : idx + 1] = children
+        return children
 
     def delete_glyph(self, glyph_id: str) -> None:
         """Remove a glyph from the working set.
