@@ -20,31 +20,76 @@ Four scenarios:
   
 cd core/ic_core && uv run pytest ../tests/test_real_input_knn.py -v
 IC_RUN_LOO=1 IC_LOO_LIMIT=200 uv run pytest ../tests/test_real_input_knn.py::test_xml_db_loo_accuracy -v -s
-uv run python ../tests/sample_input/helpers/visualize.py
+uv run python ../scripts/visualize.py
 
 """
 from __future__ import annotations
 
-import csv
+import atexit
 import os
+import shutil
+import tempfile
+from pathlib import Path
+
+
+def _ensure_training_xml() -> None:
+    """Materialise ``IC_TRAINING_XML`` from committed CSV+PNG pairs on demand.
+
+    ``paths.TRAINING_XML`` defaults to
+    ``core/data/derived/Hufnagel_training_data.xml``, which is gitignored
+    and absent on a clean checkout. Regenerate it from the committed
+    pairs in ``core/data/train/`` via
+    :func:`convert_hufnagel_csv.convert_batch`, write into a session
+    tempdir, and point ``IC_TRAINING_XML`` there.
+
+    Must run *before* the ``from evaluate import …`` below: ``evaluate``
+    captures ``paths.TRAINING_XML`` as a function default at import
+    time, so a later override wouldn't reach
+    :func:`evaluate.classify_page`.
+
+    Respects existing setup: an explicit ``IC_TRAINING_XML`` env var or
+    a pre-generated default path on disk both short-circuit the regen.
+    """
+    if os.environ.get("IC_TRAINING_XML"):
+        return
+
+    import paths
+
+    if paths.TRAINING_XML.exists():
+        return
+
+    tmp_dir = Path(tempfile.mkdtemp(prefix="ic-training-"))
+    atexit.register(shutil.rmtree, tmp_dir, ignore_errors=True)
+    out_xml = tmp_dir / paths.TRAINING_XML.name
+
+    print(
+        f"[test_real_input_knn] Generating {out_xml.name} from "
+        f"{paths.TRAIN_DIR} (set IC_TRAINING_XML to skip)"
+    )
+    from convert_hufnagel_csv import convert_batch
+
+    convert_batch(paths.TRAIN_DIR, out_xml)
+
+    os.environ["IC_TRAINING_XML"] = str(out_xml)
+    # paths was loaded above; patch the cached module so the
+    # ``from paths import TRAINING_XML`` below — and evaluate's own
+    # ``from paths import …`` — bind to the regenerated path.
+    paths.TRAINING_XML = out_xml
+
+
+_ensure_training_xml()
+
+import csv
 import random
 from collections import Counter, defaultdict
-from pathlib import Path
 
 import pytest
 
 from ic_core.classifier import InteractiveClassifier
 from ic_core.glyph import Glyph
 from ic_core.io_xml import load_glyphs
-from sample_input.helpers.evaluate import (
-    TRAINING_XML_PATH,
-    classify_page,
-    ingest_glyphs_to_classify,
-)
-
-CSV_VOCAB_PATH = (
-    Path(__file__).parent / "sample_input" / "csv-square_notation_neume_level_newest.csv"
-)
+from evaluate import classify_page, ingest_glyphs_to_classify
+from paths import CSV_VOCAB, TRAINING_XML
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +100,7 @@ CSV_VOCAB_PATH = (
 @pytest.fixture(scope="module")
 def training_db() -> list[Glyph]:
     """The legacy GameraXML training database, loaded once per module."""
-    return load_glyphs(TRAINING_XML_PATH)
+    return load_glyphs(TRAINING_XML)
 
 
 @pytest.fixture(scope="module")
@@ -75,7 +120,7 @@ def vocab(training_db) -> set[str]:
     """
     db_labels = {g.class_name for g in training_db}
     csv_labels: set[str] = set()
-    with open(CSV_VOCAB_PATH, newline="") as f:
+    with open(CSV_VOCAB, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
             label = (row.get("classification") or "").strip()

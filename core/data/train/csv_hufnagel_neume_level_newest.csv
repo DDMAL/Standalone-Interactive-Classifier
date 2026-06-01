@@ -1,0 +1,122 @@
+name,classification,width,mei
+C clef,clef.c,1,"<clef shape=""C""/>"
+F Clef,clef.f,1,"<clef shape=""F""/>"
+F Clef other one,clef.f2,1,"<clef shape=""F""/>"
+Custos,custos,1,<custos/>
+Divisio,divisio.maxima,1,"<divLine form=""maxima""/>"
+Flat,accidental.flat,1,"<accid accid=""f""/>"
+Natural,accidental.natural,1,"<accid accid=""n""/>"
+Punctum,neume.punctum,1,"<neume>
+    <nc/>
+</neume>"
+Inclinatum,neume.inclinatum,1,"<neume>
+   <nc tilt=""se""/> 
+</neume>"
+Virga,neume.virga,1,"<neume>
+    <nc tilt=""s""/>
+</neume>"
+Upside down virga,neume.udv,1,"<neume>
+    <nc tilt=""n""/>
+</neume>"
+Upwards liquescent,neume.liquescent.up,1,"<neume>
+    <nc curve=""a"">
+        <liquescent/>
+    </nc>
+</neume>"
+Downwards liquescent,neume.liquescent.down,1,"<neume>
+    <nc curve=""c"">
+        <liquescent/>
+    </nc>
+</neume>"
+Distropha,neume.distropha,"[1, 1]","<neume>
+    <nc/>
+    <nc/>
+</neume>"
+Podatus 2,neume.podatus2,"[1, 1]","<neume>
+    <nc/>
+    <nc  tilt=""s""  intm=""1S""/>
+</neume>"
+Podatus 3,neume.podatus3,"[1, 1]","<neume>
+    <nc/>
+    <nc  tilt=""s""  intm=""2S""/>
+</neume>"
+Podatus 4,neume.podatus4,"[1, 1]","<neume>
+    <nc/>
+    <nc  tilt=""s""  intm=""3S""/>
+</neume>"
+Podatus 5,neume.podatus5,"[1, 1]","<neume>
+    <nc/>
+    <nc  tilt=""s""  intm=""4S""/>
+</neume>"
+Clivis 2a,neume.clivis2a,"[1, 1]","<neume>
+    <nc tilt=""s""/>
+    <nc  tilt=""n"" con=ÓeÓ intm=""-1S""/>
+</neume>"
+Clivis 3a,neume.clivis3a,"[1, 1]","<neume>
+    <nc tilt=""s""/>
+    <nc  tilt=""n"" con=ÓeÓ intm=""-2S""/>
+</neume>"
+Clivis 4a,neume.clivis4a,"[1, 1]","<neume>
+    <nc tilt=""s""/>
+    <nc  tilt=""n"" con=ÓeÓ intm=""-3S""/>
+</neume>"
+Clivis 5a,neume.clivis5a,"[1, 1]","<neume>
+    <nc tilt=""s""/>
+    <nc  tilt=""n"" con=ÓeÓ intm=""-4S""/>
+</neume>"
+Clivis 2b,neume.clivis2b,"[1, 1]","<neume>
+    <nc/>
+    <nc  tilt=""n"" intm=""-1S""/>
+</neume>"
+Clivis 3b,neume.clivis3b,"[1, 1]","<neume>
+    <nc/>
+    <nc  tilt=""n"" intm=""-2S""/>
+</neume>"
+Clivis 4b,neume.clivis4b,"[1, 1]","<neume>
+    <nc/>
+    <nc  tilt=""n"" intm=""-3S""/>
+</neume>"
+Clivis 5b,neume.clivis5b,"[1, 1]","<neume>
+    <nc/>
+    <nc  tilt=""n"" intm=""-4S""/>
+</neume>"
+Torculus22,neume.torculus22,"[1, 1, 1]","<neume>
+    <nc/>
+    <nc tilt=""s"" intm=""1S""/>
+    <nc tilt=""n con=""e""  intm=""-1S""/>
+</neume>"
+Torculus23,neume.torculus23,"[1, 1, 1]","<neume>
+    <nc/>
+    <nc tilt=""s"" intm=""1S""/>
+    <nc tilt=""n con=""e""  intm=""-2S""/>
+</neume>"
+Torculus24,neume.torculus24,"[1, 1, 1]","<neume>
+    <nc/>
+    <nc tilt=""s"" intm=""1S""/>
+    <nc tilt=""n con=""e""  intm=""-3S""/>
+</neume>"
+Torculus32,neume.torculus32,"[1, 1, 1]","<neume>
+    <nc/>
+    <nc tilt=""s"" intm=""2S""/>
+    <nc tilt=""n con=""e""  intm=""-1S""/>
+</neume>"
+Torculus33,neume.torculus33,"[1, 1, 1]","<neume>
+    <nc/>
+    <nc tilt=""s"" intm=""2S""/>
+    <nc tilt=""n con=""e""  intm=""-2S""/>
+</neume>"
+Torculus34,neume.torculus34,"[1, 1, 1]","<neume>
+    <nc/>
+    <nc tilt=""s"" intm=""2S""/>
+    <nc tilt=""n con=""e""  intm=""-3S""/>
+</neume>"
+Torculus42,neume.torculus42,"[1, 1, 1]","<neume>
+    <nc/>
+    <nc tilt=""s"" intm=""3S""/>
+    <nc tilt=""n con=""e""  intm=""-1S""/>
+</neume>"
+Torculus43,neume.torculus43,"[1, 1, 1]","<neume>
+    <nc/>
+    <nc tilt=""s"" intm=""3S""/>
+    <nc tilt=""n con=""e""  intm=""-2S""/>
+</neume>"

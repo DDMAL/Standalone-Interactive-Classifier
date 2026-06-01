@@ -73,9 +73,9 @@ core/ic_core/
 
 Tests live in `core/tests/` (sibling to the package) and currently cover: `test_classifier.py`, `test_features.py`, `test_grouping.py`, `test_ingest.py`, `test_io_xml.py`, `test_io_xml_writer.py`, `test_real_input_knn.py`, `test_state.py`.
 
-Two fixture pools sit under `core/tests/`:
-- `fixtures/` — legacy training XML files (`Hufnagel-example_training_data.xml`, `Square_notation-example_training_data.xml`) used as export-round-trip oracles and as canonical examples of the legacy `<features>` block shape that our writer emulates.
-- `sample_input/` — real-world ingest pairs (`*.png` + `*_annotations.json`) used by `test_real_input_knn.py` and the visualisation/evaluation helpers under `sample_input/helpers/`.
+Fixtures and data live in two places:
+- `core/tests/fixtures/` — legacy training XML files (`Hufnagel-example_training_data.xml`, `Square_notation-example_training_data.xml`) used as export-round-trip oracles and as canonical examples of the legacy `<features>` block shape that our writer emulates.
+- `core/data/{train,test}/` — real-world ingest pairs (`*.png` + `*_annotations.json` / VIA CSVs) used by `test_real_input_knn.py` and by the CLI helpers under `core/scripts/` (rename_hufnagel_pairs, convert_hufnagel_csv, run_pipeline, evaluate, visualize). Outputs land in `core/data/derived/` (gitignored).
 
 **Out of scope — not built at all:**
 - `splitting.py` (Gamera's `segmentation.cc_analysis` and friends) — the manual-split UX action that ran CCA on a single glyph to break it apart. **Not in scope** because the upstream detector is expected to produce one bbox per neume. If real data later shows crops that contain multiple neumes, that is a defect in the upstream detector and should be fixed there, not patched over in IC. `splitting.py` exists as a docstring-only file for documentation continuity.
@@ -133,7 +133,7 @@ These are documented in `KNN_ALGORITHM.md` and must round-trip identically, or y
 
 - Unit tests for each of the semantics above, using small synthetic glyphs. See [core/tests/](../core/tests/) — `test_classifier.py`, `test_features.py`, `test_grouping.py`, `test_ingest.py`, `test_io_xml.py`, `test_io_xml_writer.py`, `test_state.py`.
 - **Ingestion tests:** point `ingest_page()` at a `(page_image_bytes, annotations_bytes)` pair and verify it produces well-formed `Glyph` objects. MOTHRA-JSON inputs preserve the per-annotation UUID into the glyph id (idempotent re-ingest); YOLO inputs receive fresh UUIDs. Initial state is `id_state_manual=False`, `confidence=0`, `class_name="UNCLASSIFIED"` for every glyph — the upstream detector's class id is intentionally ignored at ingest time.
-- **End-to-end smoke:** `test_real_input_knn.py` runs the page+JSON pairs under `core/tests/sample_input/` through ingest → classify → export and writes visualisations to `sample_input/visualization/` for eyeballing.
+- **End-to-end smoke:** `test_real_input_knn.py` runs the page+JSON pairs under `core/data/test/` through ingest → classify → export, and `core/scripts/run_pipeline.py` writes visualisations to `core/data/derived/visualization/` for eyeballing.
 - **Golden-file tests for export:** the writer tests (`test_io_xml_writer.py`) assert the GameraXML round-trip — including the new `<features version="ic-core/v1">` block — against synthetic glyphs. The legacy fixtures `Hufnagel-example_training_data.xml` and `Square_notation-example_training_data.xml` serve as the on-disk shape oracle for the writer. Class-assignment agreement with the old Gamera-based code on a shared glyph set should be ≥ 90% — track this as a regression metric, not an exact-equality check.
 
 ---
@@ -256,10 +256,10 @@ The existing SPA (83 JS files) is a thoughtful piece of code despite being old. 
 
 8. **`gamera_xml_distributor.py` is dead weight.** It's a workflow-fanout helper specific to Rodan pipelines. Do not migrate it.
 
-9. **Test fixtures.** Three sources live under [core/tests/](../core/tests/):
-   - `fixtures/Hufnagel-example_training_data.xml`, `fixtures/Square_notation-example_training_data.xml` — legacy GameraXML training files, used as the canonical shape for the writer's `<features>` block and as oracle data for export round-trip tests.
-   - `sample_input/*.png` + `sample_input/*_annotations.json` — real page+JSON ingest pairs, used by `test_real_input_knn.py` and the helper scripts.
-   - `sample_input/visualization/` — generated diagnostic images, *not* test inputs; safe to delete and regenerate.
+9. **Test fixtures and sample data.** Three sources, split between [core/tests/](../core/tests/) and [core/data/](../core/data/):
+   - `core/tests/fixtures/` — `Hufnagel-example_training_data.xml`, `Square_notation-example_training_data.xml`: legacy GameraXML training files used as the canonical shape for the writer's `<features>` block and as oracle data for export round-trip tests. Stays under `tests/` because it's pytest-only.
+   - `core/data/{train,test}/` — real page+JSON/CSV ingest pairs, used by `test_real_input_knn.py` AND by the CLI helpers under `core/scripts/`.
+   - `core/data/derived/` — generated artefacts (merged training XML, visualisation overlays). Regenerable; **gitignored**.
 
 ---
 
