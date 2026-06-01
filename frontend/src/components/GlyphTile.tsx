@@ -11,7 +11,7 @@ interface GlyphTileProps {
 }
 
 export function GlyphTile({ glyph, selected }: GlyphTileProps) {
-  const selectGlyph = useUiStore((s) => s.selectGlyph);
+  const focusGlyph = useUiStore((s) => s.focusGlyph);
   const toggleGlyph = useUiStore((s) => s.toggleGlyph);
   const setHover = useUiStore((s) => s.setHover);
   const hovered = useUiStore((s) => s.hoverGlyphId === glyph.id);
@@ -27,7 +27,7 @@ export function GlyphTile({ glyph, selected }: GlyphTileProps) {
       ref={setRef}
       onClick={(e) => {
         if (e.shiftKey || e.metaKey) toggleGlyph(glyph.id);
-        else selectGlyph(glyph.id);
+        else focusGlyph(glyph.id);
       }}
       onPointerEnter={() => setHover(glyph.id)}
       onPointerLeave={() => setHover(null)}

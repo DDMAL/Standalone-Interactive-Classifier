@@ -11,6 +11,13 @@ interface UiState {
 
   hoverGlyphId: string | null;
 
+  // Set when a glyph is selected from the grid (tile click). PageImagePane
+  // watches this to re-center the page on that glyph; cleared via
+  // consumeFocus once handled. Selections from the page overlay or lasso
+  // never set this — they originate from the image itself, so re-centering
+  // would be jarring.
+  pendingFocusGlyphId: string | null;
+
   // Soft-deleted ids — hidden from the grid/overlay/lasso but recoverable
   // via restoreGlyph. Committed to the backend at Complete & Export time.
   deletedGlyphIds: Set<string>;
@@ -39,6 +46,11 @@ interface UiState {
   softDeleteGlyphs: (ids: Iterable<string>) => void;
   restoreGlyph: (id: string) => void;
   clearDeleted: () => void;
+
+  // Select id + request that PageImagePane re-center on it. Used by
+  // GlyphTile clicks.
+  focusGlyph: (id: string) => void;
+  consumeFocus: () => void;
 }
 
 export const useUiStore = create<UiState>((set, get) => ({
@@ -47,6 +59,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   selectedGlyphIds: new Set(),
   primaryGlyphId: null,
   hoverGlyphId: null,
+  pendingFocusGlyphId: null,
   deletedGlyphIds: new Set(),
   classTreeCollapsed: false,
 
@@ -61,6 +74,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       selectedGlyphIds: new Set(),
       primaryGlyphId: null,
       hoverGlyphId: null,
+      pendingFocusGlyphId: null,
       deletedGlyphIds: new Set(),
       classTreeCollapsed: false,
     });
@@ -75,6 +89,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       selectedGlyphIds: new Set(),
       primaryGlyphId: null,
       hoverGlyphId: null,
+      pendingFocusGlyphId: null,
       deletedGlyphIds: new Set(),
       classTreeCollapsed: false,
     });
@@ -153,11 +168,15 @@ export const useUiStore = create<UiState>((set, get) => ({
     const curHover = get().hoverGlyphId;
     const nextHover = curHover && toDelete.has(curHover) ? null : curHover;
 
+    const curFocus = get().pendingFocusGlyphId;
+    const nextFocus = curFocus && toDelete.has(curFocus) ? null : curFocus;
+
     set({
       deletedGlyphIds: nextDeleted,
       selectedGlyphIds: nextSelected,
       primaryGlyphId: nextPrimary,
       hoverGlyphId: nextHover,
+      pendingFocusGlyphId: nextFocus,
     });
   },
 
@@ -170,4 +189,13 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   clearDeleted: () => set({ deletedGlyphIds: new Set() }),
+
+  focusGlyph: (id) =>
+    set({
+      selectedGlyphIds: new Set([id]),
+      primaryGlyphId: id,
+      pendingFocusGlyphId: id,
+    }),
+
+  consumeFocus: () => set({ pendingFocusGlyphId: null }),
 }));

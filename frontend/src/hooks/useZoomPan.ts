@@ -26,6 +26,13 @@ export interface UseZoomPan {
   zoomOut: () => void;
   reset: () => void;
   pan: (dx: number, dy: number) => void;
+  /**
+   * Shift the pan so the given image-space point lands at the container
+   * center. Image-space coords are in viewBox units (i.e. natural pixels);
+   * `naturalW` is needed to map them to the inner div's CSS layout, which
+   * is what `tx/ty` are denominated in.
+   */
+  centerOnImagePoint: (imageX: number, imageY: number, naturalW: number) => void;
 }
 
 /**
@@ -97,6 +104,30 @@ export function useZoomPan(): UseZoomPan {
     [],
   );
 
+  const centerOnImagePoint = useCallback(
+    (imageX: number, imageY: number, naturalW: number) => {
+      setState((cur) => {
+        const el = containerRef.current;
+        if (!el || naturalW <= 0) return cur;
+        // Inner div is width:100% so it matches container width pre-transform;
+        // the image inside is block + max-w-full, so its CSS width equals
+        // min(naturalW, containerW). Both axes share the same scale factor
+        // since aspect ratio is preserved.
+        const containerW = el.clientWidth;
+        const containerH = el.clientHeight;
+        const factor = Math.min(containerW, naturalW) / naturalW;
+        const cssX = imageX * factor;
+        const cssY = imageY * factor;
+        return {
+          scale: cur.scale,
+          tx: containerW / 2 - cssX * cur.scale,
+          ty: containerH / 2 - cssY * cur.scale,
+        };
+      });
+    },
+    [],
+  );
+
   return {
     state,
     containerRef,
@@ -106,5 +137,6 @@ export function useZoomPan(): UseZoomPan {
     zoomOut,
     reset,
     pan,
+    centerOnImagePoint,
   };
 }

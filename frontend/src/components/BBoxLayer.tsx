@@ -46,31 +46,40 @@ function BBoxLayerImpl({ glyphs, selectedIds, hoverId }: BBoxLayerProps) {
     else selectGlyph(id);
   }
 
-  // Two passes so the muted Text/Staves bboxes paint underneath the
-  // interactive Neume bboxes (and selection highlights).
+  // Two passes so Text/Staves bboxes paint underneath the interactive
+  // Neume bboxes. Decor (non-Neume) bboxes only render when the glyph is
+  // selected or hovered via the grid — they stay hidden on the page
+  // otherwise so the image isn't cluttered with non-classified outlines.
   const decor: GlyphDTO[] = [];
   const interactive: GlyphDTO[] = [];
   for (const g of glyphs) {
     if (g.category === "Neumes") interactive.push(g);
-    else decor.push(g);
+    else if (selectedIds.has(g.id) || hoverId === g.id) decor.push(g);
   }
 
   return (
     <g>
       <g className="pointer-events-none">
-        {decor.map((g) => (
-          <rect
-            key={g.id}
-            x={g.ulx}
-            y={g.uly}
-            width={g.ncols}
-            height={g.nrows}
-            strokeWidth={1}
-            vectorEffect="non-scaling-stroke"
-            strokeDasharray="3 3"
-            className="fill-transparent stroke-slate-300/60"
-          />
-        ))}
+        {decor.map((g) => {
+          const selected = selectedIds.has(g.id);
+          return (
+            <rect
+              key={g.id}
+              x={g.ulx}
+              y={g.uly}
+              width={g.ncols}
+              height={g.nrows}
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+              strokeDasharray="3 3"
+              className={
+                selected
+                  ? "fill-blue-500/15 stroke-blue-500"
+                  : "fill-amber-300/15 stroke-amber-500"
+              }
+            />
+          );
+        })}
       </g>
       {interactive.map((g) => {
         const selected = selectedIds.has(g.id);

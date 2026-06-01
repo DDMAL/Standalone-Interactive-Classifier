@@ -1,5 +1,6 @@
 import { ClassNameInput } from "@/components/ClassNameInput";
 import { MultiEditPanel } from "@/components/MultiEditPanel";
+import { SplitDialog } from "@/components/SplitDialog";
 import { Button } from "@/components/ui/Button";
 import { useClassify } from "@/hooks/useClassify";
 import { sessionKey } from "@/hooks/useSession";
@@ -58,6 +59,7 @@ interface SingleEditorProps {
 
 function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
   const [className, setClassName] = useState(glyph.class_name);
+  const [splitOpen, setSplitOpen] = useState(false);
   const updateGlyph = useUpdateGlyph(sessionId);
   const classify = useClassify(sessionId);
   const queryClient = useQueryClient();
@@ -224,6 +226,21 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
       <div className="mt-4 border-t border-slate-200 pt-3">
         <Button
           variant="secondary"
+          onClick={() => setSplitOpen(true)}
+          disabled={pending}
+          className="w-full"
+        >
+          Split glyph…
+        </Button>
+        <p className="mt-2 text-xs text-slate-400">
+          Cut this bbox into multiple glyphs. Placeholder — backend support
+          ships in a later phase.
+        </p>
+      </div>
+
+      <div className="mt-4 border-t border-slate-200 pt-3">
+        <Button
+          variant="secondary"
           onClick={handleDelete}
           disabled={pending}
           className="w-full border-red-300 text-red-700 hover:bg-red-50"
@@ -234,6 +251,12 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
           Moves to the Deleted section; can be put back until export.
         </p>
       </div>
+
+      <SplitDialog
+        open={splitOpen}
+        onOpenChange={setSplitOpen}
+        glyph={glyph}
+      />
     </aside>
   );
 }
