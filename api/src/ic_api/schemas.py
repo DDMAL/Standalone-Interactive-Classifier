@@ -91,6 +91,27 @@ class GroupRequest(BaseModel):
     class_name: str
 
 
+class SplitRequest(BaseModel):
+    """POST /sessions/{id}/glyphs/{gid}/split body.
+
+    ``regions`` is a list of ``[ulx, uly, ncols, nrows]`` rectangles
+    in **page coordinates** (the same frame the glyph's bbox uses),
+    matching what the frontend draws on the page-image canvas.
+    Tuples — rather than named-field objects — keep the wire shape
+    compact and avoid a positional/keyword mismatch in JS clients
+    that already think of bboxes as ``[x, y, w, h]`` arrays.
+    """
+
+    regions: list[tuple[int, int, int, int]] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "One or more rectangles as [ulx, uly, ncols, nrows] in page "
+            "coordinates. Each becomes one UNCLASSIFIED child glyph."
+        ),
+    )
+
+
 class RenameClassRequest(BaseModel):
     """POST /sessions/{id}/classes/{name}/rename body."""
 

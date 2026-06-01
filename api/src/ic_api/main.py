@@ -56,6 +56,7 @@ from ic_api.schemas import (
     GroupRequest,
     RenameClassRequest,
     SessionDTO,
+    SplitRequest,
     UpdateGlyphRequest,
     glyph_to_dto,
     session_to_dto,
@@ -512,6 +513,31 @@ def manual_group(
     with store.session(session_id) as session:
         grouped = session.manual_group(body.glyph_ids, body.class_name)
         return glyph_to_dto(grouped)
+
+
+@app.post(
+    "/sessions/{session_id}/glyphs/{glyph_id}/split",
+    response_model=list[GlyphDTO],
+)
+def manual_split(
+    session_id: str,
+    glyph_id: str,
+    body: SplitRequest,
+    store: Store,
+) -> list[GlyphDTO]:
+    """Slice a glyph into N children along user-drawn rectangles.
+
+    The parent glyph is removed from the working set and replaced
+    (at its original index) by N ``UNCLASSIFIED`` children, one per
+    rectangle. Rectangles are ``[ulx, uly, ncols, nrows]`` in page
+    coordinates; the same frame the glyph's bbox is in.
+
+    Returns the list of new children in insertion order. The next
+    classify round will label them.
+    """
+    with store.session(session_id) as session:
+        children = session.manual_split(glyph_id, body.regions)
+        return [glyph_to_dto(c) for c in children]
 
 
 @app.post("/sessions/{session_id}/auto-group", status_code=501)
