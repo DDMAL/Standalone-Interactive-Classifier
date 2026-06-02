@@ -80,7 +80,7 @@ class UpdateGlyphRequest(BaseModel):
     class_name: str | None = None
     id_state_manual: bool | None = None
     # Move the glyph to another MOTHRA category (Text / Neumes / Staves).
-    category: str | None = None
+    category: Literal["Text", "Neumes", "Staves"] | None = None
 
 
 class GroupRequest(BaseModel):
