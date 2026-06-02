@@ -42,7 +42,7 @@ The core package uses [uv](https://docs.astral.sh/uv/) for environment and depen
 ```bash
 cd core/ic_core
 uv sync                                    # install dependencies
-uv run pytest                              # run tests (auto-regenerates training XML on first run)
+uv run pytest ../tests                      # run tests (auto-regenerates training XML on first run)
 uv run python ../scripts/run_pipeline.py   # end-to-end smoke: train → classify → overlays
 uv run ruff check .                        # lint
 ```
