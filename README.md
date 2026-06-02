@@ -1,4 +1,4 @@
-# ic_new
+# Standalone Interactive Classifier
 
 A modern rewrite of the **Interactive Classifier** — a tool for interactively classifying chant-manuscript neumes using a k-Nearest Neighbors model.
 
