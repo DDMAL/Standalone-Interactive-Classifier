@@ -27,6 +27,7 @@ from typing import Sequence
 
 import numpy as np
 
+from ic_core.classifier import UNCLASSIFIED
 from ic_core.glyph import Glyph
 from ic_core.image import array_to_rle
 
@@ -34,7 +35,7 @@ from ic_core.image import array_to_rle
 #: legacy split UX, which also emitted ``UNCLASSIFIED`` rather than a
 #: ``_split``-prefixed class name (see migration plan §"Algorithm
 #: semantics to preserve verbatim" #4).
-_UNCLASSIFIED = "UNCLASSIFIED"
+_UNCLASSIFIED = UNCLASSIFIED
 
 
 def manual_split(
