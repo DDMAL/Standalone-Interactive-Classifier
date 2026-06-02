@@ -1,0 +1,593 @@
+<?xml version='1.0' encoding='utf-8'?>
+<gamera-database version="2.0">
+  <glyphs>
+    <glyph uly="122" ulx="196" nrows="42" ncols="27">
+      <ids state="MANUAL">
+        <id name="clef.f" confidence="1.000000"/>
+      </ids>
+      <data>175 7 19 10 16 11 15 10 16 11 16 9 18 6 21 6 21 6 1 8 12 14 13 12 15 12 15 11 16 6 21 6 21 6 21 5 22 5 22 5 22 6 21 5 22 5 22 5 21 5 23 3 24 2 25 2 2 1 21 2 25 1 26 1 180</data>
+    </glyph>
+    <glyph uly="230" ulx="195" nrows="50" ncols="26">
+      <ids state="MANUAL">
+        <id name="clef.f" confidence="1.000000"/>
+      </ids>
+      <data>251 5 19 10 15 10 15 11 14 10 14 7 1 3 15 6 4 1 15 6 20 9 1 6 9 17 9 15 11 14 12 13 13 8 18 8 18 8 18 8 18 8 19 7 19 7 20 6 20 6 20 6 20 6 20 6 20 6 20 6 20 6 20 6 20 6 20 5 21 4 22 2 221</data>
+    </glyph>
+    <glyph uly="351" ulx="196" nrows="46" ncols="26">
+      <ids state="MANUAL">
+        <id name="clef.f" confidence="1.000000"/>
+      </ids>
+      <data>224 3 20 8 17 12 13 12 13 12 13 12 14 5 3 3 15 5 21 6 2 3 1 3 11 14 12 12 14 11 15 10 16 5 21 5 21 5 21 5 21 5 21 5 21 5 21 5 21 5 21 5 21 4 22 4 22 4 22 4 22 3 23 3 23 1 25 1 198</data>
+    </glyph>
+    <glyph uly="485" ulx="192" nrows="47" ncols="31">
+      <ids state="MANUAL">
+        <id name="clef.f" confidence="1.000000"/>
+      </ids>
+      <data>269 5 25 9 21 10 19 13 17 14 16 14 17 5 3 5 17 6 4 4 2 1 14 6 5 1 19 6 6 1 18 7 2 7 15 16 15 16 15 15 16 14 17 7 3 3 18 6 25 6 25 6 26 5 25 6 25 6 26 5 26 5 25 5 26 5 27 4 26 5 26 4 27 3 28 2 29 1 233</data>
+    </glyph>
+    <glyph uly="608" ulx="199" nrows="49" ncols="27">
+      <ids state="MANUAL">
+        <id name="clef.f" confidence="1.000000"/>
+      </ids>
+      <data>204 1 24 6 20 8 18 12 14 12 14 12 14 12 15 6 3 2 16 6 21 7 20 16 11 15 12 14 13 13 14 12 15 7 2 2 16 7 20 6 21 6 22 5 21 6 22 5 21 6 21 6 21 6 21 6 21 6 21 6 21 5 23 3 24 2 25 2 10 6 8 3 3 2 2 2 1 3 1 2 243</data>
+    </glyph>
+    <glyph uly="735" ulx="199" nrows="43" ncols="26">
+      <ids state="MANUAL">
+        <id name="clef.f" confidence="1.000000"/>
+      </ids>
+      <data>195 6 19 9 15 12 13 13 13 11 14 11 15 6 2 2 16 6 20 7 2 1 1 5 10 17 9 18 8 14 12 13 13 6 20 5 21 5 21 6 20 5 21 5 21 5 21 5 21 5 21 5 21 5 21 5 21 5 21 5 21 4 22 3 23 1 173</data>
+    </glyph>
+    <glyph uly="722" ulx="665" nrows="35" ncols="39">
+      <ids state="MANUAL">
+        <id name="custos" confidence="1.000000"/>
+      </ids>
+      <data>787 3 35 5 34 5 34 5 34 5 34 5 35 3 341</data>
+    </glyph>
+    <glyph uly="601" ulx="654" nrows="30" ncols="42">
+      <ids state="MANUAL">
+        <id name="custos" confidence="1.000000"/>
+      </ids>
+      <data>598 1 39 3 38 4 37 6 35 7 36 7 35 7 35 6 36 5 38 2 285</data>
+    </glyph>
+    <glyph uly="474" ulx="650" nrows="35" ncols="46">
+      <ids state="MANUAL">
+        <id name="custos" confidence="1.000000"/>
+      </ids>
+      <data>975 2 42 4 41 6 39 8 36 8 40 5 404</data>
+    </glyph>
+    <glyph uly="337" ulx="646" nrows="34" ncols="38">
+      <ids state="MANUAL">
+        <id name="custos" confidence="1.000000"/>
+      </ids>
+      <data>769 1 36 3 33 5 32 7 31 8 31 7 31 6 33 3 256</data>
+    </glyph>
+    <glyph uly="214" ulx="645" nrows="33" ncols="45">
+      <ids state="MANUAL">
+        <id name="custos" confidence="1.000000"/>
+      </ids>
+      <data>688 1 42 3 41 2 1 1 39 2 2 2 38 2 1 2 2 1 43 3 38 2 2 2 40 3 41 3 438</data>
+    </glyph>
+    <glyph uly="108" ulx="639" nrows="31" ncols="41">
+      <ids state="MANUAL">
+        <id name="custos" confidence="1.000000"/>
+      </ids>
+      <data>710 1 38 3 37 4 36 5 35 7 33 8 32 1 1 8 31 1 2 2 1 2 36 4 37 3 193</data>
+    </glyph>
+    <glyph uly="125" ulx="221" nrows="47" ncols="23">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>148 3 19 4 18 5 18 7 15 10 12 13 11 11 12 10 13 10 13 9 14 6 17 6 16 6 17 6 17 6 17 7 17 6 17 6 17 6 16 7 17 6 17 5 18 6 14 12 13 7 17 5 18 5 18 5 18 5 17 5 18 5 18 4 19 3 20 2 22 1 153</data>
+    </glyph>
+    <glyph uly="112" ulx="245" nrows="46" ncols="23">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>11 2 5 3 1 1 107 1 20 3 19 4 18 5 17 7 15 10 13 12 11 12 11 11 12 9 14 7 16 7 16 7 16 6 17 7 16 6 17 6 17 6 17 6 14 12 1 3 10 6 17 7 16 6 17 6 17 6 17 6 17 6 17 6 17 6 17 5 18 4 19 3 20 2 103 1 92</data>
+    </glyph>
+    <glyph uly="102" ulx="268" nrows="43" ncols="22">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>98 2 18 4 17 5 17 7 13 12 10 12 5 22 5 10 13 8 14 7 15 7 15 7 15 7 15 7 15 7 15 7 15 7 15 7 15 7 16 6 16 6 16 6 16 6 16 6 16 6 16 6 16 6 16 6 16 6 15 6 16 6 17 2 20 1 146</data>
+    </glyph>
+    <glyph uly="111" ulx="297" nrows="47" ncols="30">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>16 3 1 2 1 5 1 8 1 1 2 2 2 1 149 2 27 4 25 5 24 6 22 9 21 10 19 1 1 9 18 1 2 12 14 1 3 10 20 9 21 8 22 7 23 7 23 6 24 6 24 7 23 7 23 7 12 30 11 7 23 7 23 7 23 6 24 7 23 7 23 7 23 7 23 6 24 6 24 4 26 3 27 2 28 1 112 2 1 3 3 1 136</data>
+    </glyph>
+    <glyph uly="122" ulx="341" nrows="41" ncols="35">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>230 3 31 4 30 6 28 8 26 11 3 1 19 15 19 18 3 7 6 2 1 12 20 1 3 10 25 8 27 7 28 6 29 6 29 7 28 7 28 7 28 6 29 6 29 7 28 7 28 6 30 6 29 6 28 7 15 2 2 3 2 15 5 1 18 6 29 6 29 5 30 6 29 6 29 5 30 2 34 2 85</data>
+    </glyph>
+    <glyph uly="122" ulx="382" nrows="31" ncols="30">
+      <ids state="MANUAL">
+        <id name="neume.punctum" confidence="1.000000"/>
+      </ids>
+      <data>167 1 27 3 26 4 25 6 22 8 22 8 21 1 1 7 5 1 5 21 1 3 13 1 3 8 2 1 14 1 5 9 21 8 23 7 23 5 25 3 28 1 284 2 2 26 2 2 2 2 17 1 4</data>
+    </glyph>
+    <glyph uly="125" ulx="410" nrows="20" ncols="35">
+      <ids state="MANUAL">
+        <id name="neume.punctum" confidence="1.000000"/>
+      </ids>
+      <data>87 2 32 3 31 4 29 6 28 8 27 8 25 1 2 8 4 3 1 1 3 2 13 8 27 8 2 1 24 9 27 8 27 7 13 1 14 6 13 2 15 3 14 3 31 4 32 3 29 1 3 2 34 1</data>
+    </glyph>
+    <glyph uly="123" ulx="439" nrows="40" ncols="31">
+      <ids state="MANUAL">
+        <id name="neume.pescephalicus2" confidence="1.000000"/>
+      </ids>
+      <data>145 2 28 4 26 6 24 7 23 9 21 13 2 1 3 4 1 4 2 14 1 1 15 1 1 10 21 9 12 2 8 7 13 4 8 7 11 5 7 7 11 8 5 7 10 10 3 8 9 14 1 7 10 12 2 7 7 1 3 10 3 7 12 7 5 7 14 4 7 6 15 2 8 6 25 6 25 6 25 6 7 2 2 2 1 3 1 31 1 2 2 8 25 6 25 6 25 5 26 5 26 6 24 6 26 4 26 4 28 1 30 1 43</data>
+    </glyph>
+    <glyph uly="110" ulx="470" nrows="45" ncols="19">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>85 2 16 3 15 5 13 7 11 9 9 12 7 11 8 10 9 9 11 7 12 7 12 7 12 7 12 6 13 6 13 6 13 6 13 6 13 7 7 2 2 9 11 6 13 6 13 6 13 7 12 7 12 7 12 7 12 7 12 7 12 7 12 7 12 7 12 7 12 7 12 7 12 7 6 20 5 3 17 1 18 1 31</data>
+    </glyph>
+    <glyph uly="126" ulx="491" nrows="33" ncols="28">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>67 3 23 9 18 12 1 2 12 17 8 24 4 19 9 19 9 7 4 8 9 7 6 6 9 6 7 5 10 7 5 6 11 5 6 5 12 6 5 5 12 6 5 7 9 6 6 9 8 5 5 10 8 5 4 13 5 6 4 11 7 6 7 7 8 6 8 5 9 6 9 2 8 27 1 9 22 6 22 5 23 5 23 4 24 2 26 1 79</data>
+    </glyph>
+    <glyph uly="121" ulx="517" nrows="37" ncols="40">
+      <ids state="MANUAL">
+        <id name="neume.torculus2" confidence="1.000000"/>
+      </ids>
+      <data>145 1 38 3 36 5 34 8 3 2 25 15 25 15 24 16 22 22 1 3 2 2 3 3 4 18 23 6 5 6 23 6 5 6 23 6 5 6 23 6 5 6 22 7 5 5 23 7 5 5 24 7 4 6 19 1 3 7 4 7 17 1 4 7 3 9 15 1 5 7 3 11 12 1 6 7 3 9 3 1 9 2 6 7 3 8 13 2 7 6 6 6 13 3 7 5 6 4 14 9 2 5 8 1 13 19 1 3 1 2 1 1 1 27 3 1 19 16 23 16 28 11 33 5 183</data>
+    </glyph>
+    <glyph uly="138" ulx="561" nrows="42" ncols="22">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>142 4 17 5 16 7 14 9 6 5 1 16 5 14 10 11 11 9 13 8 14 8 14 7 15 7 16 6 16 6 15 7 16 6 16 6 16 6 16 6 16 6 16 6 16 6 16 6 16 6 8 20 9 7 16 6 16 5 17 4 18 3 19 2 122</data>
+    </glyph>
+    <glyph uly="138" ulx="601" nrows="41" ncols="35">
+      <ids state="MANUAL">
+        <id name="neume.pescephalicus2" confidence="1.000000"/>
+      </ids>
+      <data>129 1 32 3 31 4 29 6 29 6 28 7 28 9 3 2 7 3 10 13 22 12 24 10 15 1 10 8 15 3 8 7 15 6 7 7 14 7 7 7 14 8 6 7 13 10 5 7 13 14 1 7 14 11 4 6 15 9 4 7 16 7 5 7 17 5 6 7 28 7 28 7 28 7 28 7 28 7 12 2 14 7 28 6 29 6 29 6 29 6 29 6 29 5 30 3 32 2 33 1 86</data>
+    </glyph>
+    <glyph uly="228" ulx="222" nrows="45" ncols="42">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>92 18 3 4 1 4 1 3 9 1 1 5 4 3 7 3 41 1 40 2 39 4 37 6 35 7 34 9 32 12 30 15 27 14 28 13 14 2 13 12 14 4 11 12 14 6 11 7 17 8 10 7 16 10 4 1 4 7 15 12 2 2 4 6 12 1 2 37 5 2 1 10 8 6 14 2 3 8 9 6 13 2 6 4 11 6 13 2 6 2 13 6 13 1 22 6 36 6 36 6 35 7 36 6 36 6 36 6 36 6 35 7 35 6 37 5 36 6 36 6 36 5 37 4 22 2 1 1 1 5 1 4 1 17 25 2 141</data>
+    </glyph>
+    <glyph uly="239" ulx="274" nrows="19" ncols="28">
+      <ids state="MANUAL">
+        <id name="neume.punctum" confidence="1.000000"/>
+      </ids>
+      <data>68 1 26 3 23 5 22 7 20 8 19 9 18 1 1 9 6 1 5 17 1 10 8 8 4 1 15 8 3 1 17 9 19 8 20 6 23 5 23 4 24 2 44</data>
+    </glyph>
+    <glyph uly="237" ulx="319" nrows="42" ncols="19">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>86 2 16 4 14 5 13 8 9 11 8 11 7 17 1 1 1 14 6 12 6 12 8 10 9 9 10 7 12 6 12 7 12 7 12 7 12 7 13 6 13 6 13 6 12 7 12 7 12 7 13 6 13 6 12 8 6 15 1 1 8 6 13 6 13 5 14 5 14 4 15 3 16 2 16 1 51</data>
+    </glyph>
+    <glyph uly="237" ulx="341" nrows="35" ncols="30">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>187 5 7 1 16 8 4 3 14 16 13 18 8 24 1 5 3 19 11 19 11 6 4 8 12 6 5 7 12 6 6 5 13 6 5 6 13 6 6 6 12 7 4 8 11 6 5 9 10 6 4 10 2 1 7 6 4 11 9 6 6 8 10 6 7 6 11 6 7 4 13 6 8 2 14 6 24 6 24 6 24 5 24 7 1 3 1 3 1 2 1 2 2 6 1 5 2 1 23 1 86</data>
+    </glyph>
+    <glyph uly="227" ulx="375" nrows="44" ncols="20">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>41 19 50 2 17 4 15 6 13 7 12 9 3 1 6 13 6 13 8 11 10 9 11 7 13 7 13 6 14 6 14 6 14 6 8 20 6 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 5 15 5 15 5 14 5 15 4 16 3 12 8 2 2 2 2 64</data>
+    </glyph>
+    <glyph uly="217" ulx="395" nrows="47" ncols="29">
+      <ids state="MANUAL">
+        <id name="neume.pescephalicus2" confidence="1.000000"/>
+      </ids>
+      <data>164 3 25 4 24 5 24 5 23 6 23 8 19 15 3 8 1 17 8 1 6 10 11 2 6 9 11 4 5 8 10 6 5 7 10 8 4 7 10 8 4 6 10 10 2 7 11 10 1 7 12 8 3 6 12 7 4 6 13 5 4 7 14 3 5 7 23 6 22 7 22 7 22 7 22 11 4 21 22 7 7 1 14 7 7 1 14 7 22 7 22 6 23 6 23 6 23 6 23 5 24 4 25 3 26 1 130</data>
+    </glyph>
+    <glyph uly="227" ulx="419" nrows="30" ncols="45">
+      <ids state="MANUAL">
+        <id name="neume.torculus2" confidence="1.000000"/>
+      </ids>
+      <data>45 5 6 1 5 1 4 5 2 22 5 1 33 1 110 5 38 10 4 2 28 17 27 18 26 19 26 19 26 7 2 10 26 7 5 7 26 7 5 7 26 7 5 7 27 6 5 6 20 1 7 6 5 5 20 1 7 7 6 6 17 8 2 6 5 8 9 1 4 40 5 18 4 12 10 18 4 12 11 16 8 8 18 10 11 5 22 6 13 3 25 3 14 2 192</data>
+    </glyph>
+    <glyph uly="234" ulx="467" nrows="38" ncols="23">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>149 3 18 5 17 6 16 8 14 11 2 1 8 15 3 20 10 9 14 8 15 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 17 6 17 6 17 6 17 6 16 7 16 7 16 7 17 5 17 5 19 2 21 1 37</data>
+    </glyph>
+    <glyph uly="224" ulx="485" nrows="47" ncols="12">
+      <ids state="MANUAL">
+        <id name="divisio.maxima" confidence="1.000000"/>
+      </ids>
+      <data>47 1 102 1 11 1 11 1 47 1 18 1 10 2 4 1 5 2 3 2 71 1 11 1 11 1 11 1 11 1 47 1 11 1 11 1 23 1 11 1 11 1 53</data>
+    </glyph>
+    <glyph uly="216" ulx="496" nrows="44" ncols="38">
+      <ids state="MANUAL">
+        <id name="neume.scandicus22a" confidence="1.000000"/>
+      </ids>
+      <data>181 3 34 4 33 6 31 8 29 11 27 13 25 16 2 4 1 28 25 11 27 9 19 3 7 7 20 5 6 7 18 8 6 6 18 9 4 7 17 11 3 7 17 12 2 7 18 11 2 7 19 8 4 7 21 6 4 7 21 5 5 7 13 1 8 3 7 6 12 3 17 6 11 5 16 6 10 7 15 6 9 10 12 7 8 36 2 12 11 6 5 1 5 9 13 5 4 2 6 7 14 5 14 4 14 6 15 2 15 6 32 5 33 3 35 2 36 2 201</data>
+    </glyph>
+    <glyph uly="207" ulx="525" nrows="47" ncols="26">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>92 2 22 4 21 6 20 7 17 11 2 2 11 13 13 12 15 10 16 9 17 7 9 3 7 6 10 3 7 6 10 4 6 6 10 5 5 6 10 7 3 6 10 16 10 16 3 1 1 1 2 18 10 7 2 7 10 5 4 7 10 3 6 7 10 3 6 7 10 3 6 7 10 3 6 7 10 3 6 7 10 3 6 7 10 3 6 7 10 3 6 6 11 3 6 6 11 3 6 6 11 3 6 6 11 3 6 6 11 3 6 5 12 3 6 4 13 3 6 2 15 18 8 2 5 1 18 2 4 2 18 2 24 2 24 2 24 1 77</data>
+    </glyph>
+    <glyph uly="216" ulx="549" nrows="18" ncols="21">
+      <ids state="MANUAL">
+        <id name="neume.punctum" confidence="1.000000"/>
+      </ids>
+      <data>114 2 18 3 17 5 14 7 13 8 6 1 2 15 1 5 5 8 13 10 11 8 14 6 15 5 16 3 19 1 13</data>
+    </glyph>
+    <glyph uly="217" ulx="575" nrows="19" ncols="20">
+      <ids state="MANUAL">
+        <id name="neume.punctum" confidence="1.000000"/>
+      </ids>
+      <data>50 1 17 4 15 5 14 6 13 8 11 9 10 10 3 3 1 4 1 9 1 3 8 9 11 9 11 7 14 5 15 4 17 1 71</data>
+    </glyph>
+    <glyph uly="216" ulx="613" nrows="45" ncols="23">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>105 2 19 4 18 5 17 6 16 8 15 9 14 11 12 12 11 12 11 10 13 9 14 8 15 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 6 17 6 17 6 17 6 17 6 17 6 17 6 17 6 17 6 17 5 18 4 19 2 21 2 151</data>
+    </glyph>
+    <glyph uly="349" ulx="224" nrows="43" ncols="24">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>4 3 1 1 4 3 1 6 61 1 21 3 20 4 19 6 17 8 16 10 14 10 14 9 15 8 16 6 18 6 18 6 18 6 18 6 17 7 17 7 17 7 17 7 17 7 17 7 17 7 17 7 17 7 17 7 17 6 18 6 18 6 18 6 18 6 18 6 18 5 19 3 21 2 22 1 44 1 4 12 3 1 96</data>
+    </glyph>
+    <glyph uly="341" ulx="271" nrows="42" ncols="33">
+      <ids state="MANUAL">
+        <id name="neume.pescephalicus2" confidence="1.000000"/>
+      </ids>
+      <data>57 3 29 4 27 6 26 8 24 10 23 11 21 13 2 6 2 1 3 3 2 14 21 10 23 9 13 2 9 6 15 3 9 6 13 6 7 7 12 7 7 7 11 9 6 7 10 11 6 6 10 11 5 7 10 1 1 10 4 7 13 8 5 7 14 5 7 6 16 3 8 6 16 1 10 6 27 6 27 6 27 6 9 1 5 1 11 9 24 6 27 6 27 5 28 5 28 5 27 6 27 5 28 4 29 3 30 2 31 1 147</data>
+    </glyph>
+    <glyph uly="348" ulx="309" nrows="44" ncols="18">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>26 1 71 3 14 4 13 6 11 7 10 10 8 12 6 11 8 9 9 8 10 7 11 6 11 7 11 7 11 7 7 1 3 9 3 1 5 7 12 6 12 6 12 6 12 6 12 6 12 6 12 6 11 7 11 7 11 7 12 5 13 4 14 4 14 3 15 2 16 1 48 18 72</data>
+    </glyph>
+    <glyph uly="356" ulx="337" nrows="21" ncols="21">
+      <ids state="MANUAL">
+        <id name="neume.punctum" confidence="1.000000"/>
+      </ids>
+      <data>116 2 18 4 16 5 14 7 13 8 12 1 1 7 11 2 1 8 4 2 7 7 15 6 15 7 14 6 15 5 16 4 17 2 53</data>
+    </glyph>
+    <glyph uly="354" ulx="353" nrows="40" ncols="8">
+      <ids state="MANUAL">
+        <id name="divisio.maxima" confidence="1.000000"/>
+      </ids>
+      <data>107 3 154 8 48</data>
+    </glyph>
+    <glyph uly="360" ulx="355" nrows="36" ncols="33">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>80 3 28 6 25 10 3 1 18 15 18 16 9 3 4 25 7 18 15 6 3 9 15 6 5 6 16 6 5 6 16 6 5 6 16 6 5 6 16 6 5 5 17 6 5 5 17 6 5 5 16 7 5 6 16 6 4 9 14 6 4 10 12 7 4 11 11 7 3 11 13 6 6 7 13 7 7 5 15 6 8 2 17 5 28 5 21 33 6 6 27 6 27 5 28 3 30 2 124</data>
+    </glyph>
+    <glyph uly="347" ulx="389" nrows="45" ncols="19">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>121 3 15 5 12 8 10 10 8 13 6 14 7 11 8 10 9 10 9 8 10 7 12 7 12 7 12 7 9 10 12 7 12 6 13 6 13 6 13 6 13 6 13 6 13 7 12 6 13 6 13 6 13 6 13 6 13 6 13 5 14 4 15 3 16 2 17 2 14 9 1 8 77</data>
+    </glyph>
+    <glyph uly="355" ulx="417" nrows="43" ncols="37">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>272 5 31 9 5 2 20 17 19 18 18 20 8 37 8 7 5 9 16 7 7 6 17 7 7 6 17 7 7 6 17 7 7 5 18 7 7 5 18 7 7 6 17 7 6 8 16 7 6 9 4 1 10 7 6 13 11 6 7 10 14 6 9 7 15 6 9 5 17 6 10 3 18 6 31 6 31 6 31 5 23 1 8 7 4 1 2 2 4 3 3 16 2 6 1 1 8 1 1 4 7 5 20 5 8 4 20 5 7 4 20 2 3 1 7 2 35 1 214</data>
+    </glyph>
+    <glyph uly="359" ulx="449" nrows="37" ncols="41">
+      <ids state="MANUAL">
+        <id name="neume.torculus2" confidence="1.000000"/>
+      </ids>
+      <data>101 2 38 4 36 7 5 2 25 10 3 4 23 18 23 18 2 2 5 5 2 3 2 20 21 12 1 7 21 8 5 7 22 7 5 7 22 6 6 7 22 6 6 6 23 7 5 5 24 7 6 5 23 6 6 8 10 1 10 6 6 10 2 1 3 2 11 6 6 11 18 6 5 11 19 6 7 8 20 6 8 5 22 6 9 3 23 6 10 1 17 2 5 6 27 2 6 6 26 15 24 39 1 18 22 18 23 17 24 1 3 12 19 1 14 6 18 3 17 2 18 5 35 6 34 9 31 12</data>
+    </glyph>
+    <glyph uly="388" ulx="476" nrows="33" ncols="14">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>36 1 11 3 10 5 8 6 7 9 4 12 2 12 2 11 4 9 5 8 6 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 4 1 1 9 1 16 3 7 7 7 7 7 7 6 8 6 8 6 8 4 10 2 12 2 37</data>
+    </glyph>
+    <glyph uly="356" ulx="486" nrows="61" ncols="8">
+      <ids state="MANUAL">
+        <id name="divisio.maxima" confidence="1.000000"/>
+      </ids>
+      <data>85 1 7 1 16 1 7 1 7 1 23 1 7 1 1 1 36 1 7 1 7 1 7 1 7 1 7 1 2 8 5 1 7 1 7 1 7 1 7 1 7 1 7 1 2 2 3 1 2 6 2 6 2 3 2 1 2 2 3 1 2 1 4 2 14 2 6 2 41 1 1 5 1 6 58</data>
+    </glyph>
+    <glyph uly="374" ulx="493" nrows="43" ncols="18">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>116 1 15 4 13 6 12 7 9 10 2 1 5 12 3 15 4 12 7 10 9 8 10 7 11 7 11 7 11 7 11 7 11 7 11 6 12 6 12 6 12 6 12 7 11 7 11 7 11 7 11 7 11 7 11 7 11 7 10 8 11 10 2 2 4 7 11 6 12 5 13 3 15 2 16 1 32</data>
+    </glyph>
+    <glyph uly="385" ulx="525" nrows="21" ncols="25">
+      <ids state="MANUAL">
+        <id name="neume.punctum" confidence="1.000000"/>
+      </ids>
+      <data>17 1 3 2 2 3 2 1 5 1 100 2 22 3 20 6 18 7 17 9 15 10 15 1 2 7 18 8 12 1 4 9 16 9 17 6 19 6 20 3 22 1 63</data>
+    </glyph>
+    <glyph uly="377" ulx="557" nrows="38" ncols="23">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>60 1 20 3 19 4 18 5 17 6 16 8 7 3 1 19 8 12 11 11 12 9 14 9 14 8 15 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 7 16 6 17 6 17 5 15 1 2 4 2 2 5 1 9 2 128</data>
+    </glyph>
+    <glyph uly="356" ulx="594" nrows="37" ncols="18">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>44 2 15 3 14 4 12 7 10 8 10 9 9 14 1 1 1 16 3 11 7 9 10 7 10 7 12 6 12 6 12 6 12 6 12 6 12 6 12 5 13 5 12 7 11 7 11 7 11 7 11 7 12 5 12 8 3 2 2 11 11 3 15 2 102</data>
+    </glyph>
+    <glyph uly="354" ulx="623" nrows="41" ncols="22">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>100 3 18 4 16 6 15 8 14 8 13 9 13 11 4 1 4 14 11 10 12 9 13 8 14 7 15 7 15 7 15 7 15 7 15 7 16 6 15 7 15 7 15 7 15 7 15 7 15 7 15 6 16 6 11 12 15 4 18 3 19 2 166</data>
+    </glyph>
+    <glyph uly="495" ulx="219" nrows="34" ncols="28">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>0 2 26 3 8 6 11 3 7 9 2 2 5 2 6 15 5 1 6 16 5 1 2 2 1 22 5 18 10 7 2 9 5 3 2 7 5 6 5 3 2 7 5 5 6 3 2 7 5 5 6 2 3 7 5 4 7 1 4 7 4 5 12 7 4 6 11 7 4 8 9 7 4 9 8 6 4 10 8 6 4 9 9 6 6 7 9 6 7 4 11 6 8 2 12 6 22 5 23 5 23 6 22 6 22 17 4 1 6 5 23 3 25 1 27 1 106</data>
+    </glyph>
+    <glyph uly="511" ulx="249" nrows="38" ncols="32">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>139 2 28 7 5 2 16 11 1 4 15 17 14 18 9 1 2 30 2 20 12 7 3 10 12 7 6 6 13 7 7 5 13 7 7 4 14 7 7 4 14 7 6 6 13 7 6 8 11 7 6 9 11 6 5 11 9 7 5 10 10 7 7 7 11 7 8 5 12 6 9 3 15 6 25 7 26 6 26 6 26 6 26 6 20 53 1 4 12 3 29 2 154</data>
+    </glyph>
+    <glyph uly="488" ulx="289" nrows="44" ncols="18">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>117 2 15 3 13 6 11 8 9 10 4 1 2 15 4 13 5 11 7 10 9 8 10 7 11 7 11 6 12 6 12 6 12 6 11 7 11 7 11 7 11 7 11 7 11 7 11 7 11 7 11 6 12 7 7 14 1 3 4 6 12 6 12 5 13 4 14 3 15 2 16 1 85</data>
+    </glyph>
+    <glyph uly="478" ulx="311" nrows="30" ncols="42">
+      <ids state="MANUAL">
+        <id name="neume.torculus2" confidence="1.000000"/>
+      </ids>
+      <data>0 14 3 2 14 4 5 42 64 1 40 3 38 7 5 1 28 9 2 3 27 15 26 16 25 17 26 16 26 6 4 6 26 6 4 6 22 1 2 7 4 6 21 1 4 6 4 6 20 1 4 7 4 5 20 1 5 7 4 6 17 2 7 6 3 8 15 7 2 7 4 8 13 17 3 9 2 2 8 18 2 13 4 42 4 18 1 3 1 10 1 1 1 2 10 10 9 6 21 4 11 3 220</data>
+    </glyph>
+    <glyph uly="484" ulx="347" nrows="41" ncols="12">
+      <ids state="MANUAL">
+        <id name="divisio.maxima" confidence="1.000000"/>
+      </ids>
+      <data>157 2 9 2 10 6 1 6 1 1 1 2 1 5 217 8 1 1 2 7 3 1 48</data>
+    </glyph>
+    <glyph uly="489" ulx="359" nrows="36" ncols="20">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>70 1 18 2 17 3 15 5 14 7 12 9 11 13 3 40 5 11 9 10 10 7 13 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 14 6 9 2 1 12 1 6 1 17 5 3 17 2 53</data>
+    </glyph>
+    <glyph uly="471" ulx="386" nrows="39" ncols="25">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>86 3 21 4 20 5 18 9 15 12 2 1 4 25 7 12 13 11 14 10 15 8 17 8 18 6 19 7 17 7 18 7 18 7 18 7 18 7 19 6 18 7 18 7 18 7 18 7 18 7 18 7 18 7 6 1 1 3 2 2 2 8 18 6 19 6 19 4 21 3 22 2 116</data>
+    </glyph>
+    <glyph uly="479" ulx="428" nrows="20" ncols="22">
+      <ids state="MANUAL">
+        <id name="neume.punctum" confidence="1.000000"/>
+      </ids>
+      <data>0 22 98 3 17 5 16 6 14 9 14 8 4 2 9 7 3 1 11 10 12 8 14 6 17 4 18 1 101</data>
+    </glyph>
+    <glyph uly="467" ulx="464" nrows="42" ncols="33">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>245 2 30 5 25 10 3 1 18 16 15 20 6 33 4 9 1 11 13 7 5 8 13 7 6 6 14 6 7 6 14 7 6 5 15 7 6 5 15 7 6 7 13 7 5 8 13 7 5 9 12 7 4 12 10 7 5 10 11 7 6 8 12 6 8 6 13 6 9 4 14 6 10 1 16 6 27 6 27 6 27 6 22 1 2 8 2 4 1 1 2 1 16 6 27 4 29 3 30 1 192</data>
+    </glyph>
+    <glyph uly="490" ulx="512" nrows="40" ncols="30">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>131 1 27 7 5 1 15 15 14 17 11 21 8 22 8 20 10 7 4 8 11 7 6 6 11 7 6 5 12 7 6 5 12 6 7 4 13 6 7 5 12 6 6 8 10 6 6 8 10 6 5 10 9 6 5 11 8 6 7 8 9 6 8 6 10 6 8 5 11 6 9 2 13 6 9 2 13 6 24 6 24 6 12 1 2 6 1 29 2 7 24 5 25 4 26 3 27 2 27 2 146</data>
+    </glyph>
+    <glyph uly="476" ulx="553" nrows="43" ncols="18">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>54 18 9 1 16 1 16 2 15 4 13 5 12 6 11 9 9 12 6 12 6 11 7 10 8 9 9 8 10 7 11 7 11 7 11 7 11 7 11 7 8 1 1 9 6 1 3 7 11 7 11 7 11 7 11 6 12 7 11 7 11 6 12 6 12 5 13 4 14 3 15 2 103 1 6 1 7 2 1</data>
+    </glyph>
+    <glyph uly="470" ulx="574" nrows="44" ncols="31">
+      <ids state="MANUAL">
+        <id name="neume.pescephalicus2" confidence="1.000000"/>
+      </ids>
+      <data>142 3 27 6 24 7 23 9 22 10 6 32 1 2 1 1 1 23 16 12 19 11 11 1 8 9 11 4 7 8 11 6 6 7 11 7 6 6 12 8 5 6 10 10 4 7 11 12 1 7 13 9 2 7 13 8 3 7 14 6 5 6 14 5 6 6 16 1 7 7 24 7 25 6 25 6 24 7 10 2 10 9 2 1 2 2 2 1 14 7 9 1 14 6 25 6 25 6 25 6 25 6 25 5 26 4 27 3 28 3 138</data>
+    </glyph>
+    <glyph uly="480" ulx="602" nrows="29" ncols="53">
+      <ids state="MANUAL">
+        <id name="neume.torculus2" confidence="1.000000"/>
+      </ids>
+      <data>0 2 2 1 1 2 181 4 47 8 42 17 34 19 33 20 32 7 2 12 31 7 7 8 31 8 7 7 31 8 7 7 32 6 8 7 23 1 8 6 8 7 21 2 9 6 8 6 21 2 10 6 8 6 19 9 5 7 7 6 18 22 7 8 14 23 8 9 11 25 7 13 4 2 2 24 8 12 21 11 10 10 26 5 14 6 31 1 16 4 50 2 224</data>
+    </glyph>
+    <glyph uly="611" ulx="631" nrows="38" ncols="18">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>63 2 15 4 13 6 11 8 9 10 8 11 7 13 5 13 5 12 6 11 7 9 9 8 10 7 11 7 11 7 11 7 11 7 11 7 11 7 11 7 11 7 11 7 11 7 11 7 11 7 11 7 11 8 5 1 1 2 1 8 11 6 12 5 13 4 14 2 16 2 46</data>
+    </glyph>
+    <glyph uly="600" ulx="649" nrows="49" ncols="7">
+      <ids state="MANUAL">
+        <id name="divisio.maxima" confidence="1.000000"/>
+      </ids>
+      <data>58 1 6 1 6 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 3 2 5 2 4 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 6 1 6 1 6 1 6 1 6 1 6 1 6 1 6 1 5 2 6 1 6 1 6 1 6 1 6 1 6 1 10</data>
+    </glyph>
+    <glyph uly="599" ulx="586" nrows="51" ncols="35">
+      <ids state="MANUAL">
+        <id name="neume.pescephalicus2" confidence="1.000000"/>
+      </ids>
+      <data>8 1 3 2 5 2 1 1 4 2 133 2 31 5 29 7 27 9 25 12 23 13 22 12 23 12 23 11 24 9 26 7 20 3 5 6 19 5 5 6 18 7 4 6 17 8 3 7 17 9 2 7 16 10 2 7 15 21 13 22 18 16 19 7 2 7 19 6 4 6 20 3 6 6 29 6 28 7 28 7 28 6 29 6 29 6 29 6 29 6 29 6 29 6 29 5 30 4 30 4 31 3 65 2 2 28 2 3 3 1 261</data>
+    </glyph>
+    <glyph uly="610" ulx="547" nrows="44" ncols="40">
+      <ids state="MANUAL">
+        <id name="neume.pescephalicus2" confidence="1.000000"/>
+      </ids>
+      <data>187 1 37 4 35 6 33 8 31 11 28 14 26 16 24 16 4 4 16 15 25 12 28 8 32 8 32 7 33 7 33 7 33 7 33 7 33 7 34 6 33 7 33 7 34 6 34 6 33 7 33 7 33 7 22 4 8 6 21 8 1 2 1 7 19 62 16 23 17 23 23 17 28 12 30 1 3 5 35 5 35 4 36 4 36 3 37 2 16</data>
+    </glyph>
+    <glyph uly="645" ulx="524" nrows="19" ncols="27">
+      <ids state="MANUAL">
+        <id name="neume.punctum" confidence="1.000000"/>
+      </ids>
+      <data>68 3 22 5 21 6 20 8 18 9 18 9 19 8 19 9 1 1 16 10 18 8 19 7 21 5 22 4 24 2 93</data>
+    </glyph>
+    <glyph uly="627" ulx="499" nrows="44" ncols="9">
+      <ids state="MANUAL">
+        <id name="divisio.maxima" confidence="1.000000"/>
+      </ids>
+      <data>113 1 30 9 4 2 7 1 53 1 17 1 8 1 8 1 17 1 8 1 8 1 8 1 8 1 8 1 17 1 7 4 6 1 8 1 8 1 22</data>
+    </glyph>
+    <glyph uly="612" ulx="411" nrows="44" ncols="46">
+      <ids state="MANUAL">
+        <id name="neume.torculus2" confidence="1.000000"/>
+      </ids>
+      <data>252 2 11 2 30 8 4 4 28 18 27 19 26 21 25 21 8 4 9 1 2 26 1 3 17 8 2 11 25 7 6 7 26 7 6 7 26 7 6 7 26 7 6 7 26 7 6 6 27 7 6 7 26 7 6 9 24 7 6 9 24 7 5 13 21 7 4 13 22 7 6 10 24 6 8 6 26 6 9 3 28 6 35 1 3 7 33 2 5 6 31 3 6 6 30 3 6 7 29 9 1 7 22 72 1 1 1 1 19 18 28 17 35 9 42 3 305</data>
+    </glyph>
+    <glyph uly="613" ulx="376" nrows="39" ncols="32">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>174 2 28 5 24 10 21 16 14 19 12 25 7 19 13 7 3 8 14 6 5 7 14 6 5 6 15 6 5 5 16 7 4 6 15 7 4 8 13 7 4 9 12 7 3 10 3 1 8 7 3 11 11 7 4 10 11 7 5 8 12 7 7 4 14 7 7 3 15 7 25 7 25 7 25 7 25 7 25 6 21 1 2 1 1 6 1 11 1 40 5 2 185</data>
+    </glyph>
+    <glyph uly="600" ulx="352" nrows="42" ncols="21">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>50 2 1 10 92 4 16 5 16 7 12 10 2 1 8 12 9 11 10 10 11 10 11 9 12 7 14 7 14 7 14 7 14 7 14 7 14 7 11 2 1 7 9 12 14 7 14 7 14 7 14 7 14 7 14 7 14 6 15 6 15 6 15 6 15 5 16 4 17 3 18 2 77</data>
+    </glyph>
+    <glyph uly="616" ulx="319" nrows="39" ncols="19">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>28 1 16 3 15 5 13 6 12 8 11 10 8 14 2 2 1 16 4 10 9 9 10 8 11 7 13 6 13 6 13 7 11 7 12 7 12 7 12 7 12 7 13 6 13 6 12 7 12 7 12 7 12 7 12 7 12 7 8 20 1 9 4 3 6 4 14 4 15 3 16 2 89</data>
+    </glyph>
+    <glyph uly="626" ulx="279" nrows="40" ncols="18">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>64 1 16 2 15 4 13 6 11 8 9 9 9 11 7 11 7 10 8 9 9 8 10 7 11 6 12 6 12 6 12 6 7 36 5 6 12 6 12 6 12 6 12 6 12 6 12 6 12 6 12 6 12 6 12 6 12 5 13 4 13 4 14 3 16 2 65</data>
+    </glyph>
+    <glyph uly="614" ulx="252" nrows="38" ncols="19">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>65 1 16 3 15 5 13 7 11 9 10 12 5 13 5 16 1 21 3 8 11 7 12 7 13 6 13 6 13 6 13 6 13 6 13 6 13 6 13 6 13 6 13 6 13 6 13 6 13 6 13 6 13 6 13 5 12 36 4 3 88</data>
+    </glyph>
+    <glyph uly="619" ulx="222" nrows="34" ncols="22">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>10 2 19 3 18 5 16 7 14 9 12 14 2 2 4 17 5 12 11 10 12 9 13 8 14 7 15 7 15 7 15 7 15 7 15 7 15 6 16 7 15 6 16 6 16 7 15 7 15 6 16 6 16 6 16 7 1 1 7 23 1 11 15 4 18 3 19 2 58</data>
+    </glyph>
+    <glyph uly="608" ulx="239" nrows="47" ncols="11">
+      <ids state="MANUAL">
+        <id name="divisio.maxima" confidence="1.000000"/>
+      </ids>
+      <data>176 2 2 2 4 12 214 1 5 11 5 1 82</data>
+    </glyph>
+    <glyph uly="741" ulx="225" nrows="39" ncols="18">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>64 1 15 4 13 5 12 6 11 8 9 10 8 12 6 13 1 18 5 8 10 7 11 7 11 7 11 7 12 6 12 6 11 7 12 6 12 6 12 6 12 6 12 6 11 7 11 7 11 6 12 6 12 6 12 6 10 15 4 6 13 4 14 3 15 2 16 1 48</data>
+    </glyph>
+    <glyph uly="745" ulx="245" nrows="35" ncols="28">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>66 3 23 7 19 16 10 18 9 53 3 20 8 6 6 7 9 6 6 7 9 7 6 5 10 7 6 5 10 6 7 5 10 6 6 6 10 6 6 7 9 6 6 8 2 2 4 6 5 12 5 6 5 10 7 6 5 9 8 6 6 7 9 6 7 5 10 6 8 3 11 6 22 6 22 5 23 5 20 1 1 26 3 3 25 2 26 1 136</data>
+    </glyph>
+    <glyph uly="731" ulx="287" nrows="40" ncols="19">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>0 2 4 2 57 3 15 4 14 6 12 8 3 2 5 10 1 3 5 14 5 13 6 12 7 11 8 10 9 8 11 7 12 7 12 7 12 7 12 7 12 7 8 19 1 2 1 9 3 1 6 7 12 7 12 7 12 7 12 7 12 6 13 6 13 6 13 6 13 6 13 6 13 6 13 5 14 4 15 3 16 2 51</data>
+    </glyph>
+    <glyph uly="721" ulx="306" nrows="27" ncols="37">
+      <ids state="MANUAL">
+        <id name="neume.torculus2" confidence="1.000000"/>
+      </ids>
+      <data>127 2 8 2 23 7 3 5 21 16 20 17 20 17 20 19 1 42 12 7 3 7 20 7 3 6 21 6 5 4 22 6 4 6 16 1 4 6 4 7 14 2 4 6 4 8 11 6 2 6 3 10 9 15 3 11 7 15 4 10 7 16 6 7 8 15 7 6 13 9 10 4 17 5 12 2 20 2 136</data>
+    </glyph>
+    <glyph uly="743" ulx="345" nrows="37" ncols="21">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>52 2 18 4 15 6 14 9 11 11 10 14 7 14 8 12 9 11 10 10 11 9 12 7 14 7 14 6 15 6 15 6 15 6 15 6 15 6 15 6 15 6 15 6 15 6 15 6 15 6 14 7 9 2 2 11 4 1 7 6 15 5 16 4 17 4 17 2 19 1 56</data>
+    </glyph>
+    <glyph uly="733" ulx="364" nrows="49" ncols="11">
+      <ids state="MANUAL">
+        <id name="divisio.maxima" confidence="1.000000"/>
+      </ids>
+      <data>202 1 10 1 43 1 132 1 10 1 16 1 2 3 2 3 5 1 43 1 10 1 10 1 38</data>
+    </glyph>
+    <glyph uly="718" ulx="387" nrows="40" ncols="15">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>80 2 12 3 11 5 9 6 8 10 5 13 1 30 1 10 5 8 7 7 8 7 8 7 8 7 8 7 8 7 8 7 9 6 9 6 9 6 9 6 8 7 8 6 9 6 9 6 9 6 9 6 9 6 9 6 9 6 9 4 11 3 12 2 42</data>
+    </glyph>
+    <glyph uly="730" ulx="420" nrows="21" ncols="23">
+      <ids state="MANUAL">
+        <id name="neume.punctum" confidence="1.000000"/>
+      </ids>
+      <data>0 1 102 1 20 4 18 5 17 6 15 8 15 9 13 10 13 1 1 8 15 10 14 8 15 7 17 5 18 3 21 1 82</data>
+    </glyph>
+    <glyph uly="721" ulx="455" nrows="44" ncols="19">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>63 3 15 4 14 6 12 8 9 37 2 13 6 12 7 12 7 10 9 9 10 8 11 7 12 7 12 7 12 7 13 6 13 6 13 6 13 6 13 6 13 7 11 8 12 6 13 6 12 7 12 12 7 7 13 6 13 6 12 7 13 5 14 5 14 4 15 3 15 3 109</data>
+    </glyph>
+    <glyph uly="729" ulx="479" nrows="39" ncols="26">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>0 12 1 3 3 2 44 1 23 4 21 6 19 7 18 9 17 11 14 14 12 13 13 12 15 10 16 8 18 7 18 8 19 7 19 7 19 7 19 7 19 7 18 8 18 8 19 7 19 7 19 7 19 7 19 6 20 6 20 6 20 6 20 5 21 4 22 3 23 2 24 2 120</data>
+    </glyph>
+    <glyph uly="739" ulx="506" nrows="39" ncols="31">
+      <ids state="MANUAL">
+        <id name="neume.clivis2" confidence="1.000000"/>
+      </ids>
+      <data>196 4 25 9 2 2 17 15 14 17 12 28 3 19 13 6 4 7 14 6 4 7 14 6 5 6 13 7 4 7 13 7 4 6 14 7 4 6 14 7 4 6 14 7 4 9 11 7 4 10 10 7 3 15 6 6 4 13 8 6 7 9 10 5 8 6 11 6 8 5 12 6 9 3 13 6 10 1 14 6 25 6 24 7 22 1 1 8 23 6 26 4 27 2 29 1 120</data>
+    </glyph>
+    <glyph uly="732" ulx="540" nrows="40" ncols="26">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>63 2 23 3 21 6 19 8 17 10 15 13 12 16 11 15 12 13 13 12 14 11 15 7 19 7 19 7 19 7 13 1 1 12 3 1 5 3 6 7 19 7 19 7 19 7 19 7 19 7 19 6 20 6 20 6 20 6 20 6 20 6 20 6 20 6 20 6 20 4 22 3 23 2 45 19 2 4 52</data>
+    </glyph>
+    <glyph uly="718" ulx="577" nrows="44" ncols="19">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>69 1 17 2 15 4 14 5 13 7 10 9 5 2 1 14 2 18 5 14 7 11 8 10 9 9 10 7 12 7 11 8 11 8 11 8 11 8 11 8 11 7 12 7 12 7 12 7 12 7 12 7 12 7 11 8 7 15 2 14 11 7 13 6 12 6 14 3 16 2 17 1 127</data>
+    </glyph>
+    <glyph uly="727" ulx="598" nrows="43" ncols="42">
+      <ids state="MANUAL">
+        <id name="neume.pescephalicus2" confidence="1.000000"/>
+      </ids>
+      <data>6 26 38 1 40 2 39 4 36 6 36 6 35 8 33 11 30 13 30 12 30 10 32 9 33 7 35 7 35 6 27 4 5 6 26 5 4 7 25 6 5 6 24 7 5 6 23 9 3 7 17 1 3 13 1 8 15 3 1 23 20 1 3 9 1 7 25 7 3 7 25 6 4 7 26 3 6 7 26 2 7 7 35 7 35 7 35 7 35 7 35 7 35 7 35 7 35 7 35 6 36 5 37 3 39 3 39 2 61 5 2 14 1 3 2 1 1 5 50</data>
+    </glyph>
+    <glyph uly="738" ulx="644" nrows="39" ncols="14">
+      <ids state="MANUAL">
+        <id name="neume.virga" confidence="1.000000"/>
+      </ids>
+      <data>49 1 11 4 9 6 7 8 5 10 4 11 2 13 2 11 3 10 4 9 5 8 6 7 7 7 7 7 7 7 7 7 7 2 1 4 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 7 6 6 9 5 1 1 7 7 8 3 1 2 7 7 6 8 4 10 3 11 2 12 2 24</data>
+    </glyph>
+    <glyph uly="727" ulx="657" nrows="47" ncols="7">
+      <ids state="MANUAL">
+        <id name="divisio.maxima" confidence="1.000000"/>
+      </ids>
+      <data>24 1 5 2 5 2 5 2 6 2 5 2 5 1 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 3 4 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 5 2 6 1 6 1 6 1 6 1 6 1 6 9 4 2 24</data>
+    </glyph>
+  </glyphs>
+</gamera-database>

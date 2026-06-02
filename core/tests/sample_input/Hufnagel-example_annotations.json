@@ -1,0 +1,1083 @@
+{
+  "imageName": "Hufnagel-example.png",
+  "annotations": [
+    {
+      "id": "4a04eb16-8344-5aa4-8551-0032119afe36",
+      "classId": 2,
+      "bbox": [
+        196,
+        122,
+        27,
+        42
+      ],
+      "type": "f-clef"
+    },
+    {
+      "id": "fecb0091-dd56-5975-88d8-281a93f5bb84",
+      "classId": 2,
+      "bbox": [
+        195,
+        230,
+        26,
+        50
+      ],
+      "type": "f-clef"
+    },
+    {
+      "id": "3d1cca4e-0219-5574-97a2-c4cc7b357f20",
+      "classId": 2,
+      "bbox": [
+        196,
+        351,
+        26,
+        46
+      ],
+      "type": "f-clef"
+    },
+    {
+      "id": "943706dd-e0f0-5b4e-a7ad-c88920a7aa2c",
+      "classId": 2,
+      "bbox": [
+        192,
+        485,
+        31,
+        47
+      ],
+      "type": "f-clef"
+    },
+    {
+      "id": "417442c6-10ab-5961-99aa-9a5b8df439ae",
+      "classId": 2,
+      "bbox": [
+        199,
+        608,
+        27,
+        49
+      ],
+      "type": "f-clef"
+    },
+    {
+      "id": "538d54a2-111e-534e-bfdf-5d0a2e282e04",
+      "classId": 2,
+      "bbox": [
+        199,
+        735,
+        26,
+        43
+      ],
+      "type": "f-clef"
+    },
+    {
+      "id": "ef1b7143-5b88-5eb4-8555-160119c9deef",
+      "classId": 2,
+      "bbox": [
+        665,
+        722,
+        39,
+        35
+      ],
+      "type": "custos"
+    },
+    {
+      "id": "0febf256-7b5c-5b7d-8436-e3c293594477",
+      "classId": 2,
+      "bbox": [
+        654,
+        601,
+        42,
+        30
+      ],
+      "type": "custos"
+    },
+    {
+      "id": "4048cafb-1913-5cb3-a3ca-215d0bbae802",
+      "classId": 2,
+      "bbox": [
+        650,
+        474,
+        46,
+        35
+      ],
+      "type": "custos"
+    },
+    {
+      "id": "2b54eef1-50f5-563a-bd31-8b10d6384e48",
+      "classId": 2,
+      "bbox": [
+        646,
+        337,
+        38,
+        34
+      ],
+      "type": "custos"
+    },
+    {
+      "id": "c7326f8e-cedd-5e09-8179-4fa4137de0b9",
+      "classId": 2,
+      "bbox": [
+        645,
+        214,
+        45,
+        33
+      ],
+      "type": "custos"
+    },
+    {
+      "id": "dc897b60-55f0-53e9-8376-1718119471ad",
+      "classId": 2,
+      "bbox": [
+        639,
+        108,
+        41,
+        31
+      ],
+      "type": "custos"
+    },
+    {
+      "id": "fa62d64f-ac06-5fec-9735-599cbbc96fc1",
+      "classId": 2,
+      "bbox": [
+        221,
+        125,
+        23,
+        47
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "e8e9a383-1972-51d8-9b06-7caa97c2a278",
+      "classId": 2,
+      "bbox": [
+        245,
+        112,
+        23,
+        46
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "6c40dd41-1571-5115-b64d-72222c402ca6",
+      "classId": 2,
+      "bbox": [
+        268,
+        102,
+        22,
+        43
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "7f5e4f5c-77b5-5fcb-81b1-557713a7cee6",
+      "classId": 2,
+      "bbox": [
+        297,
+        111,
+        30,
+        47
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "d959d562-e772-55a9-b56b-1dfea58ad53d",
+      "classId": 2,
+      "bbox": [
+        341,
+        122,
+        35,
+        41
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "33f17a20-62f0-5f86-ac2d-9b38372d9e75",
+      "classId": 2,
+      "bbox": [
+        382,
+        122,
+        30,
+        31
+      ],
+      "type": "puncta"
+    },
+    {
+      "id": "758b37eb-c6e1-5c03-9dcf-17f8a2bbd8b0",
+      "classId": 2,
+      "bbox": [
+        410,
+        125,
+        35,
+        20
+      ],
+      "type": "puncta"
+    },
+    {
+      "id": "0927fd27-5eb0-5006-adc6-2d7eb46672f1",
+      "classId": 2,
+      "bbox": [
+        439,
+        123,
+        31,
+        40
+      ],
+      "type": "pes"
+    },
+    {
+      "id": "25b726c9-c928-551d-adb6-07d63d8d59a8",
+      "classId": 2,
+      "bbox": [
+        470,
+        110,
+        19,
+        45
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "3b4657f8-5c29-5d67-958c-31bba0a8311c",
+      "classId": 2,
+      "bbox": [
+        491,
+        126,
+        28,
+        33
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "46d61661-fab1-5e43-a117-52abdcf3553b",
+      "classId": 2,
+      "bbox": [
+        517,
+        121,
+        40,
+        37
+      ],
+      "type": "torculus"
+    },
+    {
+      "id": "b5135cff-e70a-582a-b120-c397be7edf70",
+      "classId": 2,
+      "bbox": [
+        561,
+        138,
+        22,
+        42
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "4ae48e7e-cdd5-5434-bf7c-7dba36df8a4a",
+      "classId": 2,
+      "bbox": [
+        601,
+        138,
+        35,
+        41
+      ],
+      "type": "pes"
+    },
+    {
+      "id": "1d6a3ecd-c88d-52a7-9aad-072a579ac29e",
+      "classId": 2,
+      "bbox": [
+        222,
+        228,
+        42,
+        45
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "9cd2c72d-eaf3-5061-9947-54544c8251f1",
+      "classId": 2,
+      "bbox": [
+        274,
+        239,
+        28,
+        19
+      ],
+      "type": "puncta"
+    },
+    {
+      "id": "d2062c20-596d-57ab-beb4-241d2ebea756",
+      "classId": 2,
+      "bbox": [
+        319,
+        237,
+        19,
+        42
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "68fe3d99-e597-5b30-8c89-31b6d750adac",
+      "classId": 2,
+      "bbox": [
+        341,
+        237,
+        30,
+        35
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "de6261f1-8f64-5c61-8ec0-7473553409c9",
+      "classId": 2,
+      "bbox": [
+        375,
+        227,
+        20,
+        44
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "d04c6504-c258-5ca8-9a79-bfff05b25a21",
+      "classId": 2,
+      "bbox": [
+        395,
+        217,
+        29,
+        47
+      ],
+      "type": "pes"
+    },
+    {
+      "id": "335557ed-9770-572a-a135-562433e0931a",
+      "classId": 2,
+      "bbox": [
+        419,
+        227,
+        45,
+        30
+      ],
+      "type": "torculus"
+    },
+    {
+      "id": "b362737b-e468-52ba-a36f-a85e372a4881",
+      "classId": 2,
+      "bbox": [
+        467,
+        234,
+        23,
+        38
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "024e4453-3120-57cf-b39b-93390df27547",
+      "classId": 2,
+      "bbox": [
+        485,
+        224,
+        12,
+        47
+      ],
+      "type": "divisio"
+    },
+    {
+      "id": "c41d2cbb-894a-53d2-b679-71ce24a89cc0",
+      "classId": 2,
+      "bbox": [
+        496,
+        216,
+        38,
+        44
+      ],
+      "type": "scandicus"
+    },
+    {
+      "id": "05ce7cea-a3ce-52b6-97b8-5afeae19fd2e",
+      "classId": 2,
+      "bbox": [
+        525,
+        207,
+        26,
+        47
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "6f98e613-0002-5f6b-9f07-ae975105e83e",
+      "classId": 2,
+      "bbox": [
+        549,
+        216,
+        21,
+        18
+      ],
+      "type": "puncta"
+    },
+    {
+      "id": "6def46b3-65de-5731-b7a4-ab8508b3dc2b",
+      "classId": 2,
+      "bbox": [
+        575,
+        217,
+        20,
+        19
+      ],
+      "type": "puncta"
+    },
+    {
+      "id": "befb3b0a-6628-5118-864b-256371cc6155",
+      "classId": 2,
+      "bbox": [
+        613,
+        216,
+        23,
+        45
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "59d73918-1bcc-520d-89cb-be27ee67b3fc",
+      "classId": 2,
+      "bbox": [
+        224,
+        349,
+        24,
+        43
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "b495894e-f6fd-5e83-8f7c-0844a5e72ca7",
+      "classId": 2,
+      "bbox": [
+        271,
+        341,
+        33,
+        42
+      ],
+      "type": "pes"
+    },
+    {
+      "id": "1c070b22-dbef-5674-89b4-66818a090eaf",
+      "classId": 2,
+      "bbox": [
+        309,
+        348,
+        18,
+        44
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "c77f6c3f-f770-568e-9ad6-75a3f3c447da",
+      "classId": 2,
+      "bbox": [
+        337,
+        356,
+        21,
+        21
+      ],
+      "type": "puncta"
+    },
+    {
+      "id": "31342466-a013-53d4-932f-b4d7d81bf38e",
+      "classId": 2,
+      "bbox": [
+        353,
+        354,
+        8,
+        40
+      ],
+      "type": "divisio"
+    },
+    {
+      "id": "b555e3c9-d86a-5436-8e88-2e6aa3ba7226",
+      "classId": 2,
+      "bbox": [
+        355,
+        360,
+        33,
+        36
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "ed7bbe04-4a1d-5c57-b1b8-43c6a46e09d2",
+      "classId": 2,
+      "bbox": [
+        389,
+        347,
+        19,
+        45
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "0c2b59c8-efab-5dd3-a5dc-96543abf2f0f",
+      "classId": 2,
+      "bbox": [
+        417,
+        355,
+        37,
+        43
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "659fa55c-95d0-5b52-9280-7e176552081b",
+      "classId": 2,
+      "bbox": [
+        449,
+        359,
+        41,
+        37
+      ],
+      "type": "torculus"
+    },
+    {
+      "id": "1753d34a-1934-5e07-8621-025deca27578",
+      "classId": 2,
+      "bbox": [
+        476,
+        388,
+        14,
+        33
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "9d977ecc-f780-55b1-893b-6b84405a505b",
+      "classId": 2,
+      "bbox": [
+        486,
+        356,
+        8,
+        61
+      ],
+      "type": "divisio"
+    },
+    {
+      "id": "a98d53b1-e774-5ceb-900e-17bbbb54fe50",
+      "classId": 2,
+      "bbox": [
+        493,
+        374,
+        18,
+        43
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "c0a81e9f-38ea-56a8-a52b-b053d288d8e9",
+      "classId": 2,
+      "bbox": [
+        525,
+        385,
+        25,
+        21
+      ],
+      "type": "puncta"
+    },
+    {
+      "id": "515e6fa5-c224-597a-8ab3-e18a30923f88",
+      "classId": 2,
+      "bbox": [
+        557,
+        377,
+        23,
+        38
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "41c86b4b-cff3-53bc-a6a8-31aa543bd9d2",
+      "classId": 2,
+      "bbox": [
+        594,
+        356,
+        18,
+        37
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "8c8879ed-5d73-51b7-a382-bcb8ff664767",
+      "classId": 2,
+      "bbox": [
+        623,
+        354,
+        22,
+        41
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "7c53906f-4f35-5c18-9a8c-7be226e301e7",
+      "classId": 2,
+      "bbox": [
+        219,
+        495,
+        28,
+        34
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "0c131237-c719-5774-881f-a30ce3ffaf59",
+      "classId": 2,
+      "bbox": [
+        249,
+        511,
+        32,
+        38
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "f1762e20-cf6e-5dd9-b5e1-f79cc772eafb",
+      "classId": 2,
+      "bbox": [
+        289,
+        488,
+        18,
+        44
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "a75e64ee-d45d-5f3e-a595-be3d9a0a99c7",
+      "classId": 2,
+      "bbox": [
+        311,
+        478,
+        42,
+        30
+      ],
+      "type": "torculus"
+    },
+    {
+      "id": "ad1e92b0-bb91-5c3f-aee0-712394b99e52",
+      "classId": 2,
+      "bbox": [
+        347,
+        484,
+        12,
+        41
+      ],
+      "type": "divisio"
+    },
+    {
+      "id": "84e92883-2b4c-50bf-9abb-86ac64687bb0",
+      "classId": 2,
+      "bbox": [
+        359,
+        489,
+        20,
+        36
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "b95ecb96-691e-5d67-bbb9-7f8f5feb1ca3",
+      "classId": 2,
+      "bbox": [
+        386,
+        471,
+        25,
+        39
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "6e795040-0cb2-52bc-b4b6-21ddf0dcf1f1",
+      "classId": 2,
+      "bbox": [
+        428,
+        479,
+        22,
+        20
+      ],
+      "type": "puncta"
+    },
+    {
+      "id": "bc2e97c9-f194-5219-b2cb-4470a1ea14f9",
+      "classId": 2,
+      "bbox": [
+        464,
+        467,
+        33,
+        42
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "e0b42472-4f3f-51f1-a73e-73ae02b883f6",
+      "classId": 2,
+      "bbox": [
+        512,
+        490,
+        30,
+        40
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "b769e131-6c48-59c7-a357-2443929548ce",
+      "classId": 2,
+      "bbox": [
+        553,
+        476,
+        18,
+        43
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "262d9cfd-1de2-57f3-81b3-f65f32bd160b",
+      "classId": 2,
+      "bbox": [
+        574,
+        470,
+        31,
+        44
+      ],
+      "type": "pes"
+    },
+    {
+      "id": "4cbcade4-5fd9-5a04-9f0a-d93c7d942b25",
+      "classId": 2,
+      "bbox": [
+        602,
+        480,
+        53,
+        29
+      ],
+      "type": "torculus"
+    },
+    {
+      "id": "10b7a54f-a95a-5066-85b8-4b2ea062471c",
+      "classId": 2,
+      "bbox": [
+        631,
+        611,
+        18,
+        38
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "5185d34e-6e61-5c95-b30d-5e1fca898a7f",
+      "classId": 2,
+      "bbox": [
+        649,
+        600,
+        7,
+        49
+      ],
+      "type": "divisio"
+    },
+    {
+      "id": "0d8fee00-cb28-53ec-8b76-0c19e08d508f",
+      "classId": 2,
+      "bbox": [
+        586,
+        599,
+        35,
+        51
+      ],
+      "type": "pes"
+    },
+    {
+      "id": "b91c088b-f714-515c-9174-96d6858a577e",
+      "classId": 2,
+      "bbox": [
+        547,
+        610,
+        40,
+        44
+      ],
+      "type": "pes"
+    },
+    {
+      "id": "207dfd70-96f7-5863-96a1-289a3ac8110f",
+      "classId": 2,
+      "bbox": [
+        524,
+        645,
+        27,
+        19
+      ],
+      "type": "puncta"
+    },
+    {
+      "id": "e4ab7408-5484-5759-8c15-d3559a1cd051",
+      "classId": 2,
+      "bbox": [
+        499,
+        627,
+        9,
+        44
+      ],
+      "type": "divisio"
+    },
+    {
+      "id": "6673581e-f91f-531f-8299-c5dd62b8ebc4",
+      "classId": 2,
+      "bbox": [
+        411,
+        612,
+        46,
+        44
+      ],
+      "type": "torculus"
+    },
+    {
+      "id": "79a0b0ae-c4c1-5466-ba4e-3438580cc54a",
+      "classId": 2,
+      "bbox": [
+        376,
+        613,
+        32,
+        39
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "09786a0f-a045-56e0-ab50-b9af343c614e",
+      "classId": 2,
+      "bbox": [
+        352,
+        600,
+        21,
+        42
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "d5e891f8-2934-528f-a5ea-e57d263a492e",
+      "classId": 2,
+      "bbox": [
+        319,
+        616,
+        19,
+        39
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "ff185dae-d64b-589f-a04c-ecd7caaac816",
+      "classId": 2,
+      "bbox": [
+        279,
+        626,
+        18,
+        40
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "d9871c49-36e4-5ab8-8873-ea144341055a",
+      "classId": 2,
+      "bbox": [
+        252,
+        614,
+        19,
+        38
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "56f1cf18-43c6-52b5-a41d-301d8f34eb07",
+      "classId": 2,
+      "bbox": [
+        222,
+        619,
+        22,
+        34
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "b93e0fd9-edb9-53b7-bf65-2a837ee28401",
+      "classId": 2,
+      "bbox": [
+        239,
+        608,
+        11,
+        47
+      ],
+      "type": "divisio"
+    },
+    {
+      "id": "505afe87-b8ef-5cfa-84a3-f0120ef1be18",
+      "classId": 2,
+      "bbox": [
+        225,
+        741,
+        18,
+        39
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "ef0be44a-28cf-531c-bcb8-68ad3eeb94c4",
+      "classId": 2,
+      "bbox": [
+        245,
+        745,
+        28,
+        35
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "d79cff2f-d8a7-51ba-9f26-885f7cfe392c",
+      "classId": 2,
+      "bbox": [
+        287,
+        731,
+        19,
+        40
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "882dcad1-4d8e-517e-9bbe-0abaf7a5c4de",
+      "classId": 2,
+      "bbox": [
+        306,
+        721,
+        37,
+        27
+      ],
+      "type": "torculus"
+    },
+    {
+      "id": "3ee2803c-b721-562d-ad6b-9c1f7c38b5a2",
+      "classId": 2,
+      "bbox": [
+        345,
+        743,
+        21,
+        37
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "283043b6-07b6-5717-9e9f-e13d1e9ed85b",
+      "classId": 2,
+      "bbox": [
+        364,
+        733,
+        11,
+        49
+      ],
+      "type": "divisio"
+    },
+    {
+      "id": "658be067-4409-586e-821c-236d53bcc3d0",
+      "classId": 2,
+      "bbox": [
+        387,
+        718,
+        15,
+        40
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "676e7716-70e4-5648-8a8c-c27f1c3883d1",
+      "classId": 2,
+      "bbox": [
+        420,
+        730,
+        23,
+        21
+      ],
+      "type": "puncta"
+    },
+    {
+      "id": "adcb53e0-a51c-58aa-b2d9-d8858fce87b1",
+      "classId": 2,
+      "bbox": [
+        455,
+        721,
+        19,
+        44
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "2135eb46-3933-5839-999e-00451b2d16da",
+      "classId": 2,
+      "bbox": [
+        479,
+        729,
+        26,
+        39
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "fc014e59-16ef-5c94-8e00-7f6ab3b413f3",
+      "classId": 2,
+      "bbox": [
+        506,
+        739,
+        31,
+        39
+      ],
+      "type": "clivis"
+    },
+    {
+      "id": "87f28a55-e2bd-5541-a073-aa7007675c37",
+      "classId": 2,
+      "bbox": [
+        540,
+        732,
+        26,
+        40
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "0f18989b-b074-5a1f-ad8b-800fd035087d",
+      "classId": 2,
+      "bbox": [
+        577,
+        718,
+        19,
+        44
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "0e5b868e-eb58-509f-8c44-9c655ce0b3d5",
+      "classId": 2,
+      "bbox": [
+        598,
+        727,
+        42,
+        43
+      ],
+      "type": "pes"
+    },
+    {
+      "id": "db434cbe-7139-5e5d-af19-0fa1466400ca",
+      "classId": 2,
+      "bbox": [
+        644,
+        738,
+        14,
+        39
+      ],
+      "type": "virga"
+    },
+    {
+      "id": "81492f21-9d60-5ded-b815-9bfee75e4b56",
+      "classId": 2,
+      "bbox": [
+        657,
+        727,
+        7,
+        47
+      ],
+      "type": "divisio"
+    }
+  ]
+}
