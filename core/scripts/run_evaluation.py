@@ -12,15 +12,16 @@
     python3 scripts/run_evaluation.py --train training.xml --test groundtruth.xml
 
 Options:
-  --folds N         Number of CV folds (default 5, cross-validation mode only)
-  --classifier STR  "knn" or "mlp" (default "knn")
-  --k N             kNN neighbour count (default 1, knn only)
-  --hidden STR      MLP hidden layer sizes as comma-separated ints (default "128,64")
-  --epochs N        MLP training epochs (default 100)
-  --lr F            MLP Adam learning rate (default 0.001)
-  --xml PATH        Single dataset for cross-validation
-  --train PATH      Training set for train/test mode
-  --test PATH       Ground-truth test set for train/test mode
+  --folds N          Number of CV folds (default 5, cross-validation mode only)
+  --classifier STR   "knn" or "mlp" (default "knn")
+  --extractor STR    "handcrafted" or "vit" (default "handcrafted")
+  --k N              kNN neighbour count (default 1, knn only)
+  --hidden STR       MLP hidden layer sizes as comma-separated ints (default "128,64")
+  --epochs N         MLP training epochs (default 100)
+  --lr F             MLP Adam learning rate (default 0.001)
+  --xml PATH         Single dataset for cross-validation
+  --train PATH       Training set for train/test mode
+  --test PATH        Ground-truth test set for train/test mode
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ if str(_CORE) not in sys.path:
     sys.path.insert(0, str(_CORE))
 
 from ic_core.evaluation import cross_validate, evaluate, knn_factory, print_report
+from ic_core.feature_extractor import HandcraftedExtractor, ViTExtractor
 from ic_core.nn_classifier import mlp_factory
 from ic_core.io_xml import load_glyphs
 
@@ -52,6 +54,8 @@ def main() -> None:
                         help="Number of CV folds (cross-validation mode, default 5)")
     parser.add_argument("--classifier", choices=["knn", "mlp"], default="knn",
                         help="Classifier to use (default: knn)")
+    parser.add_argument("--extractor", choices=["handcrafted", "vit"], default="handcrafted",
+                        help="Feature extractor (default: handcrafted)")
     parser.add_argument("--k", type=int, default=1,
                         help="kNN neighbour count (default 1)")
     parser.add_argument("--hidden", type=str, default="128,64",
@@ -68,11 +72,14 @@ def main() -> None:
                         help="Ground-truth test XML for train/test mode")
     args = parser.parse_args()
 
+    extractor = ViTExtractor() if args.extractor == "vit" else HandcraftedExtractor()
+
     if args.classifier == "mlp":
         hidden = tuple(int(x) for x in args.hidden.split(","))
-        factory = mlp_factory(hidden_sizes=hidden, epochs=args.epochs, lr=args.lr)
+        factory = mlp_factory(hidden_sizes=hidden, epochs=args.epochs, lr=args.lr,
+                              extractor=extractor)
     else:
-        factory = knn_factory(k=args.k)
+        factory = knn_factory(k=args.k, extractor=extractor)
 
     # --- train/test mode ---
     if args.train is not None or args.test is not None:

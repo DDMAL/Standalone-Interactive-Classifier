@@ -74,14 +74,15 @@ class ClassifierProtocol(Protocol):
 ClassifierFactory = Callable[[], ClassifierProtocol]
 
 
-def knn_factory(k: int = 1) -> ClassifierFactory:
+def knn_factory(k: int = 1, extractor=None) -> ClassifierFactory:
     """Return a factory that builds a fresh :class:`InteractiveClassifier` each call."""
     from ic_core.classifier import InteractiveClassifier
 
     def _factory() -> InteractiveClassifier:
-        return InteractiveClassifier(k=k)
+        return InteractiveClassifier(k=k, extractor=extractor)
 
-    _factory.__name__ = f"kNN(k={k})"
+    ext_name = type(extractor).__name__ if extractor else "Handcrafted"
+    _factory.__name__ = f"kNN(k={k}, {ext_name})"
     return _factory
 
 

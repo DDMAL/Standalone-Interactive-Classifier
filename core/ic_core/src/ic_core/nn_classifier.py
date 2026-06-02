@@ -25,7 +25,7 @@ from typing import Sequence
 import numpy as np
 
 from ic_core.classifier import UNCLASSIFIED
-from ic_core.features import compute_features_batch
+from ic_core.feature_extractor import FeatureExtractorProtocol, HandcraftedExtractor
 from ic_core.glyph import Glyph
 
 # ---------------------------------------------------------------------------
@@ -117,6 +117,7 @@ class MLPClassifier:
         l2: float = 1e-4,
         seed: int = 42,
         verbose: bool = False,
+        extractor: FeatureExtractorProtocol | None = None,
     ) -> None:
         self.hidden_sizes = hidden_sizes
         self.epochs = epochs
@@ -125,6 +126,7 @@ class MLPClassifier:
         self.l2 = l2
         self.seed = seed
         self.verbose = verbose
+        self._extractor: FeatureExtractorProtocol = extractor or HandcraftedExtractor()
 
         self._weights: list[np.ndarray] = []
         self._biases: list[np.ndarray] = []
@@ -150,7 +152,7 @@ class MLPClassifier:
         n_classes = len(self._classes)
 
         # Feature matrix
-        X = compute_features_batch(training_glyphs).astype(np.float64)
+        X = self._extractor.extract_batch(training_glyphs).astype(np.float64)
         y = np.array([label_to_idx[g.class_name] for g in training_glyphs], dtype=np.int64)
 
         # Standardise
@@ -246,7 +248,7 @@ class MLPClassifier:
             raise RuntimeError("MLPClassifier is not trained; call .fit() first.")
 
         assert self._mean is not None and self._std is not None
-        X = compute_features_batch(glyphs).astype(np.float64)
+        X = self._extractor.extract_batch(glyphs).astype(np.float64)
         X = (X - self._mean) / self._std
 
         probs = self._forward(X)
@@ -276,6 +278,7 @@ def mlp_factory(
     l2: float = 1e-4,
     seed: int = 42,
     verbose: bool = False,
+    extractor: "FeatureExtractorProtocol | None" = None,
 ) -> "ClassifierFactory":
     """Return a factory that builds a fresh :class:`MLPClassifier` each call.
 
@@ -287,6 +290,7 @@ def mlp_factory(
         l2: L2 weight decay (default 1e-4).
         seed: Weight init seed (default 42).
         verbose: Print per-epoch loss/accuracy during training.
+        extractor: Feature extractor. Defaults to :class:`HandcraftedExtractor`.
     """
     def _factory() -> MLPClassifier:
         return MLPClassifier(
@@ -297,6 +301,7 @@ def mlp_factory(
             l2=l2,
             seed=seed,
             verbose=verbose,
+            extractor=extractor,
         )
 
     layers = "-".join(str(h) for h in hidden_sizes)
