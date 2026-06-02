@@ -39,8 +39,7 @@ class GlyphDTO(BaseModel):
 
     # Coarse MOTHRA category: "Text" | "Neumes" | "Staves". The frontend
     # groups the glyph grid by this; only Neumes carry a meaningful class_name.
-    category: str
-
+    category: Literal["Text", "Neumes", "Staves"]
     # Page-coordinate frame inherited from the bbox annotation file.
     ulx: int
     uly: int
