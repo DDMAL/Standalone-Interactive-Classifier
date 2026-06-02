@@ -1,5 +1,6 @@
 import { type UpdateGlyphArgs, classify, updateGlyph } from "@/api/sessions";
 import { sessionKey } from "@/hooks/useSession";
+import { useUiStore } from "@/store/uiStore";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 interface BulkUpdateArgs {
@@ -34,7 +35,7 @@ export function useUpdateGlyphs(sessionId: string) {
         else failed.push({ glyphId: glyphIds[i], error: r.reason });
       });
       if (reclassify && applied > 0) {
-        await classify(sessionId, 1);
+        await classify(sessionId, useUiStore.getState().knnK);
       }
       queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
       return { applied, failed };

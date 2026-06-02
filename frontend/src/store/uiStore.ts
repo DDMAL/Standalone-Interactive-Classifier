@@ -27,6 +27,11 @@ interface UiState {
   classTreeCollapsed: boolean;
   setClassTreeCollapsed: (v: boolean) => void;
 
+  // Neighbour count for the kNN classifier. User-selectable from the
+  // toolbar; persists across session changes as a preference.
+  knnK: number;
+  setKnnK: (k: number) => void;
+
   setSession: (id: string, objectUrl: string) => void;
   clearSession: () => void;
 
@@ -62,8 +67,11 @@ export const useUiStore = create<UiState>((set, get) => ({
   pendingFocusGlyphId: null,
   deletedGlyphIds: new Set(),
   classTreeCollapsed: false,
+  knnK: 1,
 
   setClassTreeCollapsed: (v) => set({ classTreeCollapsed: v }),
+
+  setKnnK: (k) => set({ knnK: k }),
 
   setSession: (id, objectUrl) => {
     const prev = get().pageObjectUrl;

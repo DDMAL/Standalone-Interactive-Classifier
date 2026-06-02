@@ -65,6 +65,7 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
   const queryClient = useQueryClient();
   const clearSelection = useUiStore((s) => s.clearSelection);
   const softDeleteGlyphs = useUiStore((s) => s.softDeleteGlyphs);
+  const knnK = useUiStore((s) => s.knnK);
 
   const pending = updateGlyph.isPending || classify.isPending;
   const isNeume = glyph.category === "Neumes";
@@ -85,7 +86,7 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
       glyphId: glyph.id,
       patch: { class_name: name, id_state_manual: true },
     });
-    await classify.mutateAsync(1);
+    await classify.mutateAsync(knnK);
     queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
   }
   applyRef.current = () => applyClassName();
