@@ -128,47 +128,78 @@ class HandcraftedExtractor:
 
 
 class ViTExtractor:
-    """CLS-token embeddings from ``google/vit-base-patch16-224``.
+    """CLS-token embeddings from a pretrained ViT backbone.
 
-    Uses the pretrained backbone with no fine-tuning. Produces 768-dimensional
-    vectors per glyph. Expensive to run — pre-compute and cache with
-    :class:`~ic_core.store.NpzStore` rather than extracting per session.
+    Optionally loads a LoRA checkpoint produced by ``train_vit_lora.py``
+    to use domain-adapted features. Expensive to run — pre-compute and
+    cache with :class:`PrecomputedExtractor` rather than extracting per session.
 
     Args:
+        model_name: HuggingFace model identifier (default: ViT-tiny).
+        lora_checkpoint: Path to a LoRA checkpoint directory saved by
+            ``train_vit_lora.py``. Pass ``None`` for the pretrained backbone.
         device: Torch device string (default ``"cpu"``).
         batch_size: Glyphs per forward pass.
 
     Requires::
 
         pip install torch transformers
+        pip install peft  # only needed when lora_checkpoint is set
     """
 
-    def __init__(self, device: str = "cpu", batch_size: int = 32) -> None:
+    def __init__(
+        self,
+        model_name: str = "WinKawaks/vit-tiny-patch16-224",
+        lora_checkpoint: str | Path | None = None,
+        device: str = "cpu",
+        batch_size: int = 32,
+    ) -> None:
+        self.model_name = model_name
+        self.lora_checkpoint = Path(lora_checkpoint) if lora_checkpoint else None
         self.device = device
         self.batch_size = batch_size
         self._model = None
         self._processor = None
+        self._dim: int | None = None
 
     def _load(self) -> None:
         if self._model is not None:
             return
         try:
-            from transformers import ViTModel, ViTImageProcessor
+            from transformers import AutoModel, AutoImageProcessor
         except ImportError:
             raise ImportError(
                 "ViTExtractor requires torch and transformers: "
                 "pip install torch transformers"
             )
-        self._processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224")
-        self._model = ViTModel.from_pretrained("google/vit-base-patch16-224")
+        self._processor = AutoImageProcessor.from_pretrained(self.model_name)
+
+        if self.lora_checkpoint is not None:
+            try:
+                from peft import PeftModel
+            except ImportError:
+                raise ImportError("Loading a LoRA checkpoint requires peft: pip install peft")
+            base = AutoModel.from_pretrained(self.model_name, ignore_mismatched_sizes=True)
+            self._model = PeftModel.from_pretrained(base, str(self.lora_checkpoint))
+        else:
+            self._model = AutoModel.from_pretrained(self.model_name, ignore_mismatched_sizes=True)
+
         self._model = self._model.to(self.device).eval()
+        # infer output dim from a dummy forward pass
+        import torch
+        dummy = torch.zeros(1, 3, 224, 224, device=self.device)
+        with torch.no_grad():
+            out = self._model(pixel_values=dummy)
+        self._dim = out.last_hidden_state.shape[-1]
 
     @property
     def dim(self) -> int:
-        return 768
+        if self._dim is None:
+            self._load()
+        return self._dim
 
     def extract_batch(self, glyphs: Sequence[Glyph]) -> np.ndarray:
-        """Run glyphs through the ViT and return CLS-token embeddings (N, 768)."""
+        """Run glyphs through the ViT and return CLS-token embeddings."""
         if not glyphs:
             return np.zeros((0, self.dim), dtype=np.float64)
 
@@ -210,4 +241,5 @@ class ViTExtractor:
         return np.vstack(all_embeddings)
 
     def __repr__(self) -> str:
-        return f"ViTExtractor(device={self.device!r})"
+        ckpt = f", lora={self.lora_checkpoint}" if self.lora_checkpoint else ""
+        return f"ViTExtractor({self.model_name!r}{ckpt})"
