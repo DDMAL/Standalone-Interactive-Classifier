@@ -11,16 +11,48 @@ for the clean-break rationale.
 """
 from __future__ import annotations
 
+import contextlib
 from dataclasses import replace
-from typing import Iterable
+from typing import Iterable, Iterator
 
 import numpy as np
 from scipy.ndimage import label
 from skimage.measure import moments_central, moments_hu, moments_normalized, perimeter
 
 from ic_core.glyph import Glyph
+from ic_core.normalize import NormalizeConfig, normalize_mask
 
 FEATURE_VERSION = "ic-core/v1"
+
+#: Active feature-space normalization, set only inside the
+#: :func:`feature_normalization` context manager. ``None`` means
+#: "raw mask" — the default everywhere (production ingest, the
+#: Gamera-parity tests, the API). Normalization is opt-in so the
+#: baseline behaviour and the legacy feature parity stay intact; the
+#: A/B harness flips it on for the treatment arm only.
+_ACTIVE_NORMALIZATION: NormalizeConfig | None = None
+
+
+@contextlib.contextmanager
+def feature_normalization(cfg: NormalizeConfig | None) -> Iterator[None]:
+    """Apply ``cfg`` to every mask fed to :func:`compute_features` in this block.
+
+    Process-global and not thread-safe — it mutates module state — but
+    the only caller is the single-threaded evaluation harness, where
+    that's exactly the point: wrap the treatment arm and every
+    classifier-internal feature computation picks up the config without
+    threading a flag through ``fit`` / ``predict_many``.
+
+    Passing ``None`` (or a no-op :class:`NormalizeConfig`) is a no-op.
+    Restores the previous config on exit, so blocks can nest.
+    """
+    global _ACTIVE_NORMALIZATION
+    prev = _ACTIVE_NORMALIZATION
+    _ACTIVE_NORMALIZATION = cfg
+    try:
+        yield
+    finally:
+        _ACTIVE_NORMALIZATION = prev
 
 #: Logical feature definitions: one entry per *named* feature in the
 #: legacy GameraXML ``<feature name="...">`` convention, paired with
@@ -49,8 +81,16 @@ FEATURE_NAMES: list[str] = [
 
 
 def compute_features(glyph: Glyph) -> np.ndarray:
-    """Return a (29,) float64 feature vector matching ``FEATURE_NAMES``."""
+    """Return a (29,) float64 feature vector matching ``FEATURE_NAMES``.
+
+    When a :func:`feature_normalization` block is active, the glyph's
+    binary mask is normalized (despeckle / centre / pad) *before*
+    feature extraction. The glyph itself is untouched — only the
+    numbers handed to the classifier change.
+    """
     arr = glyph.to_array()
+    if _ACTIVE_NORMALIZATION is not None:
+        arr = normalize_mask(arr, _ACTIVE_NORMALIZATION)
     parts = [
         np.array([_aspect_ratio(arr)], dtype=np.float64),
         np.array([_volume(arr)], dtype=np.float64),
