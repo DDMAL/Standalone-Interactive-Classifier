@@ -59,5 +59,5 @@ TRAINING_XML = _env_path(
 CSV_VOCAB = _env_path(
     "IC_CSV_VOCAB",
     # TRAIN_DIR / "csv-square_notation_neume_level_newest.csv",
-    TRAIN_DIR / "csv_hufnagel_neume_level_newest.csv",
+    TRAIN_DIR / "csv-hufnagel_neume_level_newest.csv",
 )

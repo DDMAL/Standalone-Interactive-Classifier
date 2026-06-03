@@ -79,6 +79,7 @@ def _ensure_training_xml() -> None:
 
 _ensure_training_xml()
 
+import contextlib
 import csv
 import random
 from collections import Counter, defaultdict
@@ -86,8 +87,10 @@ from collections import Counter, defaultdict
 import pytest
 
 from ic_core.classifier import InteractiveClassifier
+from ic_core.features import feature_normalization
 from ic_core.glyph import Glyph
 from ic_core.io_xml import load_glyphs
+from ic_core.normalize import NormalizeConfig
 from evaluate import classify_page, ingest_glyphs_to_classify
 from paths import CSV_VOCAB, TRAINING_XML
 
@@ -219,39 +222,129 @@ def _stratified_folds(
     return folds
 
 
+def _macro_f1(y_true: list[str], y_pred: list[str]) -> float:
+    """Unweighted mean per-class F1 over the classes present in ``y_true``.
+
+    Macro (not micro) so rare neume classes count as much as common
+    ones — the whole point of tracking F1 alongside accuracy is to
+    catch a model that nails ``punctum`` while quietly failing every
+    minority class, which raw accuracy would mask. A class with no
+    predictions (or no true instances) contributes an F1 of 0.
+    """
+    labels = sorted(set(y_true))
+    f1s: list[float] = []
+    for c in labels:
+        tp = sum(1 for t, p in zip(y_true, y_pred) if t == c and p == c)
+        fp = sum(1 for t, p in zip(y_true, y_pred) if t != c and p == c)
+        fn = sum(1 for t, p in zip(y_true, y_pred) if t == c and p != c)
+        precision = tp / (tp + fp) if (tp + fp) else 0.0
+        recall = tp / (tp + fn) if (tp + fn) else 0.0
+        f1 = (
+            2.0 * precision * recall / (precision + recall)
+            if (precision + recall)
+            else 0.0
+        )
+        f1s.append(f1)
+    return sum(f1s) / len(f1s) if f1s else 0.0
+
+
+def _run_cv(
+    glyphs: list[Glyph],
+    n_splits: int,
+    *,
+    cfg: NormalizeConfig | None = None,
+    k: int = 1,
+) -> tuple[float, float, int]:
+    """Stratified k-fold CV. Returns ``(accuracy, macro_f1, n_tested)``.
+
+    When ``cfg`` is given, the entire fit/predict loop runs inside a
+    :func:`feature_normalization` block, so both training and query
+    features are normalized identically. ``cfg=None`` is the raw-mask
+    baseline. Predictions are pooled across folds, then scored once.
+    """
+    folds = _stratified_folds(glyphs, n_splits)
+    assert sum(len(f) for f in folds) > 0, "stratifier dropped all glyphs"
+
+    y_true: list[str] = []
+    y_pred: list[str] = []
+    ctx = feature_normalization(cfg) if cfg is not None else contextlib.nullcontext()
+    with ctx:
+        for i in range(n_splits):
+            test = [glyphs[j] for j in folds[i]]
+            train = [glyphs[j] for kk in range(n_splits) if kk != i for j in folds[kk]]
+            clf = InteractiveClassifier(k=k).fit(train)
+            for g, pred in zip(test, clf.predict_many(test)):
+                y_true.append(g.class_name)
+                y_pred.append(pred.class_name)
+
+    correct = sum(1 for t, p in zip(y_true, y_pred) if t == p)
+    accuracy = correct / len(y_true)
+    return accuracy, _macro_f1(y_true, y_pred), len(y_true)
+
+
 @pytest.mark.slow
 def test_xml_db_5fold_accuracy(training_db):
-    n_splits = 5
-    folds = _stratified_folds(training_db, n_splits)
-
-    # Total covered glyphs (excluding tail classes with < n_splits).
-    total = sum(len(f) for f in folds)
-    assert total > 0, "stratifier dropped all glyphs — fixture is too small"
-
-    correct = 0
-    seen = 0
-    for i in range(n_splits):
-        test_idx = folds[i]
-        train_idx = [j for k in range(n_splits) if k != i for j in folds[k]]
-        train = [training_db[j] for j in train_idx]
-        test = [training_db[j] for j in test_idx]
-
-        clf = InteractiveClassifier(k=1).fit(train)
-        preds = clf.predict_many(test)
-        for g, p in zip(test, preds):
-            seen += 1
-            if p.class_name == g.class_name:
-                correct += 1
-
-    accuracy = correct / seen
+    accuracy, macro_f1, seen = _run_cv(training_db, n_splits=5, k=1)
     print(
-        f"\n[5-fold] tested {seen} glyphs across {n_splits} folds, "
-        f"accuracy={accuracy:.4f}"
+        f"\n[5-fold baseline] tested {seen} glyphs, "
+        f"accuracy={accuracy:.4f}  macro-F1={macro_f1:.4f}"
     )
     # Floor calibrated against the first green run (~0.95) with a
     # 10-point margin for jitter from the shuffle seed. A real
     # regression will drop accuracy well below this band.
     assert accuracy >= 0.85, f"k=1 5-fold accuracy below 0.85: {accuracy:.4f}"
+
+
+# ---------------------------------------------------------------------------
+# 3b. A/B: raw-mask baseline vs. feature normalization
+# ---------------------------------------------------------------------------
+
+
+def _normalization_from_env() -> NormalizeConfig:
+    """Build the treatment-arm config from IC_NORM_* env vars.
+
+    Defaults exercise all three steps gently: drop <=3px specks,
+    centre by mass, 2px border. Override per run, e.g.::
+
+        IC_NORM_DESPECKLE=5 IC_NORM_CENTER=1 IC_NORM_PAD=0 \\
+          uv run pytest ../tests/test_real_input_knn.py::test_xml_db_5fold_normalization_ab -s
+    """
+    import os
+
+    return NormalizeConfig(
+        despeckle_min_size=int(os.environ.get("IC_NORM_DESPECKLE", "3")),
+        center=os.environ.get("IC_NORM_CENTER", "1") == "1",
+        pad=int(os.environ.get("IC_NORM_PAD", "2")),
+    )
+
+
+@pytest.mark.slow
+def test_xml_db_5fold_normalization_ab(training_db):
+    """Compare raw-mask features against normalized features under CV.
+
+    Caveat baked into the assertion: this CV is entirely *within* the
+    GameraXML database — one annotation source. Normalization mainly
+    buys *cross-source* consistency (train on VIA crops, classify
+    MOTHRA crops), which this harness cannot see. So we print the delta
+    for inspection but only assert the normalized arm isn't
+    catastrophically broken — a within-source improvement is a bonus,
+    not a requirement.
+    """
+    cfg = _normalization_from_env()
+    base_acc, base_f1, seen = _run_cv(training_db, n_splits=5, k=1)
+    norm_acc, norm_f1, _ = _run_cv(training_db, n_splits=5, k=1, cfg=cfg)
+
+    print(
+        f"\n[5-fold A/B] {seen} glyphs, k=1, config={cfg}\n"
+        f"  baseline    accuracy={base_acc:.4f}  macro-F1={base_f1:.4f}\n"
+        f"  normalized  accuracy={norm_acc:.4f}  macro-F1={norm_f1:.4f}\n"
+        f"  delta       accuracy={norm_acc - base_acc:+.4f}  "
+        f"macro-F1={norm_f1 - base_f1:+.4f}"
+    )
+    assert norm_acc >= 0.70, (
+        f"normalized 5-fold accuracy collapsed to {norm_acc:.4f} "
+        f"(config={cfg}) — likely a normalization bug, not a tuning miss"
+    )
 
 
 # ---------------------------------------------------------------------------

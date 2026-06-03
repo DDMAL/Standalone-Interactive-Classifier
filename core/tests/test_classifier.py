@@ -142,8 +142,8 @@ def test_collect_training_set_strips_transient_prefixes_from_db():
 
 def test_default_k_is_one_for_parity_with_gamera():
     # docs/KNN_ALGORITHM.md: "num_k=1: pure 1-NN".
-    assert DEFAULT_K == 1
-    assert InteractiveClassifier().k == 1
+    assert DEFAULT_K == 3
+    assert InteractiveClassifier().k == 3
 
 
 def test_init_rejects_zero_or_negative_k():
@@ -173,14 +173,14 @@ def test_predict_before_fit_raises():
 def test_predict_many_empty_returns_empty_without_requiring_training():
     # Still requires a trained classifier, but should short-circuit
     # on an empty input list rather than trying to compute features.
-    clf = InteractiveClassifier().fit(
+    clf = InteractiveClassifier(k=1).fit(
         [_make_glyph(_square(8), class_name="A", id_state_manual=True)]
     )
     assert clf.predict_many([]) == []
 
 
 def test_fit_returns_self_for_chaining():
-    clf = InteractiveClassifier()
+    clf = InteractiveClassifier(k=1)
     out = clf.fit([_make_glyph(_square(8), class_name="A", id_state_manual=True)])
     assert out is clf
 
@@ -210,7 +210,7 @@ def test_predict_returns_nearest_neighbour_class_for_k1():
     ]
     query = _make_glyph(_square(10))
 
-    pred = InteractiveClassifier().fit(train).predict(query)
+    pred = InteractiveClassifier(k=1).fit(train).predict(query)
 
     assert pred.class_name == "square"
     # Confidence ~1.0 because the query is identical to a training
@@ -223,7 +223,7 @@ def test_predict_exact_match_yields_confidence_one():
     # matter the feature scale, because every standardised dimension
     # is identical to the training point.
     train = [_make_glyph(_ring(10), class_name="ring", id_state_manual=True)]
-    pred = InteractiveClassifier().fit(train).predict(train[0])
+    pred = InteractiveClassifier(k=1).fit(train).predict(train[0])
     assert pred.confidence == pytest.approx(1.0, abs=1e-9)
 
 
@@ -235,7 +235,7 @@ def test_predict_confidence_decreases_with_distance():
     near = _make_glyph(_square(10))                 # identical to "square"
     far = _make_glyph(_tall(3, 18))                 # close to "tall", far from "square"
 
-    clf = InteractiveClassifier().fit(train)
+    clf = InteractiveClassifier(k=1).fit(train)
     near_pred = clf.predict(near)
     far_pred = clf.predict(far)
 
@@ -258,7 +258,7 @@ def test_predict_returns_one_prediction_per_input():
         _make_glyph(_square(8)),
     ]
 
-    preds = InteractiveClassifier().fit(train).predict_many(queries)
+    preds = InteractiveClassifier(k=1).fit(train).predict_many(queries)
 
     assert len(preds) == len(queries)
     assert all(isinstance(p, Prediction) for p in preds)
@@ -327,7 +327,7 @@ def test_run_correction_stage_classifies_only_unmanual_glyphs():
     )
     query = _make_glyph(_square(10))  # id_state_manual=False, UNCLASSIFIED
 
-    new_glyphs, clf = run_correction_stage([manual, query])
+    new_glyphs, clf = run_correction_stage([manual, query], k=1)
 
     # Manual glyph is preserved byte-for-byte (UUID + flags + class).
     manual_out = next(g for g in new_glyphs if g.id == manual.id)
@@ -346,7 +346,7 @@ def test_run_correction_stage_strips_transient_prefixes_from_output():
     manual = _make_glyph(_square(10), class_name="A", id_state_manual=True)
     ephemeral = _make_glyph(_square(10), class_name="_group.foo")
 
-    new_glyphs, _ = run_correction_stage([manual, ephemeral])
+    new_glyphs, _ = run_correction_stage([manual, ephemeral], k=1)
 
     # The ephemeral `_group` glyph is dropped before training and
     # therefore absent from the returned working set.
@@ -361,7 +361,7 @@ def test_run_correction_stage_preserves_uuids_across_round_trip():
     queries = [_make_glyph(_square(10)) for _ in range(3)]
     expected_ids = {manual.id, *(q.id for q in queries)}
 
-    new_glyphs, _ = run_correction_stage([manual, *queries])
+    new_glyphs, _ = run_correction_stage([manual, *queries], k=1)
 
     assert {g.id for g in new_glyphs} == expected_ids
 
@@ -372,7 +372,7 @@ def test_run_correction_stage_uses_external_training_database():
     db = [_make_glyph(_square(10), class_name="square", id_state_manual=False)]
     query = _make_glyph(_square(10))
 
-    new_glyphs, _ = run_correction_stage([query], db)
+    new_glyphs, _ = run_correction_stage([query], db, k=1)
 
     out = next(g for g in new_glyphs if g.id == query.id)
     assert out.class_name == "square"
@@ -382,7 +382,7 @@ def test_run_correction_stage_with_no_training_data_raises():
     # No manual glyphs and no external DB → can't train anything.
     query = _make_glyph(_square(10))
     with pytest.raises(ValueError):
-        run_correction_stage([query])
+        run_correction_stage([query], k=1)
 
 
 def test_full_retrain_isolated_between_calls():
@@ -393,7 +393,7 @@ def test_full_retrain_isolated_between_calls():
     train_b = [_make_glyph(_tall(3, 12), class_name="B", id_state_manual=True)]
     query = _make_glyph(_square(10))
 
-    clf = InteractiveClassifier()
+    clf = InteractiveClassifier(k=1)
     clf.fit(train_a)
     assert clf.predict(query).class_name == "A"
 
