@@ -59,6 +59,8 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       }
       e.preventDefault();
     }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [zoomPan.zoomIn, zoomPan.zoomOut, zoomPan.reset, zoomPan.pan, clearSelection]);
 
   if (isLoading) {
