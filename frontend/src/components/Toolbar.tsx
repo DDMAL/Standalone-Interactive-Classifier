@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/Button";
+import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
 import { useSave } from "@/hooks/useSave";
 import { useUiStore } from "@/store/uiStore";
@@ -14,9 +15,19 @@ const K_CHOICES = [1, 3, 5, 7] as const;
 export function Toolbar({ sessionId, glyphCount }: ToolbarProps) {
   const save = useSave(sessionId);
   const complete = useComplete(sessionId);
+  const classify = useClassify(sessionId);
   const clearSession = useUiStore((s) => s.clearSession);
   const knnK = useUiStore((s) => s.knnK);
   const setKnnK = useUiStore((s) => s.setKnnK);
+
+  // Changing k re-runs the classification stage with the new neighbour
+  // count. No-op when the same k is clicked, or while a classify is in
+  // flight, to avoid redundant/concurrent rounds.
+  const handleKChange = (k: number) => {
+    if (k === knnK || classify.isPending) return;
+    setKnnK(k);
+    classify.mutate(k);
+  };
 
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
@@ -37,9 +48,10 @@ export function Toolbar({ sessionId, glyphCount }: ToolbarProps) {
               <button
                 key={k}
                 type="button"
-                onClick={() => setKnnK(k)}
+                onClick={() => handleKChange(k)}
+                disabled={classify.isPending}
                 className={clsx(
-                  "px-2 py-0.5 text-xs font-medium transition-colors",
+                  "px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                   k === knnK
                     ? "bg-blue-600 text-white"
                     : "bg-white text-slate-700 hover:bg-slate-100",
