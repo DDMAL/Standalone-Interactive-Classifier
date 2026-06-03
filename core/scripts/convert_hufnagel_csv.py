@@ -49,7 +49,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from ic_core.glyph import Glyph
-from ic_core.ingest import ingest_page
+from ic_core.ingest import DEFAULT_THRESHOLD_METHOD, ThresholdMethod, ingest_page
 from ic_core.io_xml import write_glyphs
 
 from paths import DERIVED_DIR, TRAIN_DIR, TRAINING_XML
@@ -164,12 +164,20 @@ def _stable_ids(csv_path: Path, count: int) -> list[str]:
     return [str(uuid.uuid5(namespace, str(i))) for i in range(count)]
 
 
-def _glyphs_for_pair(csv_path: Path, page_path: Path) -> list[Glyph]:
+def _glyphs_for_pair(
+    csv_path: Path,
+    page_path: Path,
+    threshold_method: ThresholdMethod = DEFAULT_THRESHOLD_METHOD,
+) -> list[Glyph]:
     """Crop one CSV/page pair and return training-ready Glyphs.
 
     Each glyph is marked ``id_state_manual=True`` / ``confidence=1.0``
     so it serialises as ``state="MANUAL"`` — matching the legacy
     training database.
+
+    ``threshold_method`` selects the binarisation strategy (see
+    :data:`ic_core.ingest.ThresholdMethod`). Regenerate the DB under a
+    new method to A/B threshold stabilisation against the 5-fold CV.
     """
     annotations = parse_via_csv(csv_path)
     ids = _stable_ids(csv_path, len(annotations))
@@ -187,6 +195,7 @@ def _glyphs_for_pair(csv_path: Path, page_path: Path) -> list[Glyph]:
         page_path.read_bytes(),
         json.dumps(doc).encode("utf-8"),
         format="json",
+        threshold_method=threshold_method,
     )
 
     training: list[Glyph] = []
@@ -209,6 +218,7 @@ def convert(
     page_path: Path = DEFAULT_PAGE,
     output_xml: Path = DEFAULT_OUTPUT_XML,
     output_json: Path | None = DEFAULT_OUTPUT_JSON,
+    threshold_method: ThresholdMethod = DEFAULT_THRESHOLD_METHOD,
 ) -> list[Glyph]:
     """Convert a single CSV/page pair and write XML (+ optional JSON sidecar).
 
@@ -217,7 +227,7 @@ def convert(
     ingested from the JSON line up one-to-one with the training XML
     by id.
     """
-    training = _glyphs_for_pair(csv_path, page_path)
+    training = _glyphs_for_pair(csv_path, page_path, threshold_method)
     annotations = parse_via_csv(csv_path)
     ids = _stable_ids(csv_path, len(annotations))
 
@@ -266,6 +276,7 @@ def discover_pairs(directory: Path = TRAIN_DIR) -> list[tuple[Path, Path]]:
 def convert_batch(
     directory: Path = TRAIN_DIR,
     output_xml: Path = DEFAULT_MERGED_XML,
+    threshold_method: ThresholdMethod = DEFAULT_THRESHOLD_METHOD,
 ) -> list[Glyph]:
     """Convert every canonical pair in ``directory`` into one merged XML.
 
@@ -281,7 +292,7 @@ def convert_batch(
         )
     merged: list[Glyph] = []
     for csv_path, png_path in pairs:
-        glyphs = _glyphs_for_pair(csv_path, png_path)
+        glyphs = _glyphs_for_pair(csv_path, png_path, threshold_method)
         print(f"  + {csv_path.name} ({len(glyphs)} glyphs) <- {png_path.name}")
         merged.extend(glyphs)
     output_xml.parent.mkdir(parents=True, exist_ok=True)
@@ -356,6 +367,16 @@ def main() -> None:
         default=TRAIN_DIR,
         help="Batch mode: directory to scan for canonical pairs.",
     )
+    parser.add_argument(
+        "--threshold-method",
+        choices=("fixed", "otsu", "sauvola"),
+        default=DEFAULT_THRESHOLD_METHOD,
+        help=(
+            "Binarisation strategy at ingest (default: "
+            f"{DEFAULT_THRESHOLD_METHOD}). Regenerate the DB under "
+            "'otsu'/'sauvola' to A/B threshold stabilisation."
+        ),
+    )
     args = parser.parse_args()
 
     single = args.csv is not None or args.page is not None
@@ -364,7 +385,9 @@ def main() -> None:
 
     if single:
         out_xml = args.out_xml or DEFAULT_OUTPUT_XML
-        glyphs = convert(args.csv, args.page, out_xml, args.out_json)
+        glyphs = convert(
+            args.csv, args.page, out_xml, args.out_json, args.threshold_method
+        )
         print(f"Wrote {len(glyphs)} glyphs to {out_xml}")
         if args.out_json is not None:
             print(f"Wrote {len(glyphs)} annotations to {args.out_json}")
@@ -373,8 +396,8 @@ def main() -> None:
         return
 
     out_xml = args.out_xml or DEFAULT_MERGED_XML
-    print(f"Batch mode: scanning {args.dir}")
-    glyphs = convert_batch(args.dir, out_xml)
+    print(f"Batch mode: scanning {args.dir} (threshold={args.threshold_method})")
+    glyphs = convert_batch(args.dir, out_xml, args.threshold_method)
     print(f"Wrote {len(glyphs)} glyphs to {out_xml}")
     raw_classes: list[str] = []
     for csv_path, _ in discover_pairs(args.dir):
