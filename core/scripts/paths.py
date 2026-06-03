@@ -55,6 +55,7 @@ TEST_JSON = _env_path(
 TEST_YOLO = _env_path("IC_TEST_YOLO", TEST_DIR / "NZ-Wt MSR-03 109v.txt")
 TRAINING_XML = _env_path(
     "IC_TRAINING_XML", DERIVED_DIR / "Hufnagel_training_data.xml"
+    # "IC_TRAINING_XML", CORE_DIR / "tests" / "fixtures" / "Square_notation-example_training_data.xml",
 )
 CSV_VOCAB = _env_path(
     "IC_CSV_VOCAB",

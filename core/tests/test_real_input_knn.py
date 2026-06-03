@@ -303,18 +303,25 @@ def test_xml_db_5fold_accuracy(training_db):
 def _normalization_from_env() -> NormalizeConfig:
     """Build the treatment-arm config from IC_NORM_* env vars.
 
-    Defaults exercise all three steps gently: drop <=3px specks,
-    centre by mass, 2px border. Override per run, e.g.::
+    Default is **pad-only, width 4** — the step that actually moved the
+    needle on the Square_notation DB (+1.5pp acc / +7pp macro-F1).
+    100% of glyphs there have ink touching a bbox edge, which breaks the
+    border-sensitive features (nholes / compactness / perimeter / Hu); a
+    background ring fixes them. ``center`` is off by default because its
+    asymmetric padding distorts the discriminative ``aspect_ratio`` (it
+    gave back gains in the decomposition), and ``despeckle`` is off
+    because the committed fixtures are clean — turn it on (``>1``) only
+    for noisy real MOTHRA input. Override per run, e.g.::
 
-        IC_NORM_DESPECKLE=5 IC_NORM_CENTER=1 IC_NORM_PAD=0 \\
+        IC_NORM_PAD=6 IC_NORM_CENTER=1 IC_NORM_DESPECKLE=3 \\
           uv run pytest ../tests/test_real_input_knn.py::test_xml_db_5fold_normalization_ab -s
     """
     import os
 
     return NormalizeConfig(
-        despeckle_min_size=int(os.environ.get("IC_NORM_DESPECKLE", "3")),
-        center=os.environ.get("IC_NORM_CENTER", "1") == "1",
-        pad=int(os.environ.get("IC_NORM_PAD", "2")),
+        despeckle_min_size=int(os.environ.get("IC_NORM_DESPECKLE", "0")),
+        center=os.environ.get("IC_NORM_CENTER", "0") == "1",
+        pad=int(os.environ.get("IC_NORM_PAD", "4")),
     )
 
 
