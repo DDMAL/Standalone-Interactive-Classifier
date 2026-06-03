@@ -79,6 +79,7 @@ from typing import Iterator, Literal
 
 import numpy as np
 from PIL import Image as PILImage
+from skimage.filters import threshold_otsu, threshold_sauvola
 
 from ic_core.classifier import UNCLASSIFIED
 from ic_core.glyph import (
@@ -105,8 +106,33 @@ AnnotationFormat = Literal["json", "yolo"]
 #: 127 corresponds to "everything darker than mid-grey is ink",
 #: which works on both pre-binarised neume crops and lightly
 #: noisy ones. Override per-call with the ``threshold`` argument
-#: to :func:`ingest_page` if a specific dataset needs it.
+#: to :func:`ingest_page` if a specific dataset needs it. Only used
+#: when ``threshold_method="fixed"`` (and as the fallback when an
+#: adaptive method degenerates on a uniform page).
 DEFAULT_THRESHOLD: int = 127
+
+#: How the foreground cutoff is chosen when binarising a page.
+#:
+#: * ``"fixed"`` — the constant :data:`DEFAULT_THRESHOLD` (or the
+#:   per-call ``threshold``). Scan-brightness-dependent; the historical
+#:   default, kept so existing output is byte-identical.
+#: * ``"otsu"`` — one global threshold picked from the *whole page's*
+#:   histogram (``skimage.filters.threshold_otsu``). Stabilises against
+#:   scan-to-scan brightness/contrast drift. Computed page-level, never
+#:   per-glyph: a single neume crop is mostly background and its
+#:   histogram isn't bimodal, so per-crop Otsu picks garbage.
+#: * ``"sauvola"`` — per-pixel local threshold
+#:   (``skimage.filters.threshold_sauvola``), the standard for degraded
+#:   historical documents with uneven illumination across the page.
+ThresholdMethod = Literal["fixed", "otsu", "sauvola"]
+
+#: Default binarisation method. ``"fixed"`` preserves legacy behaviour;
+#: ``"otsu"`` / ``"sauvola"`` are opt-in for the normalization experiment.
+DEFAULT_THRESHOLD_METHOD: ThresholdMethod = "fixed"
+
+#: Sauvola local-window size (pixels). Must be odd; an even value is
+#: bumped up by one. 25 is a reasonable default for chant-page scans.
+DEFAULT_SAUVOLA_WINDOW: int = 25
 
 
 # ---------------------------------------------------------------------------
@@ -118,20 +144,27 @@ def binarize_page(
     page_image: bytes,
     *,
     threshold: int = DEFAULT_THRESHOLD,
+    threshold_method: ThresholdMethod = DEFAULT_THRESHOLD_METHOD,
+    sauvola_window: int = DEFAULT_SAUVOLA_WINDOW,
 ) -> np.ndarray:
     """Decode a page image and binarise it to a full-page foreground mask.
 
-    Same threshold convention as :func:`ingest_page` (pixels ≤
-    ``threshold`` are foreground). The returned array is needed by
-    manual grouping so pixels falling *between* child glyph bboxes —
-    which the per-glyph crops at ingest time never captured — can be
-    recovered when the user groups those children later.
+    Same binarisation as :func:`ingest_page` — see ``threshold_method``
+    for the cutoff strategy. The returned array is needed by manual
+    grouping so pixels falling *between* child glyph bboxes — which the
+    per-glyph crops at ingest time never captured — can be recovered
+    when the user groups those children later.
 
     Returns:
         Boolean array of shape ``(height, width)``; ``True`` where
         the page has foreground ink.
     """
-    return _load_page(page_image) <= threshold
+    return _binarize_page(
+        _load_page(page_image),
+        method=threshold_method,
+        threshold=threshold,
+        sauvola_window=sauvola_window,
+    )
 
 
 def ingest_page(
@@ -140,6 +173,8 @@ def ingest_page(
     *,
     format: AnnotationFormat,
     threshold: int = DEFAULT_THRESHOLD,
+    threshold_method: ThresholdMethod = DEFAULT_THRESHOLD_METHOD,
+    sauvola_window: int = DEFAULT_SAUVOLA_WINDOW,
 ) -> list[Glyph]:
     """Crop a page into glyphs using a bbox annotation document.
 
@@ -153,8 +188,14 @@ def ingest_page(
             disambiguate, and because letting callers (HTTP clients)
             choose a parser by guessing file extensions is the same
             anti-pattern that motivated this byte-based API.
-        threshold: Foreground/background cutoff used when binarising
-            each cropped region.
+        threshold: Foreground/background cutoff for ``"fixed"``
+            binarisation (and the fallback for a degenerate page).
+        threshold_method: How the cutoff is chosen — ``"fixed"``,
+            ``"otsu"``, or ``"sauvola"`` (see :data:`ThresholdMethod`).
+            The page is binarised **once**, then crops slice the
+            boolean page, so adaptive methods see the full-page
+            histogram rather than one bbox at a time.
+        sauvola_window: Local window size for ``"sauvola"`` (odd).
 
     Returns:
         One :class:`Glyph` per bounding box, in the order the
@@ -165,9 +206,21 @@ def ingest_page(
             ``"yolo"``.
     """
     if format == "json":
-        return ingest_page_json(page_image, annotations, threshold=threshold)
+        return ingest_page_json(
+            page_image,
+            annotations,
+            threshold=threshold,
+            threshold_method=threshold_method,
+            sauvola_window=sauvola_window,
+        )
     if format == "yolo":
-        return ingest_page_yolo(page_image, annotations, threshold=threshold)
+        return ingest_page_yolo(
+            page_image,
+            annotations,
+            threshold=threshold,
+            threshold_method=threshold_method,
+            sauvola_window=sauvola_window,
+        )
     raise ValueError(
         f"Unrecognised annotation format {format!r}; expected 'json' or 'yolo'"
     )
@@ -178,6 +231,8 @@ def ingest_page_json(
     annotations_json: bytes,
     *,
     threshold: int = DEFAULT_THRESHOLD,
+    threshold_method: ThresholdMethod = DEFAULT_THRESHOLD_METHOD,
+    sauvola_window: int = DEFAULT_SAUVOLA_WINDOW,
 ) -> list[Glyph]:
     """Crop using a MOTHRA JSON annotation document.
 
@@ -207,19 +262,24 @@ def ingest_page_json(
     doc = _unwrap_page(json.loads(annotations_json))
     annotations = doc.get("annotations", [])
 
-    # Open the page once; reuse the array across crops. Much cheaper
-    # than re-opening per glyph (136 glyphs × tens of KB of decode
-    # work each adds up).
-    page = _load_page(page_image)
+    # Binarise the page once, then slice each crop out of the boolean
+    # page. Cheaper than re-thresholding per glyph, and — crucially for
+    # the adaptive methods — the threshold is chosen from the full-page
+    # histogram rather than one bbox at a time.
+    binary = _binarize_page(
+        _load_page(page_image),
+        method=threshold_method,
+        threshold=threshold,
+        sauvola_window=sauvola_window,
+    )
 
     return [
         _crop_to_glyph(
-            page,
+            binary,
             ulx=int(round(a["bbox"][0])),
             uly=int(round(a["bbox"][1])),
             width=int(round(a["bbox"][2])),
             height=int(round(a["bbox"][3])),
-            threshold=threshold,
             glyph_id=_normalise_uuid(a["id"]),
             category=_MOTHRA_CLASS_TO_CATEGORY.get(a.get("classId"), CATEGORY_NEUMES),
         )
@@ -232,6 +292,8 @@ def ingest_page_yolo(
     annotations_yolo: bytes,
     *,
     threshold: int = DEFAULT_THRESHOLD,
+    threshold_method: ThresholdMethod = DEFAULT_THRESHOLD_METHOD,
+    sauvola_window: int = DEFAULT_SAUVOLA_WINDOW,
 ) -> list[Glyph]:
     """Crop using a YOLO ``.txt`` annotation document.
 
@@ -240,24 +302,32 @@ def ingest_page_yolo(
     Args:
         page_image: Raw bytes of the page image.
         annotations_yolo: Raw bytes of the YOLO ``.txt`` document.
-        threshold: Binarisation cutoff.
+        threshold: Fixed-method binarisation cutoff.
+        threshold_method: Binarisation strategy — see
+            :data:`ThresholdMethod`.
+        sauvola_window: Local window for ``"sauvola"`` (odd).
 
     Returns:
         One :class:`Glyph` per non-empty, non-comment line.
     """
     page = _load_page(page_image)
     img_h, img_w = page.shape
+    binary = _binarize_page(
+        page,
+        method=threshold_method,
+        threshold=threshold,
+        sauvola_window=sauvola_window,
+    )
 
     glyphs: list[Glyph] = []
     for ulx, uly, width, height in _iter_yolo_bboxes(annotations_yolo, img_w, img_h):
         glyphs.append(
             _crop_to_glyph(
-                page,
+                binary,
                 ulx=ulx,
                 uly=uly,
                 width=width,
                 height=height,
-                threshold=threshold,
                 glyph_id=None,  # fresh UUID — YOLO has none to inherit
             )
         )
@@ -296,34 +366,65 @@ def _load_page(page_image: bytes) -> np.ndarray:
 
     Returns:
         Array of shape ``(height, width)`` and dtype ``uint8``.
-        Foreground/background discrimination is deferred to crop
-        time so the threshold can be configured per call without
-        having to re-open the page.
+        Foreground/background discrimination is deferred to
+        :func:`_binarize_page` so the method/threshold can be
+        configured per call without having to re-open the page.
     """
     with PILImage.open(io.BytesIO(page_image)) as im:
         grey = im.convert("L")
         return np.asarray(grey)
 
 
-def _crop_to_glyph(
+def _binarize_page(
     page: np.ndarray,
+    *,
+    method: ThresholdMethod,
+    threshold: int,
+    sauvola_window: int,
+) -> np.ndarray:
+    """Binarise a greyscale page to a boolean foreground mask.
+
+    Convention throughout ic_core: ``True`` = foreground = *darker*
+    than the cutoff, so every branch compares ``page <= cutoff``.
+
+    Otsu is computed on the whole page; on a uniform page (min == max)
+    ``threshold_otsu`` would raise, so we fall back to the fixed
+    ``threshold`` rather than crash on a blank scan.
+    """
+    if method == "fixed":
+        return page <= threshold
+    if method == "otsu":
+        if page.min() == page.max():
+            return page <= threshold
+        return page <= threshold_otsu(page)
+    if method == "sauvola":
+        window = sauvola_window if sauvola_window % 2 == 1 else sauvola_window + 1
+        return page <= threshold_sauvola(page, window_size=window)
+    raise ValueError(
+        f"Unrecognised threshold method {method!r}; "
+        "expected 'fixed', 'otsu', or 'sauvola'"
+    )
+
+
+def _crop_to_glyph(
+    binary_page: np.ndarray,
     *,
     ulx: int,
     uly: int,
     width: int,
     height: int,
-    threshold: int,
     glyph_id: str | None,
     category: str = CATEGORY_NEUMES,
 ) -> Glyph:
-    """Slice ``page[uly:uly+h, ulx:ulx+w]``, binarise, wrap as a Glyph.
+    """Slice ``binary_page[uly:uly+h, ulx:ulx+w]`` and wrap it as a Glyph.
 
-    Out-of-bounds bboxes are clamped to the page rectangle — a bbox
-    that runs a pixel past the edge stays as a glyph (the upstream
-    detector occasionally rounds outward), but its actual footprint
-    is whatever fell inside the page.
+    The page is already binarised (see :func:`_binarize_page`), so the
+    crop is just a boolean slice. Out-of-bounds bboxes are clamped to
+    the page rectangle — a bbox that runs a pixel past the edge stays
+    as a glyph (the upstream detector occasionally rounds outward), but
+    its actual footprint is whatever fell inside the page.
     """
-    img_h, img_w = page.shape
+    img_h, img_w = binary_page.shape
 
     # Clamp to the page rectangle. We keep the *declared* ulx/uly so
     # downstream auto-grouping still places the glyph at the
@@ -341,8 +442,7 @@ def _crop_to_glyph(
         mask = np.zeros((1, 1), dtype=bool)
         nrows = ncols = 1
     else:
-        crop = page[y0:y1, x0:x1]
-        mask = crop <= threshold
+        mask = binary_page[y0:y1, x0:x1]
         nrows, ncols = mask.shape
 
     return Glyph.new(
