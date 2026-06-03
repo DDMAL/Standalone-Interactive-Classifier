@@ -31,6 +31,50 @@ import numpy as np
 from ic_core.glyph import Glyph
 
 
+class PrecomputedExtractor:
+    """Serves pre-computed feature vectors from an in-memory lookup.
+
+    Extract expensive features (e.g. ViT) once upfront, then pass this
+    extractor to classifiers so no re-extraction happens during CV folds
+    or interactive rounds.
+
+    Example::
+
+        vit = ViTExtractor()
+        features = vit.extract_batch(glyphs)
+        extractor = PrecomputedExtractor(glyphs, features)
+        factory = knn_factory(k=1, extractor=extractor)
+    """
+
+    def __init__(self, glyphs: Sequence[Glyph], features: np.ndarray) -> None:
+        if len(glyphs) != len(features):
+            raise ValueError(
+                f"glyphs ({len(glyphs)}) and features ({len(features)}) length mismatch"
+            )
+        self._lookup: dict[str, np.ndarray] = {
+            g.id: features[i] for i, g in enumerate(glyphs)
+        }
+        self._dim = int(features.shape[1])
+
+    @property
+    def dim(self) -> int:
+        return self._dim
+
+    def extract_batch(self, glyphs: Sequence[Glyph]) -> np.ndarray:
+        if not glyphs:
+            return np.zeros((0, self._dim), dtype=np.float64)
+        missing = [g.id for g in glyphs if g.id not in self._lookup]
+        if missing:
+            raise KeyError(
+                f"{len(missing)} glyph(s) not in precomputed cache. "
+                "Ensure all glyphs were passed to PrecomputedExtractor at construction."
+            )
+        return np.stack([self._lookup[g.id] for g in glyphs])
+
+    def __repr__(self) -> str:
+        return f"PrecomputedExtractor(n={len(self._lookup)}, dim={self._dim})"
+
+
 # ---------------------------------------------------------------------------
 # Protocol
 # ---------------------------------------------------------------------------
