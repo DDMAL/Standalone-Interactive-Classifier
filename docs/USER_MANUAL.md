@@ -66,7 +66,6 @@ Once a session starts you see four regions:
 |-----|--------|
 | `Enter` | Apply the typed class name and reclassify the selected glyph(s) |
 | `Cmd`/`Ctrl` + `G` | Group the selected glyphs (2 or more selected) |
-| `Cmd`/`Ctrl` + `E` | Jump focus to the class-name input |
 
 ### Class-name autocomplete (while typing a class name)
 
