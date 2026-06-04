@@ -2,7 +2,7 @@ import { ClassNameInput } from "@/components/ClassNameInput";
 import { GroupDialog } from "@/components/GroupDialog";
 import { Button } from "@/components/ui/Button";
 import { useUpdateGlyphs } from "@/hooks/useUpdateGlyphs";
-import { isEditableTarget } from "@/lib/keymap";
+import { isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
 import { useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -121,6 +121,24 @@ export function MultiEditPanel({
         const input = inputRef.current?.querySelector("input");
         input?.focus();
       }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [neumeIds.length]);
+
+  // Typing a letter/number jumps into the class-name field and seeds it with
+  // that character, mirroring SingleEditor. Only useful when the selection
+  // includes Neumes to relabel.
+  useEffect(() => {
+    if (neumeIds.length === 0) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (isEditableTarget(e.target)) return;
+      if (!isTypeToFocusKey(e)) return;
+      const input = inputRef.current?.querySelector("input");
+      if (!input) return;
+      e.preventDefault();
+      setClassName(e.key);
+      input.focus();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
