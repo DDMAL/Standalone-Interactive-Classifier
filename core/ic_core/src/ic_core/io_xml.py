@@ -25,11 +25,14 @@ Writer notes
 * :func:`write_glyphs` emits glyphs in the order given (no
   re-sorting). Callers are expected to apply any display ordering
   before calling.
-* The legacy ``<features>`` block is intentionally **omitted**.
-  Per the migration plan §"Risks and gotchas" (1), embedded feature
-  vectors are versioned and treated as a clean break — downstream
-  MEI consumers must not depend on them. Skipping the block keeps
-  the output compact and avoids implying spurious compatibility.
+* A ``<features>`` block is emitted per glyph. It carries a
+  ``version`` attribute set to :data:`ic_core.features.FEATURE_VERSION`
+  so downstream MEI consumers can detect the clean break from
+  Gamera-computed feature vectors (migration plan §"Risks and
+  gotchas" (1)). The legacy ``scaling="1.0"`` attribute is kept for
+  schema compatibility, but the values themselves are ``ic_core``'s
+  29-dimensional vector — **not** Gamera's. Downstream consumers
+  must not interpret the numbers without checking ``version``.
 * ``filter_parts`` should be applied **before** calling
   :func:`write_glyphs` so transient ``_group`` / ``_delete`` glyphs
   do not leak into the export.
@@ -40,6 +43,7 @@ from typing import Iterable
 from lxml import etree
 
 from ic_core.classifier import UNCLASSIFIED
+from ic_core.features import FEATURE_VERSION, LOGICAL_FEATURES, get_features
 from ic_core.glyph import Glyph
 
 # ---------------------------------------------------------------------------
@@ -152,6 +156,47 @@ def _append_glyph(parent: etree._Element, glyph: Glyph) -> None:
 
     data_el = etree.SubElement(g_el, "data")
     data_el.text = glyph.image_rle
+
+    _append_features(g_el, glyph)
+
+
+def _append_features(parent: etree._Element, glyph: Glyph) -> None:
+    """Emit a ``<features>`` block matching the legacy fixture shape.
+
+    Each logical feature in :data:`ic_core.features.LOGICAL_FEATURES`
+    becomes one ``<feature name="...">`` child. Single-dimensional
+    features hold one float; multi-dim features (``volume16regions``,
+    ``hu_moment``) hold their values space-separated inside a single
+    element — the same convention used by the Square_notation
+    training-data fixture under ``core/tests/fixtures/``.
+
+    Two extensions vs. legacy:
+
+    * ``version="ic-core/v1"`` on the wrapper — the value set is
+      *not* Gamera's, so downstream consumers must gate on this
+      before interpreting numbers.
+    * ``scaling="1.0"`` is retained for schema compatibility with
+      strict legacy parsers, even though we don't apply any scaling.
+
+    Values are rendered with Python's ``repr(float(...))`` for full
+    precision, matching the legacy formatting closely enough to keep
+    diff noise low.
+    """
+    vector = get_features(glyph)
+
+    feats_el = etree.SubElement(
+        parent,
+        "features",
+        scaling="1.0",
+        version=FEATURE_VERSION,
+    )
+
+    offset = 0
+    for name, dim in LOGICAL_FEATURES:
+        values = vector[offset : offset + dim]
+        offset += dim
+        feat_el = etree.SubElement(feats_el, "feature", name=name)
+        feat_el.text = " ".join(repr(float(v)) for v in values)
 
 
 def _id_state(glyph: Glyph) -> str:

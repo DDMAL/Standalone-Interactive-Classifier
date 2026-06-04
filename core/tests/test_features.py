@@ -12,7 +12,7 @@ from ic_core.features import (
 )
 from ic_core.io_xml import load_glyphs
 
-FIXTURE = Path(__file__).parent / "fixtures" / "Interactive_Classifier_GameraXML_TrainingData.xml"
+FIXTURE = Path(__file__).parent / "fixtures" / "Square_notation-example_training_data.xml"
 
 
 def _gamera_features_by_glyph(path: Path) -> list[dict[str, list[float]]]:

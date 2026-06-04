@@ -39,7 +39,7 @@ them and exposes the operations as HTTP endpoints.
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Iterable
 
@@ -50,7 +50,8 @@ from ic_core.classifier import (
     run_correction_stage,
     sort_by_confidence_ascending,
 )
-from ic_core.glyph import Glyph
+from ic_core.features import ensure_features
+from ic_core.glyph import CATEGORY_NEUMES, Glyph
 from ic_core.grouping import manual_group as union_glyphs
 
 # ---------------------------------------------------------------------------
@@ -220,15 +221,33 @@ class Session:
                 from :class:`ic_core.classifier.InteractiveClassifier`).
         """
         self._require_state(ClassifierState.CLASSIFYING)
-        new_glyphs, _ = run_correction_stage(
-            self.glyphs,
-            self.training_glyphs,
-            k=k,
-        )
-        # Sort here so the API response is already in display order;
-        # the frontend does not have to re-sort. Ascending-confidence
-        # ordering is algorithm semantic #3.
-        self.glyphs = sort_by_confidence_ascending(new_glyphs)
+
+        # Materialise the per-glyph feature cache before training.
+        # Glyph.classify_manual / classify_automatic preserve the
+        # cache through ``replace()`` (image is unchanged), so once a
+        # glyph has been through one classify round its features
+        # survive into the next round and the re-train loop becomes
+        # almost free for stable training pools.
+        self.glyphs = [ensure_features(g) for g in self.glyphs]
+        self.training_glyphs = [ensure_features(g) for g in self.training_glyphs]
+
+        # Only Neumes are classified. Text and Staves are MOTHRA
+        # categories IC does not label — they pass through untouched (and
+        # are kept out of the training pool, since neume kNN must not learn
+        # from non-neume marks). Splitting here keeps run_correction_stage
+        # category-agnostic.
+        neumes = [g for g in self.glyphs if g.category == CATEGORY_NEUMES]
+        others = [g for g in self.glyphs if g.category != CATEGORY_NEUMES]
+
+        if neumes:
+            new_neumes, _ = run_correction_stage(neumes, self.training_glyphs, k=k)
+            # Ascending-confidence ordering is algorithm semantic #3, so the
+            # frontend's review queue starts at the least-certain neume.
+            neumes = sort_by_confidence_ascending(new_neumes)
+
+        # Sort here so the API response is already in display order; the
+        # frontend regroups by category, so non-neumes simply trail behind.
+        self.glyphs = neumes + others
 
     def update_glyph(
         self,
@@ -236,8 +255,9 @@ class Session:
         *,
         class_name: str | None = None,
         id_state_manual: bool | None = None,
+        category: str | None = None,
     ) -> Glyph:
-        """Mutate a single glyph's class label and/or manual flag.
+        """Mutate a single glyph's class label, manual flag, or category.
 
         Used by the API endpoint that handles "user manually
         re-labelled this glyph". Setting ``id_state_manual=True``
@@ -245,11 +265,22 @@ class Session:
         :meth:`Glyph.classify_manual` (algorithm semantic #5 — manual
         glyphs feed training, never classification).
 
+        ``category`` moves the glyph between MOTHRA categories
+        (Text / Neumes / Staves). A class label is only meaningful
+        inside Neumes, so a moved glyph is reset to
+        :data:`UNCLASSIFIED` / auto and re-enters its new category's
+        review queue. The move is handled exclusively — when
+        ``category`` is supplied, ``class_name`` / ``id_state_manual``
+        are ignored, because the frontend issues a move and a relabel
+        as separate calls.
+
         Args:
             glyph_id: The target glyph's UUID.
             class_name: New class label, or ``None`` to leave
                 unchanged.
             id_state_manual: New manual flag, or ``None`` to leave
+                unchanged.
+            category: New MOTHRA category, or ``None`` to leave
                 unchanged.
 
         Returns:
@@ -262,6 +293,17 @@ class Session:
         """
         self._require_state(ClassifierState.CLASSIFYING)
         idx, old = self._find_index(glyph_id)
+
+        if category is not None and category != old.category:
+            new = replace(
+                old,
+                category=category,
+                class_name=UNCLASSIFIED,
+                confidence=0.0,
+                id_state_manual=False,
+            )
+            self.glyphs[idx] = new
+            return new
 
         # Decide the new (class_name, manual, confidence) triple.
         # ``classify_manual`` and ``classify_automatic`` on Glyph

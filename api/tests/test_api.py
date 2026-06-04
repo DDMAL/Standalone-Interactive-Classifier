@@ -6,8 +6,8 @@ share state. The shared dependency-override pattern lives in the
 :func:`client` fixture.
 
 Real ingest is exercised via the sample input under
-``core/tests/sample_input/`` so the tests cover the full
-HTTP → ingest → session → response path, not a mocked happy case.
+``core/data/test/`` so the tests cover the full HTTP → ingest →
+session → response path, not a mocked happy case.
 """
 from __future__ import annotations
 
@@ -20,14 +20,14 @@ from fastapi.testclient import TestClient
 from ic_api.main import app, get_store
 from ic_api.store import InMemorySessionStore
 
-SAMPLE_DIR = (
+TEST_DIR = (
     Path(__file__).resolve().parents[2]
     / "core"
-    / "tests"
-    / "sample_input"
+    / "data"
+    / "test"
 )
-PAGE_IMAGE = SAMPLE_DIR / "NZ-Wt MSR-03 109v.png"
-JSON_PATH = SAMPLE_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
+PAGE_IMAGE = TEST_DIR / "NZ-Wt MSR-03 109v.png"
+JSON_PATH = TEST_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
 
 # Read once at module load — multipart uploads ship bytes, and we
 # replay the same payload across most tests.
@@ -207,8 +207,12 @@ def test_classify_with_no_training_data_returns_400(client):
 def test_classify_with_one_manual_label_succeeds(client):
     sid = _create_session(client)
     glyphs = client.get(f"/sessions/{sid}").json()["glyphs"]
-    # Manually label the first two glyphs so classify has training data.
-    for g in glyphs[:2]:
+    # Only Neumes are classified, so the training pool must be seeded with
+    # manually-labelled *neume* glyphs — labelling Text/Staves would leave
+    # the neume classifier with nothing to learn from.
+    neumes = [g for g in glyphs if g["category"] == "Neumes"]
+    assert len(neumes) >= 2, "fixture should contain neume glyphs"
+    for g in neumes[:2]:
         r = client.post(
             f"/sessions/{sid}/glyphs/{g['id']}",
             json={"class_name": "neume.A", "id_state_manual": True},
@@ -218,11 +222,20 @@ def test_classify_with_one_manual_label_succeeds(client):
     response = client.post(f"/sessions/{sid}/classify", json={"k": 1})
     assert response.status_code == 200
     sess = response.json()
-    # Every non-manual glyph should now have a non-UNCLASSIFIED class.
-    auto_classes = {
-        g["class_name"] for g in sess["glyphs"] if not g["id_state_manual"]
+
+    # Every non-manual *neume* should now carry the trained label.
+    auto_neume_classes = {
+        g["class_name"]
+        for g in sess["glyphs"]
+        if not g["id_state_manual"] and g["category"] == "Neumes"
     }
-    assert auto_classes == {"neume.A"}
+    assert auto_neume_classes == {"neume.A"}
+
+    # Text and Staves are out of IC's scope: they stay UNCLASSIFIED.
+    non_neume_classes = {
+        g["class_name"] for g in sess["glyphs"] if g["category"] != "Neumes"
+    }
+    assert non_neume_classes == {"UNCLASSIFIED"}
 
 
 # ---------------------------------------------------------------------------
@@ -461,3 +474,63 @@ def test_concurrent_updates_on_same_session_are_consistent(client):
     final = client.get(f"/sessions/{sid}").json()["glyphs"]
     manual = {g["id"] for g in final if g["id_state_manual"]}
     assert manual == set(glyph_ids)
+
+
+# ---------------------------------------------------------------------------
+# Vocabularies
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def train_dir(monkeypatch, tmp_path) -> Path:
+    """A hermetic ``core/data/train`` dir with one vocab CSV and one non-vocab CSV."""
+    (tmp_path / "vocab_a.csv").write_text(
+        "name,classification,width,mei\n"
+        "g1,neume.punctum,10,x\n"
+        "g2,clef.c,12,y\n"
+        "g3,neume.punctum,9,z\n"  # duplicate class — must be de-duped
+        "g4,,5,w\n",  # blank class — must be dropped
+        encoding="utf-8",
+    )
+    # A CSV without a 'classification' column must not be listed as a vocab.
+    (tmp_path / "annotations.csv").write_text(
+        "filename,region_attributes\nimg.png,{}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("IC_TRAIN_DIR", str(tmp_path))
+    return tmp_path
+
+
+def test_list_vocabularies_only_returns_csvs_with_classification_column(
+    client, train_dir
+):
+    response = client.get("/vocabularies")
+    assert response.status_code == 200
+    assert response.json() == ["vocab_a.csv"]
+
+
+def test_vocabulary_classes_are_sorted_distinct_and_non_empty(client, train_dir):
+    response = client.get("/vocabularies/vocab_a.csv/classes")
+    assert response.status_code == 200
+    assert response.json() == ["clef.c", "neume.punctum"]
+
+
+def test_unknown_vocabulary_is_rejected(client, train_dir):
+    response = client.get("/vocabularies/../secrets.csv/classes")
+    assert response.status_code in (400, 404)
+
+
+def test_create_session_seeds_class_names_from_vocabulary(client, train_dir):
+    files = {
+        "page_image": ("page.png", PAGE_BYTES, "image/png"),
+        "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+    }
+    response = client.post(
+        "/sessions",
+        files=files,
+        data={"annotations_format": "json", "vocabulary": "vocab_a.csv"},
+    )
+    assert response.status_code == 201, response.text
+    names = response.json()["class_names"]
+    assert "clef.c" in names
+    assert "neume.punctum" in names
