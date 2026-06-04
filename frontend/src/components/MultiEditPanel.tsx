@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { useUpdateGlyphs } from "@/hooks/useUpdateGlyphs";
 import { isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
 import { useUiStore } from "@/store/uiStore";
-import type { GlyphDTO } from "@/types/api";
+import { CATEGORY_ORDER, type GlyphCategory, type GlyphDTO } from "@/types/api";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 interface MultiEditPanelProps {
@@ -85,6 +85,18 @@ export function MultiEditPanel({
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     void applyToMany();
+  }
+
+  // Move every selected glyph to another MOTHRA category. The backend resets
+  // each label on the move, so we skip reclassify and keep the selection — a
+  // mixed batch moved to Neumes can then be bulk-labelled in place.
+  async function moveAllToCategory(target: GlyphCategory) {
+    if (pending || selectedGlyphs.length === 0) return;
+    await updateGlyphs.mutateAsync({
+      glyphIds: selectedGlyphs.map((g) => g.id),
+      patch: { category: target },
+      reclassify: false,
+    });
   }
 
   function handleDelete() {
@@ -203,6 +215,29 @@ export function MultiEditPanel({
             : `Apply to ${neumeCount} Neume${neumeCount === 1 ? "" : "s"}`}
         </Button>
       </form>
+
+      <div className="mt-4 border-t border-slate-200 pt-3">
+        <span className="mb-2 block text-xs font-medium text-slate-700">
+          Move to class
+        </span>
+        <div className="flex flex-wrap gap-2">
+          {CATEGORY_ORDER.map((target) => (
+            <Button
+              key={target}
+              variant="secondary"
+              disabled={pending}
+              onClick={() => moveAllToCategory(target)}
+              className="flex-1 whitespace-nowrap px-2 py-1 text-xs"
+            >
+              → {target}
+            </Button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-slate-400">
+          Moves all {totalCount} selected glyph{totalCount === 1 ? "" : "s"};
+          resets their neume labels.
+        </p>
+      </div>
 
       <div className="mt-4 border-t border-slate-200 pt-3">
         <Button
