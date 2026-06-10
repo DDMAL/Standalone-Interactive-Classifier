@@ -6,8 +6,8 @@ import { Toolbar } from "@/components/Toolbar";
 import { useSelectionSync } from "@/hooks/useSelectionSync";
 import { useSession } from "@/hooks/useSession";
 import { useZoomPan } from "@/hooks/useZoomPan";
-import { byConfidenceAsc } from "@/lib/format";
-import { actionForKey, isEditableTarget } from "@/lib/keymap";
+import { byConfidenceAsc, trainingPoolSize } from "@/lib/format";
+import { actionForKey, isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
 import { useUiStore } from "@/store/uiStore";
 import { useEffect, useMemo } from "react";
 
@@ -38,6 +38,10 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (isEditableTarget(e.target)) return;
+      // While a glyph is selected, bare alphanumeric keys are claimed by the
+      // edit panel (type-to-focus), so don't let e.g. "0" reset the zoom.
+      if (isTypeToFocusKey(e) && useUiStore.getState().selectedGlyphIds.size > 0)
+        return;
       const action = actionForKey(e);
       if (!action) return;
       switch (action.type) {
@@ -59,6 +63,8 @@ export function SessionView({ sessionId }: { sessionId: string }) {
       }
       e.preventDefault();
     }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
   }, [zoomPan.zoomIn, zoomPan.zoomOut, zoomPan.reset, zoomPan.pan, clearSelection]);
 
   if (isLoading) {
@@ -81,7 +87,11 @@ export function SessionView({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <Toolbar sessionId={sessionId} glyphCount={session.glyphs.length} />
+      <Toolbar
+        sessionId={sessionId}
+        glyphCount={session.glyphs.length}
+        trainingSize={trainingPoolSize(session)}
+      />
       <div className="flex min-h-0 flex-1">
         <ClassTreePanel sessionId={sessionId} session={session} />
         <PageImagePane glyphs={session.glyphs} zoomPan={zoomPan} />

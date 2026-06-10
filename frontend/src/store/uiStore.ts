@@ -67,7 +67,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   pendingFocusGlyphId: null,
   deletedGlyphIds: new Set(),
   classTreeCollapsed: false,
-  knnK: 1,
+  knnK: 3,
 
   setClassTreeCollapsed: (v) => set({ classTreeCollapsed: v }),
 
