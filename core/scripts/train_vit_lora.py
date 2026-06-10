@@ -109,7 +109,7 @@ def build_dataloader(
     dataset = (
         wds.WebDataset(pattern, shardshuffle=500)
         .shuffle(1000)
-        .decode("pil")
+        .decode("pil", handler=wds.warn_and_continue)
         .map(preprocess, handler=wds.warn_and_continue)
         .select(lambda x: x is not None)
         .batched(batch_size, partial=False)
