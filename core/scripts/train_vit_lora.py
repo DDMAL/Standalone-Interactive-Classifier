@@ -103,14 +103,15 @@ def build_dataloader(
     print(f"Shard pattern: {pattern}")
 
     dataset = (
-        wds.WebDataset(pattern, resampled=True, shardshuffle=True)
+        wds.WebDataset(pattern, shardshuffle=500)
         .shuffle(1000)
         .decode("pil")
         .map(preprocess)
         .batched(batch_size, partial=False)
     )
 
-    loader = DataLoader(dataset, batch_size=None, num_workers=num_workers, pin_memory=True)
+    loader = DataLoader(dataset, batch_size=None, num_workers=num_workers, pin_memory=True,
+                        persistent_workers=True)
 
     shards = sorted(crops_dir.glob("shard-*.tar"))
     total = n_crops if n_crops else len(shards) * 1000
