@@ -14,8 +14,8 @@ This project replaces the legacy Rodan job (Django + Celery + Gamera + Backbone.
 
 | Layer       | Path         | Status                                |
 |-------------|--------------|---------------------------------------|
-| Algorithm core | `core/ic_core/` | In progress — scaffolded, partial impl |
-| API         | `api/`       | In progress, open to future change    |
+| Algorithm core | `core/ic_core/` | Implemented — manual workflow complete; auto-grouping and splitting intentionally deferred |
+| API         | `api/`       | Implemented (FastAPI + in-memory store); `POST /auto-group` returns 501 |
 | Frontend    | `frontend/`  | Not started                           |
 
 ## Repository layout
@@ -24,9 +24,11 @@ This project replaces the legacy Rodan job (Django + Celery + Gamera + Backbone.
 ic_new/
 ├── core/
 │   ├── ic_core/        # Phase 1: algorithm core (uv-managed Python package)
-│   └── tests/          # Pytest suite + fixtures
-├── api/                # Phase 2: FastAPI service (planned)
-├── frontend/           # Phase 3: React + Vite UI (planned)
+│   ├── tests/          # Pytest suite + fixtures
+│   ├── data/           # train/, test/, derived/ (derived/ is gitignored)
+│   └── scripts/        # CLI helpers: run_pipeline, convert_hufnagel_csv, visualize, …
+├── api/                # Phase 2: FastAPI service
+├── frontend/           # Phase 3: React + Vite UI (not yet started)
 └── docs/
     ├── CLAUDE.md       # Guidance for Claude Code working in this repo
     ├── migration_plan.md
@@ -39,10 +41,13 @@ The core package uses [uv](https://docs.astral.sh/uv/) for environment and depen
 
 ```bash
 cd core/ic_core
-uv sync                 # install dependencies
-uv run pytest ../tests  # run tests
-uv run ruff check .     # lint
+uv sync                                    # install dependencies
+uv run pytest                              # run tests (auto-regenerates training XML on first run)
+uv run python ../scripts/run_pipeline.py   # end-to-end smoke: train → classify → overlays
+uv run ruff check .                        # lint
 ```
+
+The API has its own uv project under [`api/`](api/); see [`api/README.md`](api/README.md) for endpoint reference and run instructions.
 
 ## Documentation
 

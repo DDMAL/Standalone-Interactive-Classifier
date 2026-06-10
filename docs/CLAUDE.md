@@ -6,13 +6,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `ic_new` is a **ground-up rewrite** of the Interactive Classifier — a tool for interactively classifying document glyphs (specifically chant neumes) using a k-Nearest Neighbors model. It replaces the legacy Rodan job (Django + Celery + Gamera + Backbone.Marionette SPA) with a modern stack:
 
-- **Algorithm core** — pure Python package, no Django, no Gamera
-- **API layer** — FastAPI (planned, `api/` is currently empty)
+- **Algorithm core** — pure Python package (`core/ic_core/`), no Django, no Gamera
+- **API layer** — FastAPI service (`api/`), in-memory session store
 - **Frontend** — React + Vite (planned, `frontend/` is currently empty)
 
-**Two important deltas vs. the legacy system:**
-1. **Input is cropped neume images, not page-level GameraXML.** The upstream connected-components-analysis (CCA) stage is removed. Each input image is one already-segmented neume.
-2. **Manual split via CCA is deferred.** `core/ic_core/src/ic_core/splitting.py` exists as a placeholder but is not part of the initial pipeline. Reintroduce only if real data shows crops that contain multiple neumes.
+**Important deltas vs. the legacy system:**
+1. **Input is a page image + bbox annotation file, not page-level GameraXML.** Upstream connected-components-analysis (CCA) is removed. `ingest_page()` accepts raw `(page_image_bytes, annotations_bytes)` plus a format discriminator (`"json"` for MOTHRA JSON, `"yolo"` for YOLO TXT) and crops glyphs from the page on the fly.
+2. **Manual grouping is implemented; auto-grouping is deferred.** [grouping.py:manual_group](../core/ic_core/src/ic_core/grouping.py) bitwise-ORs N selected glyphs into one new training example (`id_state_manual=True, confidence=1.0`, fresh UUID) — exposed via `POST /sessions/{id}/group`. `auto_group_shaped` / `auto_group_bounding_box` exist as stubs that raise `NotImplementedError`; `POST /sessions/{id}/auto-group` returns 501. The page+bbox ingest gives auto-grouping the page-coordinate frame it needs; the deferral is now about the design (adjacency-function choice, graph-size gating), not data shape.
+3. **Manual split via CCA is out of scope.** A crop containing multiple neumes is an upstream-detector defect, not something IC should patch over. [splitting.py](../core/ic_core/src/ic_core/splitting.py) is a docstring-only file kept for documentation continuity.
+4. **kNN is hand-rolled, dependency-free.** No `scikit-learn`. The full implementation is numpy-only in [classifier.py](../core/ic_core/src/ic_core/classifier.py): standardise features → pairwise Euclidean → `np.argpartition` for top-k. The interface mirrors what a sklearn-based version would look like, so a Ball-tree backend can be slotted in later if needed.
+5. **Feature calculation is a clean break from Gamera.** See "Feature calculation" below. Feature vectors are cached on `Glyph` (optional `feature_vector` / `feature_version` fields) so the "full re-train every round" loop reuses computation across rounds.
 
 The output format remains **GameraXML** so downstream MEI-encoded pipelines keep working unchanged.
 
@@ -45,22 +48,64 @@ ic_new/
 │   │   ├── pyproject.toml
 │   │   ├── uv.lock
 │   │   └── src/ic_core/
-│   │       ├── glyph.py            # Glyph dataclass (replaces intermediary/gamera_glyph.py)
-│   │       ├── image.py            # numpy ↔ PIL conversion; RLE kept for XML round-trips
-│   │       ├── features.py         # Feature extraction (replaces Gamera's internal features)
-│   │       ├── classifier.py       # kNN training + classify
-│   │       ├── grouping.py         # Spatial grouping (manual; auto-grouping needs page coords)
-│   │       ├── io_xml.py           # GameraXML read/write (export-authoritative)
-│   │       ├── state.py            # ClassifierStateEnum + session dataclass
-│   │       └── splitting.py        # DEFERRED — placeholder; not used in initial pipeline
+│   │       ├── glyph.py            # Glyph dataclass; optional feature_vector / feature_version
+│   │       │                       # cache fields (excluded from __eq__ / repr). to_dict() is
+│   │       │                       # hand-built (not asdict) so the ndarray cache isn't copied
+│   │       ├── image.py            # numpy ↔ PIL conversion, RLE encode/decode, base64 PNG preview
+│   │       ├── features.py         # Feature extraction; LOGICAL_FEATURES, FEATURE_VERSION,
+│   │       │                       # get_features (cache-aware), ensure_features
+│   │       ├── classifier.py       # Dependency-free numpy kNN (no sklearn)
+│   │       ├── ingest.py           # ingest_page() — page image + bbox JSON/YOLO → Glyph list
+│   │       ├── grouping.py         # manual_group (implemented); auto_group_* (deferred stubs)
+│   │       ├── io_xml.py           # GameraXML read/write; writer emits the legacy <features>
+│   │       │                       # block carrying version="ic-core/v1"
+│   │       ├── state.py            # ClassifierState enum + Session dataclass (direct mutation)
+│   │       └── splitting.py        # Docstring-only stub; NOT wired into the pipeline
+│   ├── data/                       # corpora used by tests AND CLI scripts
+│   │   ├── train/                  # raw training inputs
+│   │   │   ├── Hufnagel-example.png
+│   │   │   ├── Hufnagel-example.csv               # original VIA CSV
+│   │   │   ├── Hufnagel-example_annotations.json
+│   │   │   ├── hufnagel_annotations_{id}.csv     # VIA-format Hufnagel annotations
+│   │   │   ├── hufnagel_example_{id}.png         # paired page image, same {id}
+│   │   │   └── csv-square_notation_neume_level_newest.csv
+│   │   ├── test/                   # held-out page used by tests + the API integration suite
+│   │   │   ├── NZ-Wt MSR-03 109v.png
+│   │   │   ├── NZ-Wt MSR-03 109v.txt              # YOLO-format bboxes
+│   │   │   └── MOTHRA_NZ-Wt MSR-03 109v_annotations.json
+│   │   └── derived/                # GITIGNORED — regenerable from data/train/ via scripts/
+│   │       ├── Hufnagel_training_data.xml         # output of convert_hufnagel_csv (batch)
+│   │       └── visualization/                     # overlay PNGs from run_pipeline.py
+│   ├── scripts/                    # CLI helpers (added to pytest sys.path)
+│   │   ├── paths.py                   # central path config; every default overridable via IC_*
+│   │   ├── rename_hufnagel_pairs.py   # canonicalise CSV/PNG pair filenames
+│   │   ├── convert_hufnagel_csv.py    # batch VIA CSV → GameraXML training data
+│   │   ├── run_pipeline.py            # train → classify → visualise on the test page
+│   │   ├── evaluate.py                # shared classify_page / ingest helpers
+│   │   └── visualize.py               # overlay drawing (annotated + predicted)
 │   └── tests/
+│       ├── test_classifier.py
 │       ├── test_features.py
+│       ├── test_grouping.py
+│       ├── test_ingest.py
 │       ├── test_io_xml.py
-│       └── fixtures/
-│           ├── Interactive_Classifier_GameraXML_TrainingData.xml  # legacy fixture, export oracle
-│           └── meta/
-├── api/                            # Phase 2: FastAPI service (empty — not yet started)
-├── frontend/                       # Phase 3: React + Vite UI (empty — not yet started)
+│       ├── test_io_xml_writer.py
+│       ├── test_real_input_knn.py
+│       ├── test_state.py
+│       ├── conftest.py
+│       └── fixtures/                # writer-oracle XMLs only
+│           ├── Hufnagel-example_training_data.xml         # legacy oracle for writer shape
+│           └── Square_notation-example_training_data.xml  # canonical <features> block example
+├── api/                            # Phase 2: FastAPI service (implemented)
+│   ├── pyproject.toml
+│   ├── uv.lock
+│   ├── README.md
+│   ├── src/ic_api/
+│   │   ├── main.py                 # FastAPI app + endpoints (sessions, classify, group, …)
+│   │   ├── schemas.py              # Pydantic DTOs and conversion helpers
+│   │   └── store.py                # InMemorySessionStore (process-local; not persisted)
+│   └── tests/test_api.py
+├── frontend/                       # Phase 3: React + Vite UI (not yet started)
 └── docs/
     ├── CLAUDE.md                   # this file
     ├── migration_plan.md           # full migration strategy
@@ -76,11 +121,12 @@ cd core/ic_core
 uv sync                       # install dependencies into .venv
 uv run pytest                 # run the test suite
 uv run pytest ../tests/test_features.py    # single file
+uv run python ../scripts/run_pipeline.py   # end-to-end smoke: train → classify → overlays
 uv run ruff check .           # lint
 uv run ruff format .          # format
 ```
 
-Tests live in `core/tests/` (sibling to the package), not inside `core/ic_core/`.
+Tests live in `core/tests/` (sibling to the package), not inside `core/ic_core/`. Data and CLI scripts default to paths under `core/data/`; every default in [scripts/paths.py](../core/scripts/paths.py) can be overridden via `IC_*` env vars (`IC_TRAINING_XML`, `IC_TEST_PAGE`, …) to run scripts and tests against alternate inputs without code edits.
 
 ## Architecture Notes
 
@@ -91,37 +137,57 @@ Documented in [KNN_ALGORITHM.md](KNN_ALGORITHM.md). The non-negotiable behaviors
 1. **Full re-train every round** — discard and rebuild the classifier on each user submission.
 2. **`k=1`** default — winner-takes-all, no voting.
 3. **Confidence sort order** — ascending; lowest-confidence glyphs surfaced first for review.
-4. **Special prefixes `_group`, `_delete`** — stripped by `filter_parts` before training and before export. (The legacy `_split` prefix is dropped along with the deferred split action.)
+4. **Special prefixes `_group`, `_delete`** — stripped by `filter_parts` before training and before export. Recognised when loading legacy GameraXML even though no current UI action emits a `_group`-prefixed class name. The `_split` prefix is dropped along with the deferred split action.
 5. **Manual glyphs feed training, not classification** — `id_state_manual` is the boundary.
-6. **UUIDs survive round-trips** — newly created glyphs (manual group, ingestion) get fresh UUIDs; existing ones preserve theirs.
-7. **`union_images` on manual group** sets `id_state_manual=True, confidence=1` — the grouped glyph becomes training data immediately.
+6. **UUIDs survive round-trips** — newly created glyphs (from ingestion or manual grouping) get fresh UUIDs; existing ones preserve theirs. For MOTHRA-JSON ingest, the per-annotation `id` becomes the glyph id so re-ingesting the same JSON produces stable ids.
+7. **`manual_group` sets `id_state_manual=True, confidence=1.0`** — the union'd glyph becomes training data immediately rather than waiting for the next classify round.
 
 ### Gamera replacement map
 
 | Gamera surface | Replacement here |
 |---|---|
-| `gamera.knn.kNNInteractive` | `sklearn.neighbors.KNeighborsClassifier` (`k=1` default) |
-| Gamera feature vectors | `features.py` using `scikit-image` + `numpy` (versioned — old XML feature blobs not compatible) |
-| `gamera.classify.ShapedGroupingFunction` | Custom pairwise pixel-distance using `scipy.ndimage.distance_transform_edt` — requires page coordinates (see below) |
-| `gamera.plugins.image_utilities.union_images` | `np.logical_or` over aligned binary masks |
-| `gamera.plugins.segmentation.*` | **Deferred** — not needed with per-neume cropped input |
-| `gamera.gamera_xml` read/write | Hand-written `lxml` parser in `io_xml.py` (export-only path) |
+| `gamera.knn.kNNInteractive` | **Hand-rolled numpy kNN** in `classifier.py` (`k=1` default). No `sklearn` — pairwise Euclidean over standardised features, `np.argpartition` for top-k |
+| Gamera feature vectors | `features.py` using `numpy` + `scipy.ndimage` + `skimage.measure`. Fixed 29-dim set, versioned via `FEATURE_VERSION`, cached on `Glyph`. See "Feature calculation" below |
+| `gamera.classify.ShapedGroupingFunction` | `grouping.auto_group_shaped` — **deferred stub** (raises `NotImplementedError`) |
+| `gamera.classify.BoundingBoxGroupingFunction` | `grouping.auto_group_bounding_box` — **deferred stub** |
+| `gamera.plugins.image_utilities.union_images` | `grouping.manual_group` — **implemented**; bitwise-OR over masks in a shared canvas spanning the union of bboxes |
+| `gamera.plugins.segmentation.*` | **Not implemented — out of scope** (upstream-detector defect if it surfaces) |
+| `gamera.gamera_xml` read/write | Hand-written `lxml` parser in `io_xml.py`. Reader exists for round-trip tests; writer is the authoritative export path |
 | Gamera `ONEBIT`/`DENSE` image | `numpy.ndarray` (`bool` for ONEBIT, `uint8` for DENSE) |
+
+### Feature calculation — diff vs. legacy
+
+The legacy IC handed feature extraction to Gamera entirely (`cknn.generate_features_on_glyphs`) and optionally filtered the active set via a `GameraXML - Feature Selection` file. We implement features directly in [features.py](../core/ic_core/src/ic_core/features.py) with a fixed, explicit set:
+
+| Aspect | Legacy (Gamera) | New (`ic_core.features`) |
+|---|---|---|
+| Compute path | Gamera C++ internals (opaque) | Python: `numpy` + `scipy.ndimage` + `skimage.measure` |
+| Feature set | Gamera's full suite, optionally subsetted by Feature-Selection XML | Fixed: `aspect_ratio`, `volume`, `nrows_feature`, `ncols_feature`, `compactness`, `nholes`, `volume16regions_*` (×16), `hu_moment_*` (×7) — **29 dimensions** |
+| Dimensionality | Variable | Fixed at 29 |
+| Versioning | None (implicit in Gamera version) | Explicit `FEATURE_VERSION = "ic-core/v1"`; bumped on any change |
+| Feature Selection XML | Supported | **Not supported** — bump `FEATURE_VERSION` and re-train instead |
+| `perform_splits=True` reweighting | On (Gamera-internal) | **Not replicated.** Replaced by per-feature standardisation (zero-mean / unit-variance) on the training set, reused at predict time |
+| Distance metric | Gamera kNN's weighted Euclidean | Plain Euclidean over standardised features |
+| Embedded in exported GameraXML? | Yes (`with_features=True`) | Yes — `<features version="ic-core/v1" scaling="1.0">` per glyph, one `<feature name=...>` per logical feature (single value for 1-d; space-separated floats for `volume16regions` and `hu_moment`). Mirrors the [Square_notation fixture](../core/tests/fixtures/Square_notation-example_training_data.xml) element shape. Downstream consumers **must check `version`** before interpreting numbers |
+| Where the vector lives in memory | Computed-on-demand per glyph inside Gamera | Cached on `Glyph` (`feature_vector` / `feature_version` optional fields, `compare=False` so dataclass equality still works). `Glyph.classify_manual` / `classify_automatic` use `dataclasses.replace` so the cache survives label-change operations. `Session.classify` calls `ensure_features` before training, so the cache is materialised once and reused across rounds |
+| Accuracy vs. legacy | n/a | Target ≥ 90% class-assignment agreement on a shared glyph set; bit-equality is not a goal |
+
+Schema-compatible XML out (legacy parsers accept the file), intentionally non-equivalent feature numbers and decision boundary inside (gated by the `version` attribute).
 
 ### Input format
 
-Inputs are **directories of cropped neume image files** (PNG). Each file = one glyph. Optional sidecar metadata (e.g. JSON) can carry:
-- Per-crop source-page position `(page_id, x, y, w, h)` — required to enable spatial auto-grouping; without it, only manual grouping works.
-- Per-crop class label — turns the crop into training data instead of an unclassified test glyph.
+Inputs are **whole-page images paired with JSON files describing per-glyph bounding boxes**. IC crops each glyph from the page at ingestion time using the bbox JSON. The JSON may also carry per-glyph class labels, which turn a glyph into training data instead of an unclassified test glyph.
 
 Legacy GameraXML inputs are **not** supported on the ingestion path; XML is export-only.
 
 ## Gotchas
 
-- **Feature vectors are versioned.** Embedded feature vectors in exported GameraXML will differ from the Rodan output. Downstream consumers must not depend on the feature blob — only on the schema and class assignments.
-- **Auto-grouping needs page coordinates.** If the input is purely cropped images without source-page positions, `ShapedGroupingFunction`-style grouping has no spatial frame to work in. Either require coordinate metadata or expose only manual grouping in the UI.
-- **`splitting.py` is a stub.** Do not wire it into the pipeline or expose a `/split` endpoint without re-opening the deferred-scope discussion.
-- **Tests against the legacy fixture** (`Interactive_Classifier_GameraXML_TrainingData.xml`) should treat it as an **export round-trip oracle**, not an ingestion sample. Build new image-based fixtures for ingestion tests.
+- **Feature vectors are versioned.** The exported `<features>` block carries `version="ic-core/v1"`. Downstream consumers that read feature values **must gate on the version** — the set of features and the math behind them differ from Gamera's. The schema (element shape) is preserved so strict legacy parsers still accept the file.
+- **`splitting.py` is a docstring-only stub.** Out of scope. Do not wire it into the pipeline or expose a `/split` endpoint without re-opening the scope discussion. A crop containing multiple neumes is an upstream-detector defect.
+- **`grouping.py` splits into implemented + deferred halves.** `manual_group` is real code, called by `Session.manual_group` and exposed at `POST /sessions/{id}/group`. `auto_group_shaped` / `auto_group_bounding_box` raise `NotImplementedError` and the matching API endpoint returns 501 — adding real implementations requires picking an adjacency function and gating runaway graphs.
+- **Glyph equality and the feature cache.** `feature_vector` is `compare=False, repr=False` so dataclass `__eq__` / `__hash__` / printing keep working with `ndarray`. Don't accidentally include it in equality checks elsewhere.
+- **Fixture role:** `core/tests/fixtures/` holds `Hufnagel-example_training_data.xml` and `Square_notation-example_training_data.xml`. Use them as **export shape oracles** for the writer, not as ingestion samples — ingestion takes page+bbox bytes. The `Square_notation` fixture is the canonical example of the `<features>` block element shape and is referenced by `test_features.py` / `test_io_xml.py`.
+- **`test_real_input_knn.py` self-bootstraps the training XML.** `paths.TRAINING_XML` defaults to `core/data/derived/Hufnagel_training_data.xml`, which is **gitignored**. On a clean checkout the test detects the missing file and calls `convert_hufnagel_csv.convert_batch()` into a per-session tempdir, then patches `paths.TRAINING_XML` to point there. So `uv run pytest` works without first running `convert_hufnagel_csv.py` by hand. The override is short-circuited if `IC_TRAINING_XML` is already set in the env or the default path already exists on disk.
 
 ## Pointers
 

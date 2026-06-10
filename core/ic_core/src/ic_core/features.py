@@ -11,6 +11,7 @@ for the clean-break rationale.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Iterable
 
 import numpy as np
@@ -21,15 +22,29 @@ from ic_core.glyph import Glyph
 
 FEATURE_VERSION = "ic-core/v1"
 
+#: Logical feature definitions: one entry per *named* feature in the
+#: legacy GameraXML ``<feature name="...">`` convention, paired with
+#: its dimensionality. The flat :data:`FEATURE_NAMES` list and the
+#: 29-d vector returned by :func:`compute_features` are derived from
+#: this so the two representations stay in sync. The XML writer uses
+#: this directly to emit one ``<feature>`` element per logical
+#: feature (multi-dim values space-separated inside the element),
+#: matching the Square_notation fixture layout.
+LOGICAL_FEATURES: tuple[tuple[str, int], ...] = (
+    ("aspect_ratio", 1),
+    ("volume", 1),
+    ("nrows_feature", 1),
+    ("ncols_feature", 1),
+    ("compactness", 1),
+    ("nholes", 1),
+    ("volume16regions", 16),
+    ("hu_moment", 7),
+)
+
 FEATURE_NAMES: list[str] = [
-    "aspect_ratio",
-    "volume",
-    "nrows_feature",
-    "ncols_feature",
-    "compactness",
-    "nholes",
-    *[f"volume16regions_{i}" for i in range(16)],
-    *[f"hu_moment_{i}" for i in range(7)],
+    f"{name}_{i}" if dim > 1 else name
+    for name, dim in LOGICAL_FEATURES
+    for i in range(dim)
 ]
 
 
@@ -49,9 +64,59 @@ def compute_features(glyph: Glyph) -> np.ndarray:
     return np.concatenate(parts).astype(np.float64, copy=False)
 
 
+def get_features(glyph: Glyph) -> np.ndarray:
+    """Return ``glyph``'s feature vector, reusing the cache when valid.
+
+    A cache is "valid" when both ``feature_vector`` and
+    ``feature_version`` are set on the glyph and the version matches
+    the current :data:`FEATURE_VERSION`. A version mismatch causes a
+    fresh computation — old cached vectors silently fall through.
+
+    This is the function every consumer (classifier, XML writer)
+    should call instead of :func:`compute_features` directly, so the
+    cache stays consulted.
+    """
+    if (
+        glyph.feature_vector is not None
+        and glyph.feature_version == FEATURE_VERSION
+    ):
+        return glyph.feature_vector
+    return compute_features(glyph)
+
+
+def ensure_features(glyph: Glyph) -> Glyph:
+    """Return ``glyph`` with its feature cache populated under the current version.
+
+    If the cache is already valid, returns the input unchanged
+    (identity). Otherwise computes the vector and returns a new
+    :class:`Glyph` via :func:`dataclasses.replace` with
+    ``feature_vector`` and ``feature_version`` filled in.
+
+    Callers that want the cache to persist across rounds — most
+    notably :meth:`ic_core.state.Session.classify` — should map this
+    over their glyph list and write the result back.
+    """
+    if (
+        glyph.feature_vector is not None
+        and glyph.feature_version == FEATURE_VERSION
+    ):
+        return glyph
+    return replace(
+        glyph,
+        feature_vector=compute_features(glyph),
+        feature_version=FEATURE_VERSION,
+    )
+
+
 def compute_features_batch(glyphs: Iterable[Glyph]) -> np.ndarray:
-    """Return an (N, 29) float64 matrix of features for a batch of glyphs."""
-    vectors = [compute_features(g) for g in glyphs]
+    """Return an (N, 29) float64 matrix of features for a batch of glyphs.
+
+    Uses :func:`get_features` per glyph so cached vectors are reused
+    rather than recomputed — the "full re-train every round" loop
+    asks for features over the same stable training pool repeatedly,
+    and that's exactly the case the cache exists to short-circuit.
+    """
+    vectors = [get_features(g) for g in glyphs]
     if not vectors:
         return np.zeros((0, len(FEATURE_NAMES)), dtype=np.float64)
     return np.vstack(vectors)

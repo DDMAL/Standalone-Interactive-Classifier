@@ -6,8 +6,8 @@ share state. The shared dependency-override pattern lives in the
 :func:`client` fixture.
 
 Real ingest is exercised via the sample input under
-``core/tests/sample_input/`` so the tests cover the full
-HTTP → ingest → session → response path, not a mocked happy case.
+``core/data/test/`` so the tests cover the full HTTP → ingest →
+session → response path, not a mocked happy case.
 """
 from __future__ import annotations
 
@@ -20,14 +20,14 @@ from fastapi.testclient import TestClient
 from ic_api.main import app, get_store
 from ic_api.store import InMemorySessionStore
 
-SAMPLE_DIR = (
+TEST_DIR = (
     Path(__file__).resolve().parents[2]
     / "core"
-    / "tests"
-    / "sample_input"
+    / "data"
+    / "test"
 )
-PAGE_IMAGE = SAMPLE_DIR / "NZ-Wt MSR-03 109v.png"
-JSON_PATH = SAMPLE_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
+PAGE_IMAGE = TEST_DIR / "NZ-Wt MSR-03 109v.png"
+JSON_PATH = TEST_DIR / "MOTHRA_NZ-Wt MSR-03 109v_annotations.json"
 
 # Read once at module load — multipart uploads ship bytes, and we
 # replay the same payload across most tests.

@@ -9,7 +9,7 @@ manual group/split operations receive fresh ones.
 from __future__ import annotations
 
 import uuid
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -29,6 +29,18 @@ class Glyph:
     id_state_manual: bool
     confidence: float
     is_training: bool = False
+    # Optional per-glyph feature cache. Populated by the classifier
+    # (and read by the XML exporter) so the "full re-train every
+    # round" loop doesn't recompute features for stable glyphs.
+    # ``feature_version`` records which ``FEATURE_VERSION`` produced
+    # the vector so a version bump invalidates stale caches; the
+    # vector itself is excluded from ``__eq__`` / ``__hash__`` /
+    # ``repr`` because ndarray equality doesn't fit the dataclass
+    # default and printing a 29-element array adds noise to logs.
+    feature_vector: np.ndarray | None = field(
+        default=None, compare=False, repr=False
+    )
+    feature_version: str | None = field(default=None, compare=False, repr=False)
 
     @classmethod
     def new(
@@ -44,6 +56,8 @@ class Glyph:
         confidence: float,
         is_training: bool = False,
         id: str | None = None,
+        feature_vector: np.ndarray | None = None,
+        feature_version: str | None = None,
     ) -> "Glyph":
         return cls(
             id=id if id is not None else uuid.uuid4().hex,
@@ -56,6 +70,8 @@ class Glyph:
             id_state_manual=id_state_manual,
             confidence=confidence,
             is_training=is_training,
+            feature_vector=feature_vector,
+            feature_version=feature_version,
         )
 
     def is_manual_id(self) -> bool:
@@ -87,7 +103,18 @@ class Glyph:
         return array_to_png_base64(self.to_array())
 
     def to_dict(self) -> dict[str, Any]:
-        d = asdict(self)
-        d["image"] = d.pop("image_rle")
-        d["image_b64"] = self.to_base64_png()
-        return d
+        # Built explicitly (rather than via ``asdict``) so the ndarray-valued
+        # ``feature_vector`` cache isn't deep-copied just to be discarded.
+        return {
+            "id": self.id,
+            "class_name": self.class_name,
+            "image": self.image_rle,
+            "ncols": self.ncols,
+            "nrows": self.nrows,
+            "ulx": self.ulx,
+            "uly": self.uly,
+            "id_state_manual": self.id_state_manual,
+            "confidence": self.confidence,
+            "is_training": self.is_training,
+            "image_b64": self.to_base64_png(),
+        }

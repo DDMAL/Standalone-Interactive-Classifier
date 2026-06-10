@@ -133,6 +133,30 @@ def test_confidence_serialised_with_six_decimal_places():
     assert conf == "0.123000"
 
 
+def test_features_block_is_emitted_with_version_and_named_children():
+    """The writer embeds a ``<features>`` block per glyph carrying the
+    current ``FEATURE_VERSION`` plus one ``<feature name=...>`` per
+    logical feature, mirroring the Square_notation fixture shape."""
+    from ic_core.features import FEATURE_VERSION, LOGICAL_FEATURES
+
+    g = _make_glyph(class_name="A", id_state_manual=True, confidence=1.0)
+    root = etree.fromstring(dumps_glyphs([g]))
+
+    feats = root.find(".//glyph/features")
+    assert feats is not None, "expected one <features> block per glyph"
+    assert feats.get("version") == FEATURE_VERSION
+    assert feats.get("scaling") == "1.0"
+
+    names = [f.get("name") for f in feats.findall("feature")]
+    assert names == [name for name, _ in LOGICAL_FEATURES]
+
+    # Multi-dim features have ``dim`` space-separated floats inside
+    # a single element — verify with ``volume16regions``.
+    vol16 = feats.find('feature[@name="volume16regions"]')
+    assert vol16 is not None
+    assert len((vol16.text or "").split()) == 16
+
+
 def test_writer_preserves_input_order(tmp_path: Path):
     glyphs = [
         _make_glyph(class_name="A", id_state_manual=True, confidence=1.0, ulx=0),

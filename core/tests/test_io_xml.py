@@ -6,7 +6,7 @@ import numpy as np
 from ic_core.image import array_to_rle, rle_to_array
 from ic_core.io_xml import load_glyphs
 
-FIXTURE = Path(__file__).parent / "fixtures" / "Interactive_Classifier_GameraXML_TrainingData.xml"
+FIXTURE = Path(__file__).parent / "fixtures" / "Square_notation-example_training_data.xml"
 
 
 def test_load_training_data_glyph_count():
