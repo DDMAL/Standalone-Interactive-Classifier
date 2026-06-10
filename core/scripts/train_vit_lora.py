@@ -86,7 +86,11 @@ def build_dataloader(
     """Return (DataLoader, estimated_steps_per_epoch)."""
 
     def preprocess(sample):
-        image = sample["jpg"].convert("RGB")
+        # find PIL image regardless of exact key (jpg/jpeg/png)
+        img = next((v for k, v in sample.items() if hasattr(v, "convert")), None)
+        if img is None:
+            return None
+        image = img.convert("RGB")
         w, h = image.size
         side = max(w, h)
         padded = ImageOps.pad(image, (side, side), color=(255, 255, 255))
@@ -106,7 +110,8 @@ def build_dataloader(
         wds.WebDataset(pattern, shardshuffle=500)
         .shuffle(1000)
         .decode("pil")
-        .map(preprocess)
+        .map(preprocess, handler=wds.warn_and_continue)
+        .select(lambda x: x is not None)
         .batched(batch_size, partial=False)
     )
 
