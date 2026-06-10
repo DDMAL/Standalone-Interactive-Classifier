@@ -53,6 +53,8 @@ def _run(label, factory, glyphs=None, train_glyphs=None, test_glyphs=None, folds
 def main() -> None:
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--extractor", choices=["handcrafted", "vit"], default="handcrafted")
+    parser.add_argument("--lora-checkpoint", type=Path, default=None,
+                        help="LoRA checkpoint dir for --extractor vit (omit for vanilla ViT).")
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--k-values", type=str, default="1")
     parser.add_argument("--hidden", type=str, default="128,64")
@@ -90,7 +92,7 @@ def main() -> None:
     # Build extractor — precompute ViT features once for all glyphs
     if args.extractor == "vit":
         print(f"\nExtracting ViT features for {len(all_glyphs)} glyphs (runs once)...")
-        raw_vit = ViTExtractor()
+        raw_vit = ViTExtractor(lora_checkpoint=args.lora_checkpoint)
         features = raw_vit.extract_batch(all_glyphs)
         extractor = PrecomputedExtractor(all_glyphs, features)
         print(f"Done — {features.shape[1]}-dim features cached for all models.\n")

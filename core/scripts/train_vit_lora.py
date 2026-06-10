@@ -5,17 +5,20 @@ decoder head for masked patch reconstruction, and fine-tunes only the
 LoRA adapters on the attention layers. Adapts the ViT representations
 toward manuscript music notation without needing labelled data.
 
+--crops-dir should point to a directory of WebDataset .tar shards produced
+by prepare_ssl_crops.py (e.g. shard-00000.tar, shard-00001.tar, ...).
+
 Usage::
 
     # ViT-tiny (default, recommended)
     python train_vit_lora.py \\
-        --crops-dir /path/to/music_crops \\
+        --crops-dir /path/to/ssl_crops \\
         --output-dir /path/to/checkpoints
 
     # ViT-base
     python train_vit_lora.py \\
         --model google/vit-base-patch16-224 \\
-        --crops-dir /path/to/music_crops \\
+        --crops-dir /path/to/ssl_crops \\
         --output-dir /path/to/checkpoints
 
 After training, point ViTExtractor at the saved checkpoint::
@@ -27,7 +30,7 @@ After training, point ViTExtractor at the saved checkpoint::
 
 Dependencies::
 
-    pip install torch torchvision transformers peft
+    pip install torch torchvision transformers peft webdataset
 """
 from __future__ import annotations
 
@@ -37,7 +40,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 from PIL import Image, ImageOps
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from transformers import AutoImageProcessor, ViTConfig, ViTModel
 
 try:
@@ -45,7 +48,10 @@ try:
 except ImportError:
     raise ImportError("Install peft: pip install peft")
 
-IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
+try:
+    import webdataset as wds
+except ImportError:
+    raise ImportError("Install webdataset: pip install webdataset")
 
 # ViT patch16/224 divides the image into 14×14 = 196 patches.
 NUM_PATCHES = 196
@@ -54,40 +60,62 @@ CHANNELS = 3
 
 
 # ---------------------------------------------------------------------------
-# Dataset
+# Dataset — WebDataset tar shards
 # ---------------------------------------------------------------------------
 
 
-class MusicCropDataset(Dataset):
-    """Loads music crop images, pads to square, resizes to 224×224."""
+def _shard_pattern(crops_dir: Path) -> str:
+    """Return a WebDataset URL pattern for all shards in crops_dir."""
+    shards = sorted(crops_dir.glob("shard-*.tar"))
+    if not shards:
+        raise ValueError(f"No shard-*.tar files found in {crops_dir}")
+    lo = int(shards[0].stem.split("-")[1])
+    hi = int(shards[-1].stem.split("-")[1])
+    digits = len(shards[0].stem.split("-")[1])
+    return str(crops_dir / f"shard-{{{lo:0{digits}d}..{hi:0{digits}d}}}.tar")
 
-    def __init__(self, crops_dir: Path, processor: AutoImageProcessor, mask_ratio: float = 0.75):
-        self.paths = sorted(
-            p for p in crops_dir.iterdir()
-            if p.suffix.lower() in IMAGE_EXTENSIONS
-        )
-        if not self.paths:
-            raise ValueError(f"No images found in {crops_dir}")
-        self.processor = processor
-        self.mask_ratio = mask_ratio
 
-    def __len__(self) -> int:
-        return len(self.paths)
+def build_dataloader(
+    crops_dir: Path,
+    processor: AutoImageProcessor,
+    mask_ratio: float,
+    batch_size: int,
+    num_workers: int,
+    n_crops: int | None,
+) -> tuple[DataLoader, int]:
+    """Return (DataLoader, estimated_steps_per_epoch)."""
 
-    def __getitem__(self, idx: int) -> dict:
-        image = Image.open(self.paths[idx]).convert("RGB")
+    def preprocess(sample):
+        image = sample["jpg"].convert("RGB")
         w, h = image.size
         side = max(w, h)
         padded = ImageOps.pad(image, (side, side), color=(255, 255, 255))
+        inputs = processor(images=padded, return_tensors="pt")
+        pixel_values = inputs["pixel_values"].squeeze(0)
 
-        inputs = self.processor(images=padded, return_tensors="pt")
-        pixel_values = inputs["pixel_values"].squeeze(0)  # (3, 224, 224)
-
-        num_masked = int(self.mask_ratio * NUM_PATCHES)
+        num_masked = int(mask_ratio * NUM_PATCHES)
         mask = torch.zeros(NUM_PATCHES, dtype=torch.bool)
-        mask[random.sample(range(NUM_PATCHES), num_masked)] = True
+        mask[torch.randperm(NUM_PATCHES)[:num_masked]] = True
 
         return {"pixel_values": pixel_values, "bool_masked_pos": mask}
+
+    pattern = _shard_pattern(crops_dir)
+    print(f"Shard pattern: {pattern}")
+
+    dataset = (
+        wds.WebDataset(pattern, resampled=True, shardshuffle=True)
+        .shuffle(1000)
+        .decode("pil")
+        .map(preprocess)
+        .batched(batch_size, partial=False)
+    )
+
+    loader = DataLoader(dataset, batch_size=None, num_workers=num_workers, pin_memory=True)
+
+    shards = sorted(crops_dir.glob("shard-*.tar"))
+    total = n_crops if n_crops else len(shards) * 1000
+    steps = max(1, total // batch_size)
+    return loader, steps
 
 
 # ---------------------------------------------------------------------------
@@ -172,14 +200,17 @@ def train(
     lora_r: int,
     lora_alpha: int,
     lora_dropout: float,
+    num_workers: int,
+    n_crops: int | None,
 ) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
     processor = AutoImageProcessor.from_pretrained(model_name)
-    dataset = MusicCropDataset(crops_dir, processor, mask_ratio=mask_ratio)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=2)
-    print(f"Dataset: {len(dataset)} crops, {len(loader)} batches/epoch")
+    loader, steps_per_epoch = build_dataloader(
+        crops_dir, processor, mask_ratio, batch_size, num_workers, n_crops
+    )
+    print(f"~{steps_per_epoch} batches/epoch")
 
     model = build_model(model_name, lora_r, lora_alpha, lora_dropout).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.05)
@@ -191,7 +222,7 @@ def train(
         model.train()
         total_loss = 0.0
 
-        for batch in loader:
+        for step, batch in enumerate(loader, 1):
             pixel_values = batch["pixel_values"].to(device)
             bool_masked_pos = batch["bool_masked_pos"].to(device)
 
@@ -201,11 +232,13 @@ def train(
             optimizer.step()
             total_loss += loss.item()
 
+            if step >= steps_per_epoch:
+                break
+
         scheduler.step()
-        avg_loss = total_loss / len(loader)
+        avg_loss = total_loss / steps_per_epoch
         print(f"Epoch {epoch}/{epochs}  loss={avg_loss:.4f}  lr={scheduler.get_last_lr()[0]:.2e}")
 
-        # Save LoRA adapter weights only (small — not the full backbone)
         ckpt_dir = output_dir / f"epoch_{epoch:03d}"
         model.backbone.save_pretrained(ckpt_dir)
         print(f"  Saved → {ckpt_dir}/")
@@ -226,17 +259,22 @@ def main() -> None:
     parser.add_argument("--model", type=str, default="WinKawaks/vit-tiny-patch16-224",
                         help="HuggingFace model name (default: WinKawaks/vit-tiny-patch16-224)")
     parser.add_argument("--crops-dir", type=Path, required=True,
-                        help="Directory of music crop images.")
+                        help="Directory containing shard-*.tar WebDataset shards.")
     parser.add_argument("--output-dir", type=Path, default=Path("vit_lora_checkpoints"),
                         help="Where to save LoRA checkpoints.")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=64,
-                        help="Batch size (default 64, larger than base since tiny is smaller).")
+                        help="Batch size (default 64).")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--mask-ratio", type=float, default=0.75)
     parser.add_argument("--lora-r", type=int, default=16)
     parser.add_argument("--lora-alpha", type=int, default=32)
     parser.add_argument("--lora-dropout", type=float, default=0.1)
+    parser.add_argument("--num-workers", type=int, default=4,
+                        help="DataLoader worker processes (default 4).")
+    parser.add_argument("--n-crops", type=int, default=None,
+                        help="Total crop count for steps/epoch estimate. "
+                             "If omitted, assumes 1000 crops/shard.")
     args = parser.parse_args()
 
     train(
@@ -250,6 +288,8 @@ def main() -> None:
         lora_r=args.lora_r,
         lora_alpha=args.lora_alpha,
         lora_dropout=args.lora_dropout,
+        num_workers=args.num_workers,
+        n_crops=args.n_crops,
     )
 
 
