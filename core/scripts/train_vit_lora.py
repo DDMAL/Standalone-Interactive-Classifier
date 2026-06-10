@@ -34,6 +34,7 @@ Dependencies::
 """
 from __future__ import annotations
 
+import io
 import random
 from pathlib import Path
 
@@ -85,12 +86,18 @@ def build_dataloader(
 ) -> tuple[DataLoader, int]:
     """Return (DataLoader, estimated_steps_per_epoch)."""
 
+    IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}
+
     def preprocess(sample):
-        # find PIL image regardless of exact key (jpg/jpeg/png)
-        img = next((v for k, v in sample.items() if hasattr(v, "convert")), None)
-        if img is None:
+        # decode raw bytes directly — avoids WebDataset's UTF-8 attempt on __ keys
+        raw = next((v for k, v in sample.items()
+                    if not k.startswith("__") and isinstance(v, bytes)), None)
+        if raw is None:
             return None
-        image = img.convert("RGB")
+        try:
+            image = Image.open(io.BytesIO(raw)).convert("RGB")
+        except Exception:
+            return None
         w, h = image.size
         side = max(w, h)
         padded = ImageOps.pad(image, (side, side), color=(255, 255, 255))
@@ -109,7 +116,6 @@ def build_dataloader(
     dataset = (
         wds.WebDataset(pattern, shardshuffle=500)
         .shuffle(1000)
-        .decode("pil", handler=wds.warn_and_continue)
         .map(preprocess, handler=wds.warn_and_continue)
         .select(lambda x: x is not None)
         .batched(batch_size, partial=False)
