@@ -13,7 +13,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Important deltas vs. the legacy system:**
 1. **Input is a page image + bbox annotation file, not page-level GameraXML.** Upstream connected-components-analysis (CCA) is removed. `ingest_page()` accepts raw `(page_image_bytes, annotations_bytes)` plus a format discriminator (`"json"` for MOTHRA JSON, `"yolo"` for YOLO TXT) and crops glyphs from the page on the fly.
 2. **Manual grouping is implemented; auto-grouping is deferred.** [grouping.py:manual_group](../core/ic_core/src/ic_core/grouping.py) bitwise-ORs N selected glyphs into one new training example (`id_state_manual=True, confidence=1.0`, fresh UUID) — exposed via `POST /sessions/{id}/group`. `auto_group_shaped` / `auto_group_bounding_box` exist as stubs that raise `NotImplementedError`; `POST /sessions/{id}/auto-group` returns 501. The page+bbox ingest gives auto-grouping the page-coordinate frame it needs; the deferral is now about the design (adjacency-function choice, graph-size gating), not data shape.
-3. **Manual split via CCA is out of scope.** A crop containing multiple neumes is an upstream-detector defect, not something IC should patch over. [splitting.py](../core/ic_core/src/ic_core/splitting.py) is a docstring-only file kept for documentation continuity.
+3. **Manual splitting is implemented; algorithmic CCA splitting is not.** [splitting.py:manual_split](../core/ic_core/src/ic_core/splitting.py) slices a parent glyph's mask along user-drawn axis-aligned rectangles (page-coordinate frame) into N new `UNCLASSIFIED` glyphs (`confidence=0`, `id_state_manual=False`, fresh UUID), so the next classify round labels them. CCA-based algorithmic splitting (`segmentation.cc_analysis`) stays out of scope — real-world neume crops have touching strokes, ligatures, and binarisation noise that defeat connected-components analysis; the manual escape hatch is more reliable.
 4. **kNN is hand-rolled, dependency-free.** No `scikit-learn`. The full implementation is numpy-only in [classifier.py](../core/ic_core/src/ic_core/classifier.py): standardise features → pairwise Euclidean → `np.argpartition` for top-k. The interface mirrors what a sklearn-based version would look like, so a Ball-tree backend can be slotted in later if needed.
 5. **Feature calculation is a clean break from Gamera.** See "Feature calculation" below. Feature vectors are cached on `Glyph` (optional `feature_vector` / `feature_version` fields) so the "full re-train every round" loop reuses computation across rounds.
 
@@ -60,7 +60,8 @@ ic_new/
 │   │       ├── io_xml.py           # GameraXML read/write; writer emits the legacy <features>
 │   │       │                       # block carrying version="ic-core/v1"
 │   │       ├── state.py            # ClassifierState enum + Session dataclass (direct mutation)
-│   │       └── splitting.py        # Docstring-only stub; NOT wired into the pipeline
+│   │       └── splitting.py        # manual_split() — user-drawn rectangles slice a Glyph
+│   │                               # into N new UNCLASSIFIED Glyphs (page-coord frame)
 │   ├── data/                       # corpora used by tests AND CLI scripts
 │   │   ├── train/                  # raw training inputs
 │   │   │   ├── Hufnagel-example.png
@@ -91,6 +92,7 @@ ic_new/
 │       ├── test_io_xml.py
 │       ├── test_io_xml_writer.py
 │       ├── test_real_input_knn.py
+│       ├── test_splitting.py
 │       ├── test_state.py
 │       ├── conftest.py
 │       └── fixtures/                # writer-oracle XMLs only
@@ -141,6 +143,7 @@ Documented in [KNN_ALGORITHM.md](KNN_ALGORITHM.md). The non-negotiable behaviors
 5. **Manual glyphs feed training, not classification** — `id_state_manual` is the boundary.
 6. **UUIDs survive round-trips** — newly created glyphs (from ingestion or manual grouping) get fresh UUIDs; existing ones preserve theirs. For MOTHRA-JSON ingest, the per-annotation `id` becomes the glyph id so re-ingesting the same JSON produces stable ids.
 7. **`manual_group` sets `id_state_manual=True, confidence=1.0`** — the union'd glyph becomes training data immediately rather than waiting for the next classify round.
+8. **`manual_split` outputs `UNCLASSIFIED`, `confidence=0`, `id_state_manual=False`** — children of a split are *not* training data; they wait for the next classify round to be labelled. Each child gets a fresh UUID. The parent is dropped from the working set.
 
 ### Gamera replacement map
 
@@ -151,7 +154,7 @@ Documented in [KNN_ALGORITHM.md](KNN_ALGORITHM.md). The non-negotiable behaviors
 | `gamera.classify.ShapedGroupingFunction` | `grouping.auto_group_shaped` — **deferred stub** (raises `NotImplementedError`) |
 | `gamera.classify.BoundingBoxGroupingFunction` | `grouping.auto_group_bounding_box` — **deferred stub** |
 | `gamera.plugins.image_utilities.union_images` | `grouping.manual_group` — **implemented**; bitwise-OR over masks in a shared canvas spanning the union of bboxes |
-| `gamera.plugins.segmentation.*` | **Not implemented — out of scope** (upstream-detector defect if it surfaces) |
+| `gamera.plugins.segmentation.*` | **Algorithmic CCA splitting not implemented.** Manual splitting is provided by `splitting.manual_split` — user-drawn rectangles slice the parent's mask into new `UNCLASSIFIED` glyphs |
 | `gamera.gamera_xml` read/write | Hand-written `lxml` parser in `io_xml.py`. Reader exists for round-trip tests; writer is the authoritative export path |
 | Gamera `ONEBIT`/`DENSE` image | `numpy.ndarray` (`bool` for ONEBIT, `uint8` for DENSE) |
 
@@ -183,7 +186,7 @@ Legacy GameraXML inputs are **not** supported on the ingestion path; XML is expo
 ## Gotchas
 
 - **Feature vectors are versioned.** The exported `<features>` block carries `version="ic-core/v1"`. Downstream consumers that read feature values **must gate on the version** — the set of features and the math behind them differ from Gamera's. The schema (element shape) is preserved so strict legacy parsers still accept the file.
-- **`splitting.py` is a docstring-only stub.** Out of scope. Do not wire it into the pipeline or expose a `/split` endpoint without re-opening the scope discussion. A crop containing multiple neumes is an upstream-detector defect.
+- **`splitting.py` implements *manual* splitting only.** `manual_split` takes user-drawn rectangles, slices the parent's mask, and emits `UNCLASSIFIED` children. Do **not** add a CCA-based auto-splitter — algorithmic splitting on real neume crops is unreliable, and the manual path is the deliberate replacement. Wired through to `Session.manual_split` and `POST /sessions/{id}/glyphs/{gid}/split`; the frontend modal is the only piece still pending.
 - **`grouping.py` splits into implemented + deferred halves.** `manual_group` is real code, called by `Session.manual_group` and exposed at `POST /sessions/{id}/group`. `auto_group_shaped` / `auto_group_bounding_box` raise `NotImplementedError` and the matching API endpoint returns 501 — adding real implementations requires picking an adjacency function and gating runaway graphs.
 - **Glyph equality and the feature cache.** `feature_vector` is `compare=False, repr=False` so dataclass `__eq__` / `__hash__` / printing keep working with `ndarray`. Don't accidentally include it in equality checks elsewhere.
 - **Fixture role:** `core/tests/fixtures/` holds `Hufnagel-example_training_data.xml` and `Square_notation-example_training_data.xml`. Use them as **export shape oracles** for the writer, not as ingestion samples — ingestion takes page+bbox bytes. The `Square_notation` fixture is the canonical example of the `<features>` block element shape and is referenced by `test_features.py` / `test_io_xml.py`.

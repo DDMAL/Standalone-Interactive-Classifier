@@ -1,4 +1,4 @@
-# ic_new
+# Standalone Interactive Classifier
 
 A modern rewrite of the **Interactive Classifier** — a tool for interactively classifying chant-manuscript neumes using a k-Nearest Neighbors model.
 
@@ -7,16 +7,17 @@ This project replaces the legacy Rodan job (Django + Celery + Gamera + Backbone.
 ## Key differences from the legacy IC
 
 - **Input is a full page image plus a bounding-box annotation file** (for example, MOTHRA JSON or YOLO), not page-level GameraXML. Neume crops are derived from those annotations rather than supplied as pre-cropped glyph images.
-- **Manual split (CCA on a single glyph) is deferred.** Reintroduce only if real data shows crops that contain multiple neumes.
+- **Manual split is driven by user-drawn rectangles in page coordinates**, not Gamera CCA on a glyph image.
+- **Auto-grouping is deferred** to a follow-up — manual grouping covers v1.
 - **Output stays as GameraXML** so downstream MEI pipelines keep working.
 
 ## Status
 
 | Layer       | Path         | Status                                |
 |-------------|--------------|---------------------------------------|
-| Algorithm core | `core/ic_core/` | Implemented — manual workflow complete; auto-grouping and splitting intentionally deferred |
-| API         | `api/`       | Implemented (FastAPI + in-memory store); `POST /auto-group` returns 501 |
-| Frontend    | `frontend/`  | Not started                           |
+| Algorithm core | [core/ic_core/](core/ic_core/) | Implemented — manual classify / group / split workflow complete; auto-grouping deferred |
+| API         | [api/](api/) | Implemented (FastAPI + in-memory store); `POST /auto-group` returns 501 |
+| Frontend    | [frontend/](frontend/) | Implemented — React + Vite UI for upload, classify, manual group / split, vocab selection |
 
 ## Repository layout
 
@@ -28,7 +29,7 @@ ic_new/
 │   ├── data/           # train/, test/, derived/ (derived/ is gitignored)
 │   └── scripts/        # CLI helpers: run_pipeline, convert_hufnagel_csv, visualize, …
 ├── api/                # Phase 2: FastAPI service
-├── frontend/           # Phase 3: React + Vite UI (not yet started)
+├── frontend/           # Phase 3: React + Vite UI
 └── docs/
     ├── CLAUDE.md       # Guidance for Claude Code working in this repo
     ├── migration_plan.md
@@ -42,12 +43,22 @@ The core package uses [uv](https://docs.astral.sh/uv/) for environment and depen
 ```bash
 cd core/ic_core
 uv sync                                    # install dependencies
-uv run pytest                              # run tests (auto-regenerates training XML on first run)
+uv run pytest ../tests                      # run tests (auto-regenerates training XML on first run)
 uv run python ../scripts/run_pipeline.py   # end-to-end smoke: train → classify → overlays
 uv run ruff check .                        # lint
 ```
 
-The API has its own uv project under [`api/`](api/); see [`api/README.md`](api/README.md) for endpoint reference and run instructions.
+The API has its own uv project under [api/](api/); see [api/README.md](api/README.md) for endpoint reference and run instructions.
+
+## Quickstart (frontend)
+
+```bash
+cd frontend
+npm install
+npm run dev                                # Vite dev server (expects ic-api on 127.0.0.1:8000)
+npm run check                              # Biome lint/format check
+npm run build                              # type-check + production build
+```
 
 ## Documentation
 

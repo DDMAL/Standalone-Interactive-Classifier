@@ -173,6 +173,97 @@ def test_manual_group_total_black_pixels_at_least_each_input():
 
 
 # ---------------------------------------------------------------------------
+# manual_group — gap pixels from page mask
+# ---------------------------------------------------------------------------
+
+
+def test_manual_group_fills_gap_from_page_mask():
+    # Two single-pixel children placed at x=0 and x=5 on a page that
+    # has additional ink at x=2 — the kind of stray mark upstream
+    # missed when it split this glyph into two. Grouping with the
+    # page mask should pull that pixel into the merged result.
+    left = _make_glyph(np.array([[True]], dtype=bool), ulx=0, uly=0)
+    right = _make_glyph(np.array([[True]], dtype=bool), ulx=5, uly=0)
+    page_mask = np.zeros((1, 6), dtype=bool)
+    page_mask[0, 0] = True
+    page_mask[0, 2] = True  # stray ink in the gap
+    page_mask[0, 5] = True
+
+    grouped = manual_group([left, right], "A", page_mask=page_mask)
+    arr = grouped.to_array()
+
+    assert arr.shape == (1, 6)
+    assert arr[0, 0]
+    assert arr[0, 2]  # the gap pixel must now be present
+    assert arr[0, 5]
+    # Pixels at x=1, 3, 4 are background on the page → stay background.
+    assert not arr[0, 1]
+    assert not arr[0, 3]
+    assert not arr[0, 4]
+
+
+def test_manual_group_page_mask_does_not_overwrite_child_bbox_pixels():
+    # A child glyph whose mask deliberately excludes some pixels
+    # inside its own bbox (e.g. it was the product of a prior split
+    # that the user used to drop noise). The page mask still shows
+    # those pixels as foreground. Grouping must NOT pull them back —
+    # only the *gap* (outside every child bbox) is filled from page.
+    left_mask = np.array([[True, False, True]], dtype=bool)  # middle pixel intentionally dropped
+    left = _make_glyph(left_mask, ulx=0, uly=0)
+    right = _make_glyph(np.array([[True]], dtype=bool), ulx=5, uly=0)
+    page_mask = np.ones((1, 6), dtype=bool)  # entire page is foreground
+
+    grouped = manual_group([left, right], "A", page_mask=page_mask)
+    arr = grouped.to_array()
+
+    assert arr.shape == (1, 6)
+    # Inside left's bbox: child mask wins, middle pixel stays False.
+    assert arr[0, 0]
+    assert not arr[0, 1]  # child explicitly dropped this — must remain dropped
+    assert arr[0, 2]
+    # Gap pixels (x=3, 4) are outside every child bbox → fill from page.
+    assert arr[0, 3]
+    assert arr[0, 4]
+    # Right child.
+    assert arr[0, 5]
+
+
+def test_manual_group_no_page_mask_falls_back_to_children_only():
+    # When page_mask is None (e.g. legacy XML import), gap pixels are
+    # lost as before — the function falls back to the children-only
+    # union.
+    left = _make_glyph(np.array([[True]], dtype=bool), ulx=0, uly=0)
+    right = _make_glyph(np.array([[True]], dtype=bool), ulx=5, uly=0)
+
+    grouped = manual_group([left, right], "A", page_mask=None)
+    arr = grouped.to_array()
+
+    assert arr[0, 0]
+    assert arr[0, 5]
+    assert not arr[0, 1:5].any()
+
+
+def test_manual_group_page_mask_smaller_than_bbox_clips_gracefully():
+    # Pathological: bbox extends past the right edge of the page.
+    # The page slice clips to the page rectangle; whatever's beyond
+    # stays whatever the children contributed.
+    left = _make_glyph(np.array([[True]], dtype=bool), ulx=0, uly=0)
+    right = _make_glyph(np.array([[True]], dtype=bool), ulx=10, uly=0)
+    # Page is only 6 columns wide — right child sits past the edge.
+    page_mask = np.zeros((1, 6), dtype=bool)
+    page_mask[0, 2] = True
+
+    grouped = manual_group([left, right], "A", page_mask=page_mask)
+    arr = grouped.to_array()
+
+    # Should not crash; gap inside the page is filled, outside is not.
+    assert arr.shape == (1, 11)
+    assert arr[0, 0]
+    assert arr[0, 2]
+    assert arr[0, 10]
+
+
+# ---------------------------------------------------------------------------
 # Auto-group stubs — deferred error contract
 # ---------------------------------------------------------------------------
 

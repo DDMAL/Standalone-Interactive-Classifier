@@ -52,7 +52,12 @@ from ic_core.image import array_to_rle
 # ---------------------------------------------------------------------------
 
 
-def manual_group(glyphs: Sequence[Glyph], class_name: str) -> Glyph:
+def manual_group(
+    glyphs: Sequence[Glyph],
+    class_name: str,
+    *,
+    page_mask: np.ndarray | None = None,
+) -> Glyph:
     """Bitwise-OR a set of glyphs into a single new manual glyph.
 
     This is the Phase-1 replacement for
@@ -76,12 +81,26 @@ def manual_group(glyphs: Sequence[Glyph], class_name: str) -> Glyph:
     origin — still correct, still useful as a training example, just
     not spatially meaningful.
 
+    **Gap pixels.** When the children's tight bboxes are separated by
+    a gap, ink in that gap was never captured by any child at ingest
+    time, so OR'ing the children's masks alone leaves the gap blank.
+    Pass ``page_mask`` (the full-page binarised foreground, in the
+    same coordinate frame as the glyphs' ``ulx`` / ``uly``) and the
+    gap is filled from the page. Pixels *inside* any child's bbox
+    still come from the children — this preserves prior manual edits
+    like an earlier split that explicitly dropped some pixels — so
+    only pixels in the between-bboxes gap are recovered.
+
     Args:
         glyphs: Two or more :class:`Glyph` objects (the legacy UX
             requires ≥ 2; we accept ≥ 1 because the math works fine
             for a single glyph — a one-element call is just a
             relabel-as-manual operation).
         class_name: The class label to assign to the grouped glyph.
+        page_mask: Optional full-page binarised foreground mask. When
+            provided, foreground pixels falling in the gap between
+            child bboxes are pulled in from the page. When ``None``,
+            falls back to the children-only OR (gap stays empty).
 
     Returns:
         A new :class:`Glyph` with manual state, full confidence, and
@@ -107,14 +126,37 @@ def manual_group(glyphs: Sequence[Glyph], class_name: str) -> Glyph:
     # 2. Paint each input's mask into the shared canvas at its
     #    offset position. ``|=`` is the per-pixel OR. Bool dtype
     #    keeps memory low and matches the ONEBIT convention used
-    #    throughout the package.
+    #    throughout the package. Track which pixels fall inside any
+    #    child bbox so step 3 can fill only the gap pixels.
     canvas = np.zeros((new_nrows, new_ncols), dtype=bool)
+    covered = np.zeros((new_nrows, new_ncols), dtype=bool)
     for g in glyphs:
         dy = g.uly - new_uly
         dx = g.ulx - new_ulx
         canvas[dy : dy + g.nrows, dx : dx + g.ncols] |= g.to_array()
+        covered[dy : dy + g.nrows, dx : dx + g.ncols] = True
 
-    # 3. Wrap as a Glyph. Glyph.new() generates a fresh UUID by
+    # 3. Fill gap pixels (in the union bbox but outside every child
+    #    bbox) from the page mask, when one was supplied. Clip the
+    #    page slice to the page rectangle so a bbox that runs past
+    #    the page edge doesn't crash — that case can only happen if
+    #    upstream produced a bbox larger than the page, but we'd
+    #    rather degrade gracefully than raise here.
+    if page_mask is not None:
+        page_h, page_w = page_mask.shape
+        x0 = max(0, new_ulx)
+        y0 = max(0, new_uly)
+        x1 = min(page_w, new_ulx + new_ncols)
+        y1 = min(page_h, new_uly + new_nrows)
+        if x1 > x0 and y1 > y0:
+            cy0 = y0 - new_uly
+            cx0 = x0 - new_ulx
+            cy1 = cy0 + (y1 - y0)
+            cx1 = cx0 + (x1 - x0)
+            gap = page_mask[y0:y1, x0:x1] & ~covered[cy0:cy1, cx0:cx1]
+            canvas[cy0:cy1, cx0:cx1] |= gap
+
+    # 4. Wrap as a Glyph. Glyph.new() generates a fresh UUID by
     #    default, which is exactly what we want — the grouped glyph
     #    is a *new* entity, not a relabel of an existing one.
     return Glyph.new(

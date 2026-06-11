@@ -50,19 +50,19 @@ Podatus 5,neume.podatus5,"[1, 1]","<neume>
 </neume>"
 Clivis 2a,neume.clivis2a,"[1, 1]","<neume>
     <nc tilt=""s""/>
-    <nc  tilt=""n"" con=ÓeÓ intm=""-1S""/>
+    <nc  tilt=""n"" con=""e"" intm=""-1S""/>
 </neume>"
 Clivis 3a,neume.clivis3a,"[1, 1]","<neume>
     <nc tilt=""s""/>
-    <nc  tilt=""n"" con=ÓeÓ intm=""-2S""/>
+    <nc  tilt=""n"" con=""e"" intm=""-2S""/>
 </neume>"
 Clivis 4a,neume.clivis4a,"[1, 1]","<neume>
     <nc tilt=""s""/>
-    <nc  tilt=""n"" con=ÓeÓ intm=""-3S""/>
+    <nc  tilt=""n"" con=""e"" intm=""-3S""/>
 </neume>"
 Clivis 5a,neume.clivis5a,"[1, 1]","<neume>
     <nc tilt=""s""/>
-    <nc  tilt=""n"" con=ÓeÓ intm=""-4S""/>
+    <nc  tilt=""n"" con=""e"" intm=""-4S""/>
 </neume>"
 Clivis 2b,neume.clivis2b,"[1, 1]","<neume>
     <nc/>

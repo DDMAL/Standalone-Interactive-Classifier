@@ -60,12 +60,15 @@ Why page + bboxes (and not pre-cropped PNGs)
 Class labels
 ------------
 
-The upstream detector's class id (``classId`` in the JSON,
-``class_id`` in the YOLO line) is **ignored** — we mark every
-ingested glyph as :data:`UNCLASSIFIED`. The user (or the
-classifier) assigns real labels through the API. Mapping the
-detector classes onto neume classes is a separate concern not in
-Phase 1 scope.
+Every ingested glyph starts as :data:`UNCLASSIFIED`; the user (or
+the classifier) assigns real neume labels through the API.
+
+The detector's class id *is* preserved as a coarse **category**:
+``classId`` 1/2/3 in the JSON map to ``Text`` / ``Neumes`` /
+``Staves`` (see :data:`_MOTHRA_CLASS_TO_CATEGORY`). Only ``Neumes``
+glyphs are classified — Text and Staves are carried through so the
+UI can group and hide them. The YOLO ``class_id`` is still ignored
+(those glyphs default to ``Neumes``).
 """
 from __future__ import annotations
 
@@ -78,8 +81,22 @@ import numpy as np
 from PIL import Image as PILImage
 
 from ic_core.classifier import UNCLASSIFIED
-from ic_core.glyph import Glyph
+from ic_core.glyph import (
+    CATEGORY_NEUMES,
+    CATEGORY_STAVES,
+    CATEGORY_TEXT,
+    Glyph,
+)
 from ic_core.image import array_to_rle
+
+#: MOTHRA ``classId`` → IC category. The detector tags each bbox 1/2/3;
+#: we carry that through so the UI can group Text/Neumes/Staves. An
+#: unrecognised id falls back to Neumes so it still surfaces for review.
+_MOTHRA_CLASS_TO_CATEGORY: dict[int, str] = {
+    1: CATEGORY_TEXT,
+    2: CATEGORY_NEUMES,
+    3: CATEGORY_STAVES,
+}
 
 #: Discriminator for which annotation parser :func:`ingest_page` picks.
 AnnotationFormat = Literal["json", "yolo"]
@@ -95,6 +112,26 @@ DEFAULT_THRESHOLD: int = 127
 # ---------------------------------------------------------------------------
 # Public entry points
 # ---------------------------------------------------------------------------
+
+
+def binarize_page(
+    page_image: bytes,
+    *,
+    threshold: int = DEFAULT_THRESHOLD,
+) -> np.ndarray:
+    """Decode a page image and binarise it to a full-page foreground mask.
+
+    Same threshold convention as :func:`ingest_page` (pixels ≤
+    ``threshold`` are foreground). The returned array is needed by
+    manual grouping so pixels falling *between* child glyph bboxes —
+    which the per-glyph crops at ingest time never captured — can be
+    recovered when the user groups those children later.
+
+    Returns:
+        Boolean array of shape ``(height, width)``; ``True`` where
+        the page has foreground ink.
+    """
+    return _load_page(page_image) <= threshold
 
 
 def ingest_page(
@@ -149,6 +186,12 @@ def ingest_page_json(
     convention). This is what makes re-ingestion idempotent in id
     space.
 
+    The document may be either a single page object (``{"imageName":
+    ..., "annotations": [...]}``) or a one-element list wrapping it
+    (``[{...}]``) — MOTHRA emits both. The list form is unwrapped to
+    its single page; a multi-page list is rejected, since this ingest
+    path binarises one ``page_image``.
+
     Args:
         page_image: Raw bytes of the page image.
         annotations_json: Raw bytes of the MOTHRA JSON document.
@@ -156,8 +199,12 @@ def ingest_page_json(
 
     Returns:
         One :class:`Glyph` per annotation.
+
+    Raises:
+        ValueError: If the document is a list with anything other than
+            exactly one page.
     """
-    doc = json.loads(annotations_json)
+    doc = _unwrap_page(json.loads(annotations_json))
     annotations = doc.get("annotations", [])
 
     # Open the page once; reuse the array across crops. Much cheaper
@@ -174,6 +221,7 @@ def ingest_page_json(
             height=int(round(a["bbox"][3])),
             threshold=threshold,
             glyph_id=_normalise_uuid(a["id"]),
+            category=_MOTHRA_CLASS_TO_CATEGORY.get(a.get("classId"), CATEGORY_NEUMES),
         )
         for a in annotations
     ]
@@ -221,6 +269,28 @@ def ingest_page_yolo(
 # ---------------------------------------------------------------------------
 
 
+def _unwrap_page(doc: object) -> dict:
+    """Normalise a MOTHRA document to a single page dict.
+
+    Accepts either a page dict or a one-element list wrapping one.
+    A multi-page list can't be ingested against a single page image,
+    so it's rejected rather than silently dropping pages.
+    """
+    if isinstance(doc, list):
+        if len(doc) != 1:
+            raise ValueError(
+                f"Expected a single-page JSON list, got {len(doc)} pages; "
+                "this ingest path binarises one page image at a time."
+            )
+        doc = doc[0]
+    if not isinstance(doc, dict):
+        raise ValueError(
+            f"Unrecognised MOTHRA JSON: expected an object or one-element "
+            f"list, got {type(doc).__name__}."
+        )
+    return doc
+
+
 def _load_page(page_image: bytes) -> np.ndarray:
     """Load the page image once as an 8-bit greyscale ``numpy.ndarray``.
 
@@ -244,6 +314,7 @@ def _crop_to_glyph(
     height: int,
     threshold: int,
     glyph_id: str | None,
+    category: str = CATEGORY_NEUMES,
 ) -> Glyph:
     """Slice ``page[uly:uly+h, ulx:ulx+w]``, binarise, wrap as a Glyph.
 
@@ -284,6 +355,7 @@ def _crop_to_glyph(
         uly=int(uly),
         id_state_manual=False,
         confidence=0.0,
+        category=category,
         is_training=False,
     )
 

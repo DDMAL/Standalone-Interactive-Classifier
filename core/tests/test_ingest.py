@@ -16,7 +16,12 @@ import pytest
 from PIL import Image as PILImage
 
 from ic_core.classifier import UNCLASSIFIED
-from ic_core.ingest import ingest_page, ingest_page_json, ingest_page_yolo
+from ic_core.ingest import (
+    _unwrap_page,
+    ingest_page,
+    ingest_page_json,
+    ingest_page_yolo,
+)
 from paths import TEST_JSON, TEST_PAGE, TEST_YOLO
 
 PAGE_BYTES = TEST_PAGE.read_bytes()
@@ -48,14 +53,14 @@ def test_ingest_page_rejects_unknown_format():
 
 
 def test_json_ingest_count_matches_annotations():
-    doc = json.loads(JSON_BYTES)
+    doc = _unwrap_page(json.loads(JSON_BYTES))
     expected = len(doc["annotations"])
     glyphs = ingest_page_json(PAGE_BYTES, JSON_BYTES)
     assert len(glyphs) == expected
 
 
 def test_json_ingest_preserves_annotation_ids_as_glyph_uuids():
-    doc = json.loads(JSON_BYTES)
+    doc = _unwrap_page(json.loads(JSON_BYTES))
     glyphs = ingest_page_json(PAGE_BYTES, JSON_BYTES)
 
     expected_ids = [uuid.UUID(a["id"]).hex for a in doc["annotations"]]
@@ -64,7 +69,7 @@ def test_json_ingest_preserves_annotation_ids_as_glyph_uuids():
 
 
 def test_json_ingest_bbox_coords_match_annotations():
-    doc = json.loads(JSON_BYTES)
+    doc = _unwrap_page(json.loads(JSON_BYTES))
     glyphs = ingest_page_json(PAGE_BYTES, JSON_BYTES)
 
     # Spot-check the first three glyphs — full enumeration is the
@@ -81,8 +86,8 @@ def test_json_ingest_bbox_coords_match_annotations():
 
 
 def test_json_ingest_marks_everything_unclassified():
-    # The detector's classId is ignored — the user labels glyphs
-    # through the API, not at ingest time.
+    # The detector's classId becomes a coarse category, but no neume
+    # label — the user labels glyphs through the API, not at ingest time.
     glyphs = ingest_page_json(PAGE_BYTES, JSON_BYTES)
     assert all(g.class_name == UNCLASSIFIED for g in glyphs)
     assert all(g.confidence == 0.0 for g in glyphs)
@@ -95,6 +100,25 @@ def test_json_ingest_is_idempotent_in_id_space():
     a = ingest_page_json(PAGE_BYTES, JSON_BYTES)
     b = ingest_page_json(PAGE_BYTES, JSON_BYTES)
     assert [g.id for g in a] == [g.id for g in b]
+
+
+def test_json_ingest_accepts_both_dict_and_single_element_list():
+    # MOTHRA emits the page either as a bare object or wrapped in a
+    # one-element list; both must yield identical glyphs.
+    page = _unwrap_page(json.loads(JSON_BYTES))
+    as_dict = json.dumps(page).encode("utf-8")
+    as_list = json.dumps([page]).encode("utf-8")
+    from_dict = ingest_page_json(PAGE_BYTES, as_dict)
+    from_list = ingest_page_json(PAGE_BYTES, as_list)
+    assert [g.id for g in from_dict] == [g.id for g in from_list]
+    assert len(from_list) == len(page["annotations"])
+
+
+def test_json_ingest_rejects_multi_page_list():
+    page = _unwrap_page(json.loads(JSON_BYTES))
+    multi = json.dumps([page, page]).encode("utf-8")
+    with pytest.raises(ValueError, match="single-page"):
+        ingest_page_json(PAGE_BYTES, multi)
 
 
 # ---------------------------------------------------------------------------
