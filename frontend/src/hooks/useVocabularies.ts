@@ -6,7 +6,7 @@ export function useVocabularies() {
   return useQuery({
     queryKey: ["vocabularies"],
     queryFn: listVocabularies,
-    staleTime: Infinity,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }
 
@@ -16,6 +16,6 @@ export function useVocabularyClasses(name: string) {
     queryKey: ["vocabulary-classes", name],
     queryFn: () => getVocabularyClasses(name),
     enabled: name !== "",
-    staleTime: Infinity,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }

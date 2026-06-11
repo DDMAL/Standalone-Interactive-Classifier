@@ -1,16 +1,25 @@
 import { GlyphTile } from "@/components/GlyphTile";
+import { SORT_LABELS, type SortMode, sortGlyphs } from "@/lib/format";
 import { useUiStore } from "@/store/uiStore";
 import type { GlyphCategory, GlyphDTO } from "@/types/api";
 import { clsx } from "clsx";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 const TILE_MIN_WIDTH = 88;
 const ROW_HEIGHT = 116;
+const SORT_MODES: SortMode[] = [
+  "conf-asc",
+  "conf-desc",
+  "name-asc",
+  "name-desc",
+];
 
 interface ClassSectionProps {
   category: GlyphCategory;
   glyphs: GlyphDTO[];
   defaultOpen: boolean;
+  /** Show sort controls in the header. Only Neumes opts in today. */
+  sortable?: boolean;
 }
 
 /**
@@ -18,19 +27,29 @@ interface ClassSectionProps {
  * header toggles fold state (seeded from `defaultOpen`); the body lays the
  * category's tiles out in a responsive grid.
  */
-export function ClassSection({ category, glyphs, defaultOpen }: ClassSectionProps) {
+export function ClassSection({
+  category,
+  glyphs,
+  defaultOpen,
+  sortable = false,
+}: ClassSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
-  const selectedGlyphId = useUiStore((s) => s.selectedGlyphId);
-  const selectGlyph = useUiStore((s) => s.selectGlyph);
+  const [sortMode, setSortMode] = useState<SortMode>("conf-asc");
+  const selectedGlyphIds = useUiStore((s) => s.selectedGlyphIds);
+
+  const orderedGlyphs = useMemo(
+    () => (sortable ? sortGlyphs(glyphs, sortMode) : glyphs),
+    [glyphs, sortable, sortMode],
+  );
 
   return (
     <section className="mb-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2 hover:bg-slate-50"
-      >
-        <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+      <div className="flex items-center justify-between px-3 py-2 hover:bg-slate-50">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex flex-1 items-center gap-2 text-left text-sm font-semibold text-slate-800"
+        >
           <span
             aria-hidden
             className={clsx(
@@ -41,14 +60,30 @@ export function ClassSection({ category, glyphs, defaultOpen }: ClassSectionProp
             ▶
           </span>
           {category}
-        </span>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
-          {glyphs.length}
-        </span>
-      </button>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-normal text-slate-500">
+            {glyphs.length}
+          </span>
+        </button>
+        {sortable && open && (
+          <label className="flex items-center gap-1 text-xs text-slate-500">
+            <span>Sort:</span>
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as SortMode)}
+              className="rounded border border-slate-300 bg-white px-1 py-0.5 text-xs text-slate-700"
+            >
+              {SORT_MODES.map((mode) => (
+                <option key={mode} value={mode}>
+                  {SORT_LABELS[mode]}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
 
       {open &&
-        (glyphs.length === 0 ? (
+        (orderedGlyphs.length === 0 ? (
           <p className="px-3 pb-3 text-xs text-slate-400">
             No glyphs in this class.
           </p>
@@ -60,12 +95,11 @@ export function ClassSection({ category, glyphs, defaultOpen }: ClassSectionProp
               gridAutoRows: `${ROW_HEIGHT}px`,
             }}
           >
-            {glyphs.map((glyph) => (
+            {orderedGlyphs.map((glyph) => (
               <GlyphTile
                 key={glyph.id}
                 glyph={glyph}
-                selected={glyph.id === selectedGlyphId}
-                onSelect={selectGlyph}
+                selected={selectedGlyphIds.has(glyph.id)}
               />
             ))}
           </div>

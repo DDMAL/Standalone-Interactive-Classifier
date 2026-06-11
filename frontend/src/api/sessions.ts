@@ -65,6 +65,36 @@ export const updateGlyph = (
   patch: UpdateGlyphArgs,
 ) => http.post<GlyphDTO>(`/sessions/${id}/glyphs/${glyphId}`, patch);
 
+export const deleteGlyph = (id: string, glyphId: string) =>
+  http.delete(`/sessions/${id}/glyphs/${glyphId}`);
+
+export interface ManualGroupArgs {
+  glyph_ids: string[];
+  class_name: string;
+}
+
+export const manualGroup = (id: string, body: ManualGroupArgs) =>
+  http.post<GlyphDTO>(`/sessions/${id}/group`, body);
+
+export interface SplitArgs {
+  /** Page-coordinate rectangles as [ulx, uly, ncols, nrows] tuples. */
+  regions: [number, number, number, number][];
+}
+
+export const splitGlyph = (id: string, glyphId: string, body: SplitArgs) =>
+  http.post<GlyphDTO[]>(`/sessions/${id}/glyphs/${glyphId}/split`, body);
+
+export const renameClass = (id: string, name: string, new_name: string) =>
+  http.post<SessionDTO>(
+    `/sessions/${id}/classes/${encodeURIComponent(name)}/rename`,
+    { new_name },
+  );
+
+export const deleteClass = (id: string, name: string) =>
+  http.deleteFor<SessionDTO>(
+    `/sessions/${id}/classes/${encodeURIComponent(name)}`,
+  );
+
 export const saveSession = (id: string) =>
   http.post<SessionDTO>(`/sessions/${id}/save`);
 

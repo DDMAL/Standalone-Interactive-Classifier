@@ -56,12 +56,13 @@ from ic_api.schemas import (
     GroupRequest,
     RenameClassRequest,
     SessionDTO,
+    SplitRequest,
     UpdateGlyphRequest,
     glyph_to_dto,
     session_to_dto,
 )
 from ic_api.store import InMemorySessionStore, default_store
-from ic_core.ingest import AnnotationFormat, ingest_page
+from ic_core.ingest import AnnotationFormat, binarize_page, ingest_page
 from ic_core.io_xml import dumps_glyphs, load_glyphs
 from ic_core.state import Session, StateTransitionError
 
@@ -426,11 +427,16 @@ async def create_session(
         annotations_bytes,
         format=annotations_format,
     )
+    # Keep the full-page mask so manual grouping can recover ink that
+    # falls in the gap between child glyph bboxes (those pixels were
+    # never copied into any per-glyph crop at ingest time).
+    page_mask = binarize_page(page_bytes)
     session = Session()
     session.ingest(
         glyphs,
         training_glyphs=training_glyphs,
         class_names=parsed_names,
+        page_mask=page_mask,
     )
     # A selected training set means "label this page with that vocabulary
     # now" — run the first classify round server-side so the frontend
@@ -512,6 +518,31 @@ def manual_group(
     with store.session(session_id) as session:
         grouped = session.manual_group(body.glyph_ids, body.class_name)
         return glyph_to_dto(grouped)
+
+
+@app.post(
+    "/sessions/{session_id}/glyphs/{glyph_id}/split",
+    response_model=list[GlyphDTO],
+)
+def manual_split(
+    session_id: str,
+    glyph_id: str,
+    body: SplitRequest,
+    store: Store,
+) -> list[GlyphDTO]:
+    """Slice a glyph into N children along user-drawn rectangles.
+
+    The parent glyph is removed from the working set and replaced
+    (at its original index) by N ``UNCLASSIFIED`` children, one per
+    rectangle. Rectangles are ``[ulx, uly, ncols, nrows]`` in page
+    coordinates; the same frame the glyph's bbox is in.
+
+    Returns the list of new children in insertion order. The next
+    classify round will label them.
+    """
+    with store.session(session_id) as session:
+        children = session.manual_split(glyph_id, body.regions)
+        return [glyph_to_dto(c) for c in children]
 
 
 @app.post("/sessions/{session_id}/auto-group", status_code=501)

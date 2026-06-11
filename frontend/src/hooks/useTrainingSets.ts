@@ -6,6 +6,6 @@ export function useTrainingSets() {
   return useQuery({
     queryKey: ["training-sets"],
     queryFn: listTrainingSets,
-    staleTime: Infinity,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }

@@ -270,6 +270,86 @@ def test_manual_group_empty_list_raises():
 
 
 # ---------------------------------------------------------------------------
+# manual_split
+# ---------------------------------------------------------------------------
+
+
+def test_manual_split_replaces_parent_with_children():
+    # One parent split into two children — parent goes, children come
+    # in at the parent's index so UI ordering doesn't reshuffle.
+    a = _make_glyph(np.ones((4, 4), dtype=bool), ulx=0, uly=0)
+    parent = _make_glyph(np.ones((4, 4), dtype=bool), ulx=10, uly=0)
+    c = _make_glyph(np.ones((4, 4), dtype=bool), ulx=20, uly=0)
+    s = Session()
+    s.ingest([a, parent, c])
+
+    children = s.manual_split(parent.id, [(10, 0, 2, 4), (12, 0, 2, 4)])
+
+    assert len(children) == 2
+    ids = [g.id for g in s.glyphs]
+    # Parent gone, children inserted at parent's old index (between a and c).
+    assert parent.id not in ids
+    assert ids[0] == a.id
+    assert ids[1] == children[0].id
+    assert ids[2] == children[1].id
+    assert ids[3] == c.id
+
+
+def test_manual_split_children_are_unclassified():
+    # Algorithm semantic #8: children re-enter classification — they
+    # must NOT inherit the parent's class or training flag.
+    parent = _make_glyph(
+        np.ones((4, 4), dtype=bool),
+        class_name="neume.compound",
+        id_state_manual=True,
+        confidence=1.0,
+    )
+    s = Session()
+    s.ingest([parent])
+    children = s.manual_split(parent.id, [(0, 0, 4, 4)])
+
+    for child in children:
+        assert child.class_name == UNCLASSIFIED
+        assert child.confidence == 0.0
+        assert child.id_state_manual is False
+        assert child.id != parent.id  # fresh UUID
+
+
+def test_manual_split_unknown_glyph_raises_keyerror():
+    s = Session()
+    s.ingest([_make_glyph(np.ones((2, 2), dtype=bool))])
+    with pytest.raises(KeyError):
+        s.manual_split("nope", [(0, 0, 1, 1)])
+
+
+def test_manual_split_empty_regions_raises():
+    parent = _make_glyph(np.ones((4, 4), dtype=bool))
+    s = Session()
+    s.ingest([parent])
+    with pytest.raises(ValueError, match="at least one region"):
+        s.manual_split(parent.id, [])
+
+
+def test_manual_split_all_regions_miss_parent_raises():
+    # Business rule: silently deleting the parent because every region
+    # misses is almost certainly a UI bug — reject with ValueError.
+    # The parent must remain in the working set.
+    parent = _make_glyph(np.ones((4, 4), dtype=bool), ulx=0, uly=0)
+    s = Session()
+    s.ingest([parent])
+    with pytest.raises(ValueError, match="every region misses"):
+        s.manual_split(parent.id, [(100, 100, 5, 5)])
+    assert [g.id for g in s.glyphs] == [parent.id]
+
+
+def test_manual_split_outside_classifying_raises():
+    s = Session()
+    # No ingest → still in IMPORT.
+    with pytest.raises(StateTransitionError):
+        s.manual_split("anything", [(0, 0, 1, 1)])
+
+
+# ---------------------------------------------------------------------------
 # delete_glyph
 # ---------------------------------------------------------------------------
 

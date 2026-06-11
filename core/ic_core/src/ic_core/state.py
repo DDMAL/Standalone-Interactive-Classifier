@@ -43,6 +43,8 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Iterable
 
+import numpy as np
+
 from ic_core.classifier import (
     DEFAULT_K,
     UNCLASSIFIED,
@@ -53,6 +55,7 @@ from ic_core.classifier import (
 from ic_core.features import ensure_features
 from ic_core.glyph import CATEGORY_NEUMES, Glyph
 from ic_core.grouping import manual_group as union_glyphs
+from ic_core.splitting import manual_split as split_glyph
 
 # ---------------------------------------------------------------------------
 # State enum
@@ -106,6 +109,10 @@ class Session:
             preserved across rounds even if no glyph currently uses
             them, so the UI can offer them as autocomplete
             suggestions.
+        page_mask: Optional full-page binarised foreground mask kept
+            so :meth:`manual_group` can recover pixels that fall in
+            the gap between child glyphs' tight bboxes. ``None`` when
+            ingest had no page image (e.g. tests, legacy XML import).
 
     The session is intentionally **mutable**. Each operation method
     mutates ``self`` in place and returns ``None``; the API layer is
@@ -118,6 +125,7 @@ class Session:
     glyphs: list[Glyph] = field(default_factory=list)
     training_glyphs: list[Glyph] = field(default_factory=list)
     imported_class_names: set[str] = field(default_factory=set)
+    page_mask: np.ndarray | None = None
 
     # ------------------------------------------------------------------
     # Convenience accessors
@@ -169,6 +177,7 @@ class Session:
         *,
         training_glyphs: Iterable[Glyph] | None = None,
         class_names: Iterable[str] | None = None,
+        page_mask: np.ndarray | None = None,
     ) -> None:
         """Load the initial glyph set and transition into ``CLASSIFYING``.
 
@@ -188,6 +197,10 @@ class Session:
             training_glyphs: Optional external training database.
             class_names: Optional iterable of class names to seed
                 the autocomplete list.
+            page_mask: Optional full-page binarised mask. Stored on
+                the session so :meth:`manual_group` can recover
+                between-bbox pixels later. Pass ``None`` when no page
+                image was used (legacy XML import, tests).
 
         Raises:
             StateTransitionError: If called from anywhere except
@@ -198,6 +211,7 @@ class Session:
         self.training_glyphs = list(training_glyphs or [])
         if class_names is not None:
             self.imported_class_names.update(class_names)
+        self.page_mask = page_mask
         self.state = ClassifierState.CLASSIFYING
 
     # ------------------------------------------------------------------
@@ -370,7 +384,7 @@ class Session:
                 raise KeyError(f"No glyph with id {gid!r} in working set")
             targets.append(g)
 
-        grouped = union_glyphs(targets, class_name)
+        grouped = union_glyphs(targets, class_name, page_mask=self.page_mask)
 
         # Drop the originals and append the grouped result. We keep
         # working-set order otherwise stable so the UI doesn't
@@ -379,6 +393,63 @@ class Session:
         self.glyphs = [g for g in self.glyphs if g.id not in target_ids]
         self.glyphs.append(grouped)
         return grouped
+
+    def manual_split(
+        self,
+        glyph_id: str,
+        regions: Iterable[tuple[int, int, int, int]],
+    ) -> list[Glyph]:
+        """Slice a glyph into N children along user-drawn rectangles.
+
+        Wraps :func:`ic_core.splitting.manual_split`. The parent is
+        *removed* from the working set and replaced (at the same
+        index, so UI ordering is preserved) by the N child glyphs.
+        Each child is ``UNCLASSIFIED`` / ``confidence=0`` /
+        ``id_state_manual=False`` with a fresh UUID (algorithm
+        semantic #8) so the next classify round labels it.
+
+        ``regions`` are ``(ulx, uly, ncols, nrows)`` tuples in **page
+        coordinates** — the same frame the parent's bbox lives in —
+        so the frontend can post the rectangles it drew without
+        translating them.
+
+        If every region misses the parent's bbox the call is rejected
+        with :class:`ValueError`: producing zero children would
+        silently delete the parent and is almost certainly a UI bug.
+        Use :meth:`delete_glyph` if removal is the intent.
+
+        Args:
+            glyph_id: UUID of the parent glyph in the working set.
+            regions: One or more ``(ulx, uly, ncols, nrows)`` tuples
+                in page coordinates.
+
+        Returns:
+            The list of child :class:`Glyph` objects inserted into
+            the working set.
+
+        Raises:
+            StateTransitionError: If called outside ``CLASSIFYING``.
+            KeyError: If no glyph with that id exists in the working set.
+            ValueError: If ``regions`` is empty, any region has
+                non-positive size, or every region misses the parent.
+        """
+        self._require_state(ClassifierState.CLASSIFYING)
+        idx, parent = self._find_index(glyph_id)
+        # Coerce up front: callers (FastAPI handlers, tests) pass
+        # arbitrary iterables; ``split_glyph`` needs a sequence it can
+        # validate before doing any work.
+        regions_list = list(regions)
+        children = split_glyph(parent, regions_list)
+        if not children:
+            raise ValueError(
+                "manual_split produced no children — every region misses "
+                "the parent's bbox. Adjust the rectangles or use "
+                "delete_glyph if removal is the intent."
+            )
+        # Replace parent with children at the same index so the UI
+        # ordering doesn't reshuffle unrelated glyphs.
+        self.glyphs[idx : idx + 1] = children
+        return children
 
     def delete_glyph(self, glyph_id: str) -> None:
         """Remove a glyph from the working set.

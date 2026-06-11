@@ -77,7 +77,7 @@ UNCLASSIFIED: str = "UNCLASSIFIED"
 
 #: Default neighbour count. ``k=1`` (winner-takes-all) is the historical
 #: behaviour from the Rodan job and must remain the default for parity.
-DEFAULT_K: int = 1
+DEFAULT_K: int = 3
 
 #: Prefixes that mark transient user-intent glyphs. They are stripped
 #: before every training round and before every export, never persisted.

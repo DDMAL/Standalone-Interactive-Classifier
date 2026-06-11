@@ -1,23 +1,49 @@
 import { formatConfidence, glyphDataUri } from "@/lib/format";
+import { registerTile } from "@/lib/tileRefs";
+import { useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
 import { clsx } from "clsx";
+import { useCallback } from "react";
 
 interface GlyphTileProps {
   glyph: GlyphDTO;
   selected: boolean;
-  onSelect: (id: string) => void;
 }
 
-export function GlyphTile({ glyph, selected, onSelect }: GlyphTileProps) {
+export function GlyphTile({ glyph, selected }: GlyphTileProps) {
+  const focusGlyph = useUiStore((s) => s.focusGlyph);
+  const toggleGlyph = useUiStore((s) => s.toggleGlyph);
+  const setHover = useUiStore((s) => s.setHover);
+  const hovered = useUiStore((s) => s.hoverGlyphId === glyph.id);
+
+  const setRef = useCallback(
+    (el: HTMLButtonElement | null) => registerTile(glyph.id, el),
+    [glyph.id],
+  );
+
   return (
     <button
       type="button"
-      onClick={() => onSelect(glyph.id)}
+      ref={setRef}
+      onClick={(e) => {
+        if (e.shiftKey || e.metaKey) toggleGlyph(glyph.id);
+        else focusGlyph(glyph.id);
+      }}
+      onPointerEnter={() => setHover(glyph.id)}
+      onPointerLeave={() => setHover(null)}
       className={clsx(
         "flex h-full w-full flex-col items-center gap-1 rounded border p-1 text-center transition-colors",
-        selected
-          ? "border-blue-500 bg-blue-50"
-          : "border-slate-200 bg-white hover:border-slate-400",
+        glyph.id_state_manual
+          ? selected
+            ? "border-green-600 bg-green-100 ring-2 ring-green-300"
+            : hovered
+              ? "border-green-500 bg-green-100"
+              : "border-green-400 bg-green-50 hover:border-green-500"
+          : selected
+            ? "border-blue-500 bg-blue-50"
+            : hovered
+              ? "border-amber-400 bg-amber-50"
+              : "border-slate-200 bg-white hover:border-slate-400",
       )}
     >
       <div className="flex h-16 w-full items-center justify-center overflow-hidden bg-white">
