@@ -49,7 +49,7 @@ export const getSession = (id: string) =>
 
 export const deleteSession = (id: string) => http.delete(`/sessions/${id}`);
 
-export const classify = (id: string, k = 1) =>
+export const classify = (id: string, k = 3) =>
   http.post<SessionDTO>(`/sessions/${id}/classify`, { k });
 
 export interface UpdateGlyphArgs {
