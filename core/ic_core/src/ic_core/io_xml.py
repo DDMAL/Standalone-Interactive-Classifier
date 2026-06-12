@@ -44,7 +44,7 @@ from lxml import etree
 
 from ic_core.classifier import UNCLASSIFIED
 from ic_core.features import FEATURE_VERSION, LOGICAL_FEATURES, get_features
-from ic_core.glyph import Glyph
+from ic_core.glyph import CATEGORY_STAVES, CATEGORY_TEXT, Glyph
 
 # ---------------------------------------------------------------------------
 # Schema constants
@@ -148,7 +148,7 @@ def _append_glyph(parent: etree._Element, glyph: Glyph) -> None:
     etree.SubElement(
         ids_el,
         "id",
-        name=glyph.class_name,
+        name=_id_name(glyph),
         # Six decimal places matches the legacy fixture formatting
         # (e.g. ``confidence="1.000000"``).
         confidence=f"{glyph.confidence:.6f}",
@@ -197,6 +197,33 @@ def _append_features(parent: etree._Element, glyph: Glyph) -> None:
         offset += dim
         feat_el = etree.SubElement(feats_el, "feature", name=name)
         feat_el.text = " ".join(repr(float(v)) for v in values)
+
+
+#: Human-readable ``<id>`` names emitted for UNCLASSIFIED glyphs, keyed by
+#: the glyph's coarse MOTHRA category. Text and Staves never enter the kNN
+#: classifier, so they always carry ``UNCLASSIFIED`` as their ``class_name``;
+#: downstream MEI consumers want a concrete label, so we surface the category
+#: here instead. (An UNCLASSIFIED *Neumes* glyph keeps ``UNCLASSIFIED`` — it
+#: is a real neume that simply has not been labelled yet.)
+_UNCLASSIFIED_ID_NAMES: dict[str, str] = {
+    CATEGORY_TEXT: "text",
+    CATEGORY_STAVES: "staff",
+}
+
+
+def _id_name(glyph: Glyph) -> str:
+    """Resolve the ``<id name="...">`` value for a glyph.
+
+    Classified glyphs use their ``class_name`` verbatim. For an
+    UNCLASSIFIED glyph we substitute a concrete label derived from its
+    MOTHRA ``category`` — ``"text"`` for Text, ``"staff"`` for Staves —
+    so structural marks carry a meaningful name downstream. Any other
+    UNCLASSIFIED glyph (e.g. an as-yet-unlabelled Neume) falls back to
+    the raw ``UNCLASSIFIED`` sentinel.
+    """
+    if glyph.class_name == UNCLASSIFIED:
+        return _UNCLASSIFIED_ID_NAMES.get(glyph.category, glyph.class_name)
+    return glyph.class_name
 
 
 def _id_state(glyph: Glyph) -> str:
