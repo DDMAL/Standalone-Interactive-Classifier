@@ -1,0 +1,21 @@
+# Render Blueprint — one Docker web service serving the API + frontend.
+#
+# Deploy: push this branch to GitHub, then in the Render dashboard choose
+# "New +" → "Blueprint" and point it at the repo. Render reads this file,
+# builds the Dockerfile, and gives you a public https://<name>.onrender.com URL.
+#
+# Note (free plan): the service spins down after ~15 min idle (first request
+# after that takes ~30s to wake) and the session store is in-memory, so all
+# in-progress sessions reset on spin-down. Fine for a demo; for persistent
+# sessions move off the free plan and back the store with a disk/database.
+services:
+  - type: web
+    name: ic-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    # The app reads $PORT (injected by Render) and binds to 0.0.0.0 via the
+    # HOST env set in the Dockerfile. The mounted frontend answers GET / with
+    # a 200, which doubles as the health check.
+    healthCheckPath: /

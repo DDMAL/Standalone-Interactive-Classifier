@@ -1,0 +1,12 @@
+# Keep the build context small and reproducible. Anything excluded here is
+# rebuilt inside the image (node_modules, venvs) or regenerated (derived data).
+.git
+**/.venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+frontend/dist
+core/data/derived
+core/data/test
+docs
+**/.DS_Store

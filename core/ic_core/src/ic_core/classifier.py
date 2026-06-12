@@ -62,7 +62,8 @@ from typing import Iterable, Sequence
 
 import numpy as np
 
-from ic_core.features import FEATURE_VERSION, compute_features_batch
+from ic_core.feature_extractor import FeatureExtractorProtocol, HandcraftedExtractor
+from ic_core.features import FEATURE_VERSION
 from ic_core.glyph import Glyph
 
 # ---------------------------------------------------------------------------
@@ -241,13 +242,21 @@ class InteractiveClassifier:
     instance per round is the design (full re-train every round).
     """
 
-    def __init__(self, k: int = DEFAULT_K) -> None:
+    def __init__(
+        self,
+        k: int = DEFAULT_K,
+        extractor: FeatureExtractorProtocol | None = None,
+    ) -> None:
         if k < 1:
             raise ValueError(f"k must be >= 1, got {k!r}")
 
         #: User-configurable neighbour count. ``k=1`` is the default
         #: for parity with the legacy Gamera job.
         self.k: int = k
+
+        #: Feature extractor. Defaults to the 29-dim handcrafted extractor
+        #: for backwards compatibility.
+        self._extractor: FeatureExtractorProtocol = extractor or HandcraftedExtractor()
 
         #: The feature-vector version the classifier was trained on.
         #: Persisted alongside any exported state so callers can
@@ -321,9 +330,7 @@ class InteractiveClassifier:
                 f"got {len(training_glyphs)}"
             )
 
-        # Compute feature matrix in one batch — much faster than
-        # per-glyph because skimage's moment routines amortise nicely.
-        X = compute_features_batch(training_glyphs)  # (N, D), float64
+        X = self._extractor.extract_batch(training_glyphs)  # (N, D), float64
         y = np.asarray([g.class_name for g in training_glyphs], dtype=object)
 
         # Fit per-feature standardisation parameters on the training
@@ -386,7 +393,7 @@ class InteractiveClassifier:
             return []
 
         # Standardise query features with the *training* statistics.
-        Q = compute_features_batch(glyphs)              # (M, D)
+        Q = self._extractor.extract_batch(glyphs)       # (M, D)
         Q_scaled = (Q - self._mean) / self._std         # (M, D)
 
         # Pairwise squared Euclidean distances between each query and

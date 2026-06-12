@@ -249,7 +249,7 @@ def ingest_page_yolo(
     img_h, img_w = page.shape
 
     glyphs: list[Glyph] = []
-    for ulx, uly, width, height in _iter_yolo_bboxes(annotations_yolo, img_w, img_h):
+    for _class, ulx, uly, width, height in _iter_yolo_bboxes(annotations_yolo, img_w, img_h):
         glyphs.append(
             _crop_to_glyph(
                 page,
@@ -259,6 +259,7 @@ def ingest_page_yolo(
                 height=height,
                 threshold=threshold,
                 glyph_id=None,  # fresh UUID — YOLO has none to inherit
+                category=_MOTHRA_CLASS_TO_CATEGORY.get(int(_class)+1, CATEGORY_NEUMES),            
             )
         )
     return glyphs
@@ -383,7 +384,7 @@ def _iter_yolo_bboxes(
         # (some YOLO variants append a detection confidence).
         if len(parts) < 5:
             raise ValueError(f"Malformed YOLO line: {line!r}")
-        _, cx, cy, w, h = parts[:5]
+        _class, cx, cy, w, h = parts[:5]
         cx_f, cy_f, w_f, h_f = float(cx), float(cy), float(w), float(h)
 
         # Centre-normalised → top-left pixel coords.
@@ -391,7 +392,7 @@ def _iter_yolo_bboxes(
         uly = int(round((cy_f - h_f / 2.0) * img_height))
         width = int(round(w_f * img_width))
         height = int(round(h_f * img_height))
-        yield ulx, uly, width, height
+        yield _class, ulx, uly, width, height
 
 
 def _normalise_uuid(raw: str) -> str:

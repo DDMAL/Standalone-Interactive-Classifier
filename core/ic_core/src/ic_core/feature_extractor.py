@@ -1,0 +1,245 @@
+"""Feature extractor abstraction.
+
+Defines a protocol that any feature extractor must satisfy, plus two
+concrete implementations:
+
+* :class:`HandcraftedExtractor` — the existing 29-dimensional geometry
+  features (aspect ratio, volume, compactness, Hu moments, etc.).
+  Zero extra dependencies; fast enough to recompute on every round.
+
+* :class:`ViTExtractor` — CLS-token embeddings from a pretrained
+  ``google/vit-base-patch16-224`` backbone, optionally with a LoRA
+  checkpoint applied. Produces 768-dimensional vectors. Requires
+  ``torch`` and ``transformers`` (and ``peft`` for LoRA weights).
+  Expensive to run — use :class:`~ic_core.store.NpzStore` to cache
+  pre-computed vectors rather than extracting per session.
+
+Switching extractors::
+
+    from ic_core.feature_extractor import HandcraftedExtractor, ViTExtractor
+    from ic_core.classifier import InteractiveClassifier
+
+    clf = InteractiveClassifier(extractor=ViTExtractor(checkpoint="path/to/lora"))
+"""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Protocol, Sequence, runtime_checkable
+
+import numpy as np
+
+from ic_core.glyph import Glyph
+
+
+class PrecomputedExtractor:
+    """Serves pre-computed feature vectors from an in-memory lookup.
+
+    Extract expensive features (e.g. ViT) once upfront, then pass this
+    extractor to classifiers so no re-extraction happens during CV folds
+    or interactive rounds.
+
+    Example::
+
+        vit = ViTExtractor()
+        features = vit.extract_batch(glyphs)
+        extractor = PrecomputedExtractor(glyphs, features)
+        factory = knn_factory(k=1, extractor=extractor)
+    """
+
+    def __init__(self, glyphs: Sequence[Glyph], features: np.ndarray) -> None:
+        if len(glyphs) != len(features):
+            raise ValueError(
+                f"glyphs ({len(glyphs)}) and features ({len(features)}) length mismatch"
+            )
+        self._lookup: dict[str, np.ndarray] = {
+            g.id: features[i] for i, g in enumerate(glyphs)
+        }
+        self._dim = int(features.shape[1])
+
+    @property
+    def dim(self) -> int:
+        return self._dim
+
+    def extract_batch(self, glyphs: Sequence[Glyph]) -> np.ndarray:
+        if not glyphs:
+            return np.zeros((0, self._dim), dtype=np.float64)
+        missing = [g.id for g in glyphs if g.id not in self._lookup]
+        if missing:
+            raise KeyError(
+                f"{len(missing)} glyph(s) not in precomputed cache. "
+                "Ensure all glyphs were passed to PrecomputedExtractor at construction."
+            )
+        return np.stack([self._lookup[g.id] for g in glyphs])
+
+    def __repr__(self) -> str:
+        return f"PrecomputedExtractor(n={len(self._lookup)}, dim={self._dim})"
+
+
+# ---------------------------------------------------------------------------
+# Protocol
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class FeatureExtractorProtocol(Protocol):
+    """Minimal interface any feature extractor must implement."""
+
+    @property
+    def dim(self) -> int:
+        """Dimensionality of the output feature vector."""
+        ...
+
+    def extract_batch(self, glyphs: Sequence[Glyph]) -> np.ndarray:
+        """Return an ``(N, dim)`` float64 feature matrix for ``glyphs``.
+
+        The order of rows matches the order of ``glyphs``.
+        If ``glyphs`` is empty, returns a ``(0, dim)`` array.
+        """
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Handcrafted (existing 29-dim geometry features)
+# ---------------------------------------------------------------------------
+
+
+class HandcraftedExtractor:
+    """Wraps the existing ``compute_features_batch`` (29-dim).
+
+    No extra dependencies — pure numpy / scipy / scikit-image.
+    Fast enough to run on every classify round.
+    """
+
+    @property
+    def dim(self) -> int:
+        return 29
+
+    def extract_batch(self, glyphs: Sequence[Glyph]) -> np.ndarray:
+        from ic_core.features import compute_features_batch
+        return compute_features_batch(glyphs)
+
+    def __repr__(self) -> str:
+        return "HandcraftedExtractor(dim=29)"
+
+
+# ---------------------------------------------------------------------------
+# ViT (768-dim CLS-token embeddings)
+# ---------------------------------------------------------------------------
+
+
+class ViTExtractor:
+    """CLS-token embeddings from a pretrained ViT backbone.
+
+    Optionally loads a LoRA checkpoint produced by ``train_vit_lora.py``
+    to use domain-adapted features. Expensive to run — pre-compute and
+    cache with :class:`PrecomputedExtractor` rather than extracting per session.
+
+    Args:
+        model_name: HuggingFace model identifier (default: ViT-tiny).
+        lora_checkpoint: Path to a LoRA checkpoint directory saved by
+            ``train_vit_lora.py``. Pass ``None`` for the pretrained backbone.
+        device: Torch device string (default ``"cpu"``).
+        batch_size: Glyphs per forward pass.
+
+    Requires::
+
+        pip install torch transformers
+        pip install peft  # only needed when lora_checkpoint is set
+    """
+
+    def __init__(
+        self,
+        model_name: str = "WinKawaks/vit-tiny-patch16-224",
+        lora_checkpoint: str | Path | None = None,
+        device: str = "cpu",
+        batch_size: int = 32,
+    ) -> None:
+        self.model_name = model_name
+        self.lora_checkpoint = Path(lora_checkpoint) if lora_checkpoint else None
+        self.device = device
+        self.batch_size = batch_size
+        self._model = None
+        self._processor = None
+        self._dim: int | None = None
+
+    def _load(self) -> None:
+        if self._model is not None:
+            return
+        try:
+            from transformers import AutoModel, AutoImageProcessor
+        except ImportError:
+            raise ImportError(
+                "ViTExtractor requires torch and transformers: "
+                "pip install torch transformers"
+            )
+        self._processor = AutoImageProcessor.from_pretrained(self.model_name)
+
+        if self.lora_checkpoint is not None:
+            try:
+                from peft import PeftModel
+            except ImportError:
+                raise ImportError("Loading a LoRA checkpoint requires peft: pip install peft")
+            base = AutoModel.from_pretrained(self.model_name, ignore_mismatched_sizes=True)
+            self._model = PeftModel.from_pretrained(base, str(self.lora_checkpoint))
+        else:
+            self._model = AutoModel.from_pretrained(self.model_name, ignore_mismatched_sizes=True)
+
+        self._model = self._model.to(self.device).eval()
+        # infer output dim from a dummy forward pass
+        import torch
+        dummy = torch.zeros(1, 3, 224, 224, device=self.device)
+        with torch.no_grad():
+            out = self._model(pixel_values=dummy)
+        self._dim = out.last_hidden_state.shape[-1]
+
+    @property
+    def dim(self) -> int:
+        if self._dim is None:
+            self._load()
+        return self._dim
+
+    def extract_batch(self, glyphs: Sequence[Glyph]) -> np.ndarray:
+        """Run glyphs through the ViT and return CLS-token embeddings."""
+        if not glyphs:
+            return np.zeros((0, self.dim), dtype=np.float64)
+
+        self._load()
+
+        import torch
+        from PIL import Image, ImageOps
+
+        all_embeddings: list[np.ndarray] = []
+
+        for start in range(0, len(glyphs), self.batch_size):
+            batch = list(glyphs[start : start + self.batch_size])
+            images = []
+            for g in batch:
+                arr = g.to_array()  # (H, W) bool
+                # Ensure a minimum size so the processor doesn't see
+                # degenerate 1×1 or 2×2 images (very small glyphs).
+                pil = Image.fromarray((arr * 255).astype(np.uint8), mode="L").convert("RGB")
+                min_side = 16
+                if pil.width < min_side or pil.height < min_side:
+                    pil = pil.resize(
+                        (max(pil.width, min_side), max(pil.height, min_side)),
+                        Image.NEAREST,
+                    )
+                # Pad to square so ViT sees consistent framing.
+                side = max(pil.width, pil.height)
+                pil = ImageOps.pad(pil, (side, side), color=(255, 255, 255))
+                images.append(pil)
+
+            inputs = self._processor(images=images, return_tensors="pt")
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                outputs = self._model(**inputs)
+
+            cls = outputs.last_hidden_state[:, 0, :].cpu().numpy().astype(np.float64)
+            all_embeddings.append(cls)
+
+        return np.vstack(all_embeddings)
+
+    def __repr__(self) -> str:
+        ckpt = f", lora={self.lora_checkpoint}" if self.lora_checkpoint else ""
+        return f"ViTExtractor({self.model_name!r}{ckpt})"

@@ -48,6 +48,7 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, File, Form, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from ic_api.schemas import (
     ClassifyRequest,
@@ -644,6 +645,21 @@ def complete_session(session_id: str, store: Store) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# Static frontend (production single-origin deploy)
+# ---------------------------------------------------------------------------
+#
+# When the built frontend has been copied to ``static/`` next to this module
+# (see the Dockerfile), serve it from the same origin as the API. This mount
+# is registered *after* every API route above, so ``/sessions`` etc. still
+# resolve to their handlers; everything else falls through to the SPA.
+# ``html=True`` serves ``index.html`` for unknown paths so client-side routing
+# works. In local dev the directory is absent and this is simply skipped.
+_static_dir = Path(__file__).parent / "static"
+if _static_dir.is_dir():
+    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="ui")
+
+
+# ---------------------------------------------------------------------------
 # Entry point for `uv run ic-api`
 # ---------------------------------------------------------------------------
 
@@ -654,7 +670,7 @@ def run() -> None:
 
     uvicorn.run(
         "ic_api.main:app",
-        host="127.0.0.1",
-        port=8000,
+        host=os.environ.get("HOST", "127.0.0.1"),
+        port=int(os.environ.get("PORT", "8000")),
         reload=False,
     )
