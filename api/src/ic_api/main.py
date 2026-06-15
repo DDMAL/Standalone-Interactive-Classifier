@@ -587,12 +587,21 @@ def save_session(session_id: str, store: Store) -> SessionDTO:
 
 
 @app.post("/sessions/{session_id}/complete")
-def complete_session(session_id: str, store: Store) -> Response:
+def complete_session(
+    session_id: str,
+    store: Store,
+    include_training: bool = False,
+) -> Response:
     """Finalise the session and stream back the GameraXML export.
 
     The session transitions to ``EXPORT`` (terminal). The frontend
     should treat the returned XML as the canonical artefact for
     downstream MEI pipelines.
+
+    By default only this page's working glyphs are exported. When
+    ``include_training`` is set the working glyphs are concatenated
+    with the session's training set into a single GameraXML document,
+    so the page can be folded back into the training database.
 
     Response body is ``application/xml``, not JSON, because the XML
     *is* the deliverable. The session remains in the store so the
@@ -600,8 +609,14 @@ def complete_session(session_id: str, store: Store) -> Response:
     """
     with store.session(session_id) as session:
         session.complete()
-        payload = dumps_glyphs(session.glyphs)
-        filename = f'attachment; filename="ic-session-{session.id}.xml"'
+        glyphs = (
+            [*session.glyphs, *session.training_glyphs]
+            if include_training
+            else session.glyphs
+        )
+        payload = dumps_glyphs(glyphs)
+        suffix = "-with-training" if include_training else ""
+        filename = f'attachment; filename="ic-session-{session.id}{suffix}.xml"'
     return Response(
         content=payload,
         media_type="application/xml",

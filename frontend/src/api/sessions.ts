@@ -95,5 +95,7 @@ export const deleteClass = (id: string, name: string) =>
 export const saveSession = (id: string) =>
   http.post<SessionDTO>(`/sessions/${id}/save`);
 
-export const completeSession = (id: string) =>
-  postForBlob(`/sessions/${id}/complete`);
+export const completeSession = (id: string, includeTraining = false) =>
+  postForBlob(
+    `/sessions/${id}/complete${includeTraining ? "?include_training=true" : ""}`,
+  );

@@ -4,7 +4,7 @@ import { useComplete } from "@/hooks/useComplete";
 import { useSave } from "@/hooks/useSave";
 import { useUiStore } from "@/store/uiStore";
 import { clsx } from "clsx";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface ToolbarProps {
   sessionId: string;
@@ -88,6 +88,12 @@ export function Toolbar({ sessionId, glyphCount, trainingSize }: ToolbarProps) {
               );
             })}
           </div>
+          <span
+            className="text-xs text-slate-500"
+            title="Number of glyphs in the training set used for kNN classification"
+          >
+            {trainingSize.toLocaleString()} training glyphs
+          </span>
         </div>
         <Button variant="ghost" onClick={clearSession}>
           New session
@@ -99,10 +105,90 @@ export function Toolbar({ sessionId, glyphCount, trainingSize }: ToolbarProps) {
         >
           {save.isPending ? "Saving…" : "Save"}
         </Button>
-        <Button onClick={() => complete.mutate()} disabled={complete.isPending}>
-          {complete.isPending ? "Exporting…" : "Complete & Export"}
-        </Button>
+        <ExportMenu
+          pending={complete.isPending}
+          trainingSize={trainingSize}
+          onExport={(includeTraining) => complete.mutate(includeTraining)}
+        />
       </div>
     </header>
+  );
+}
+
+interface ExportMenuProps {
+  pending: boolean;
+  trainingSize: number;
+  onExport: (includeTraining: boolean) => void;
+}
+
+/**
+ * Split-style export control: clicking the caret reveals a choice between
+ * exporting just this page and exporting this page folded into the whole
+ * training set. The menu closes on outside click or Escape.
+ */
+function ExportMenu({ pending, trainingSize, onExport }: ExportMenuProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const choose = (includeTraining: boolean) => {
+    setOpen(false);
+    onExport(includeTraining);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <Button onClick={() => setOpen((v) => !v)} disabled={pending}>
+        {pending ? "Exporting…" : "Complete & Export ▾"}
+      </Button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-72 overflow-hidden rounded border border-slate-200 bg-white shadow-lg">
+          <button
+            type="button"
+            onClick={() => choose(false)}
+            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+          >
+            <span className="font-medium">Export this page</span>
+            <span className="block text-xs text-slate-500">
+              GameraXML for the current page only
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => choose(true)}
+            disabled={trainingSize === 0}
+            title={
+              trainingSize === 0
+                ? "No training set loaded for this session"
+                : undefined
+            }
+            className="block w-full border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+          >
+            <span className="font-medium">Export this page + training set</span>
+            <span className="block text-xs text-slate-500">
+              One GameraXML combining this page with all{" "}
+              {trainingSize.toLocaleString()} training glyphs
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
