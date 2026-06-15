@@ -34,9 +34,11 @@ export function actionForKey(e: KeyboardEvent): KeyAction | null {
 
 // A bare alphanumeric keypress (no Cmd/Ctrl/Alt). When a glyph is selected
 // these are reserved for the edit panel's "type to focus" behaviour rather
-// than zoom/pan shortcuts.
+// than zoom/pan shortcuts. "h" is excluded — it's the global hold-to-hide
+// bboxes hotkey, so it must never seed the class-name field.
 export function isTypeToFocusKey(e: KeyboardEvent): boolean {
   if (e.metaKey || e.ctrlKey || e.altKey) return false;
+  if (e.key === "h") return false;
   return e.key.length === 1 && /[a-zA-Z0-9]/.test(e.key);
 }
 
