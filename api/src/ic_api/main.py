@@ -49,6 +49,7 @@ from fastapi import Depends, FastAPI, File, Form, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from lxml import etree
 
 from ic_api.schemas import (
     ClassifyRequest,
@@ -64,7 +65,7 @@ from ic_api.schemas import (
 )
 from ic_api.store import InMemorySessionStore, default_store
 from ic_core.ingest import AnnotationFormat, binarize_page, ingest_page
-from ic_core.io_xml import dumps_glyphs, load_glyphs
+from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
 from ic_core.state import Session, StateTransitionError
 
 
@@ -117,40 +118,6 @@ Store = Annotated[InMemorySessionStore, Depends(get_store)]
 # enumerated in this directory — a client-supplied name is validated
 # against that listing before any disk access, so path traversal
 # (``../secrets.xml``) cannot escape the directory.
-
-
-def derived_dir() -> Path:
-    """Directory holding the pre-built training-set XML databases."""
-    override = os.environ.get("IC_DERIVED_DIR")
-    if override:
-        return Path(override)
-    # main.py → ic_api → src → api → <repo root>
-    repo_root = Path(__file__).resolve().parents[3]
-    return repo_root / "core" / "data" / "derived"
-
-
-def list_training_sets() -> list[str]:
-    """Return the sorted filenames of every ``*.xml`` in :func:`derived_dir`."""
-    root = derived_dir()
-    if not root.is_dir():
-        return []
-    return sorted(p.name for p in root.glob("*.xml") if p.is_file())
-
-
-def resolve_training_set(name: str) -> Path:
-    """Map a client-supplied training-set filename to a safe on-disk path.
-
-    Raises:
-        ValueError: If ``name`` is not one of the files enumerated by
-            :func:`list_training_sets` (guards against path traversal and
-            typos alike).
-    """
-    if name not in list_training_sets():
-        available = ", ".join(list_training_sets()) or "(none)"
-        raise ValueError(
-            f"Unknown training set {name!r}. Available: {available}"
-        )
-    return derived_dir() / name
 
 
 # ---------------------------------------------------------------------------
@@ -295,18 +262,6 @@ async def _value_error_handler(_request, exc: ValueError) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
-@app.get("/training-sets", response_model=list[str])
-def get_training_sets() -> list[str]:
-    """List the pre-built training-set filenames available for selection.
-
-    These are the ``*.xml`` GameraXML databases under
-    ``core/data/derived``. The frontend renders them as a dropdown on the
-    upload screen; the chosen filename is passed back as the
-    ``training_xml`` field of :func:`create_session`.
-    """
-    return list_training_sets()
-
-
 @app.get("/vocabularies", response_model=list[str])
 def get_vocabularies() -> list[str]:
     """List the vocabulary CSV filenames available for selection.
@@ -355,13 +310,12 @@ async def create_session(
         str | None,
         Form(description="Optional JSON-encoded list[str] of class names."),
     ] = None,
-    training_xml: Annotated[
-        str | None,
-        Form(
+    training_file: Annotated[
+        UploadFile | None,
+        File(
             description=(
-                "Optional filename of a pre-built training set under "
-                "core/data/derived (see GET /training-sets). When given, its "
-                "glyphs seed the training pool and a classify round runs "
+                "Optional GameraXML (.xml) training-set upload. When given, "
+                "its glyphs seed the training pool and a classify round runs "
                 "automatically so the working set is labelled with that "
                 "training vocabulary before the session is returned."
             ),
@@ -392,10 +346,10 @@ async def create_session(
     (once they have at least one manual or training glyph) or start
     labelling glyphs via :func:`update_glyph`.
 
-    When ``training_xml`` names a pre-built training set, its glyphs are
-    loaded into the training pool and a classify round runs before the
-    response is sent, so the returned session is already labelled with
-    that training vocabulary.
+    When ``training_file`` carries an uploaded GameraXML training set, its
+    glyphs are loaded into the training pool and a classify round runs
+    before the response is sent, so the returned session is already
+    labelled with that training vocabulary.
     """
     parsed_names: list[str] | None = None
     if class_names is not None:
@@ -415,11 +369,19 @@ async def create_session(
         vocab_names = vocabulary_classes(vocabulary)
         parsed_names = sorted(set(parsed_names or []) | set(vocab_names))
 
-    # Resolve the optional training set *before* touching uploads so a
-    # bad filename fails fast with a 400 rather than after the work.
+    # Parse the optional training-set upload *before* the page work so a
+    # bad file fails fast with a 400 rather than after the work. Only
+    # ``.xml`` GameraXML documents are accepted.
     training_glyphs: list | None = None
-    if training_xml:
-        training_glyphs = load_glyphs(resolve_training_set(training_xml))
+    if training_file is not None:
+        name = training_file.filename or ""
+        if not name.lower().endswith(".xml"):
+            raise ValueError("training_file must be a .xml file.")
+        training_bytes = await training_file.read()
+        try:
+            training_glyphs = load_glyphs_bytes(training_bytes)
+        except etree.XMLSyntaxError as e:
+            raise ValueError(f"training_file is not valid XML: {e}") from e
 
     page_bytes = await page_image.read()
     annotations_bytes = await annotations.read()

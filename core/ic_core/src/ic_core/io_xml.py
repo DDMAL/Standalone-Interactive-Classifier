@@ -69,7 +69,26 @@ def load_glyphs(path: Path) -> list[Glyph]:
         A list of glyphs in document order. Each glyph receives a
         fresh UUID — the legacy XML format does not encode them.
     """
-    tree = etree.parse(str(path))
+    return _glyphs_from_tree(etree.parse(str(path)))
+
+
+def load_glyphs_bytes(data: bytes) -> list[Glyph]:
+    """Parse an in-memory GameraXML document into :class:`Glyph` objects.
+
+    The byte-string variant of :func:`load_glyphs`, used for client
+    uploads where no on-disk path exists.
+
+    Args:
+        data: Raw bytes of a ``gamera-database`` XML document.
+
+    Returns:
+        A list of glyphs in document order (see :func:`load_glyphs`).
+    """
+    return _glyphs_from_tree(etree.fromstring(data))
+
+
+def _glyphs_from_tree(tree) -> list[Glyph]:
+    """Extract glyphs from a parsed GameraXML element/tree."""
     glyphs: list[Glyph] = []
     for g in tree.iterfind(".//glyph"):
         ids = g.find("ids")
