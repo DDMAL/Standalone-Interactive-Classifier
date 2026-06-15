@@ -544,9 +544,17 @@ class Session:
         (``_group``, ``_delete``) and any lingering UNCLASSIFIED
         glyphs in the training set, so the exported GameraXML
         contains only meaningful data. After this call the session
-        is read-only — further mutations raise
+        is read-only — further *mutations* raise
         :class:`StateTransitionError`.
+
+        Idempotent: calling it again once already in ``EXPORT`` is a
+        no-op rather than an error. Export is a repeatable operation
+        (the frontend can download both a page-only and a
+        page+training GameraXML from the same finalised session), so
+        the one-shot cleanup must not block a second download.
         """
+        if self.state is ClassifierState.EXPORT:
+            return
         self._require_state(ClassifierState.CLASSIFYING)
         self.glyphs = filter_parts(self.glyphs)
         # Training-set hygiene: drop UNCLASSIFIED and transient

@@ -501,6 +501,25 @@ def test_complete_export_filename_includes_training_suffix(client):
     )
 
 
+def test_complete_is_repeatable_for_multiple_exports(client):
+    # The export menu can download both a page-only and a page+training
+    # GameraXML from the same finalised session. Completing is a one-shot
+    # cleanup, but the download must stay repeatable — a second /complete
+    # re-serialises rather than 409ing.
+    sid = _create_session(client)
+
+    first = client.post(f"/sessions/{sid}/complete")
+    assert first.status_code == 200
+    assert first.content.startswith(b"<?xml")
+
+    second = client.post(f"/sessions/{sid}/complete?include_training=true")
+    assert second.status_code == 200
+    assert second.content.startswith(b"<?xml")
+
+    # Mutations remain forbidden after completion.
+    assert client.post(f"/sessions/{sid}/classify", json={}).status_code == 409
+
+
 # ---------------------------------------------------------------------------
 # Concurrency
 # ---------------------------------------------------------------------------
