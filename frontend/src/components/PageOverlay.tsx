@@ -24,6 +24,7 @@ export function PageOverlay({
   const selectedIds = useUiStore((s) => s.selectedGlyphIds);
   const hoverId = useUiStore((s) => s.hoverGlyphId);
   const deletedIds = useUiStore((s) => s.deletedGlyphIds);
+  const bboxesHidden = useUiStore((s) => s.bboxesHidden);
   const visibleGlyphs = useMemo(
     () => glyphs.filter((g) => !deletedIds.has(g.id)),
     [glyphs, deletedIds],
@@ -45,11 +46,13 @@ export function PageOverlay({
       onPointerUp={lasso.onPointerUp}
     >
       <title>Glyph bounding box overlay</title>
-      <BBoxLayer
-        glyphs={visibleGlyphs}
-        selectedIds={selectedIds}
-        hoverId={hoverId}
-      />
+      {!bboxesHidden && (
+        <BBoxLayer
+          glyphs={visibleGlyphs}
+          selectedIds={selectedIds}
+          hoverId={hoverId}
+        />
+      )}
       <LassoLayer rect={lasso.rect} />
     </svg>
   );

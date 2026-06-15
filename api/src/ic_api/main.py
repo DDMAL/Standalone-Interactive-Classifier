@@ -42,6 +42,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 from pathlib import Path
 from typing import Annotated
 
@@ -67,6 +68,27 @@ from ic_api.store import InMemorySessionStore, default_store
 from ic_core.ingest import AnnotationFormat, binarize_page, ingest_page
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
 from ic_core.state import Session, StateTransitionError
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _source_stem(filename: str | None) -> str:
+    """Reduce an uploaded filename to a safe stem for the export name.
+
+    Strips any client-supplied directory components and the file
+    extension, then keeps only filename-safe characters so the value
+    can be dropped into a ``Content-Disposition`` header and saved to
+    disk verbatim. Returns ``""`` when nothing usable remains, in which
+    case the caller falls back to the session id.
+    """
+    if not filename:
+        return ""
+    stem = Path(filename).stem
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("_")
+    return safe
 
 
 # ---------------------------------------------------------------------------
@@ -397,6 +419,7 @@ async def create_session(
         training_glyphs=training_glyphs,
         class_names=parsed_names,
         page_mask=page_mask,
+        source_name=_source_stem(annotations.filename),
     )
     # A selected training set means "label this page with that vocabulary
     # now" — run the first classify round server-side so the frontend
@@ -610,7 +633,11 @@ def complete_session(
         )
         payload = dumps_glyphs(glyphs)
         suffix = "-with-training" if include_training else ""
-        filename = f'attachment; filename="ic-session-{session.id}{suffix}.xml"'
+        # Prefer the original bbox document's name so a user exporting
+        # several pages gets self-describing files; fall back to the
+        # opaque session id when no usable source name was captured.
+        stem = session.source_name or session.id
+        filename = f'attachment; filename="ic-session-{stem}{suffix}.xml"'
     return Response(
         content=payload,
         media_type="application/xml",

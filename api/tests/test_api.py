@@ -39,6 +39,7 @@ def _multipart(
     *,
     class_names: list[str] | None = None,
     annotations_format: str = "json",
+    annotations_filename: str = "annotations.json",
 ) -> dict:
     """Build kwargs for ``TestClient.post`` that emulate a browser upload.
 
@@ -48,7 +49,7 @@ def _multipart(
     """
     files = {
         "page_image": ("page.png", PAGE_BYTES, "image/png"),
-        "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+        "annotations": (annotations_filename, JSON_BYTES, "application/json"),
     }
     data: dict[str, str] = {"annotations_format": annotations_format}
     if class_names is not None:
@@ -457,11 +458,66 @@ def test_complete_returns_xml_and_transitions_to_export(client):
     assert body.startswith(b"<?xml")
     assert b"<gamera-database" in body
     assert b'name="neume.A"' in body
+    # The export is named after the uploaded bbox document (sans .json)
+    # so a user exporting several pages gets self-describing files.
+    assert (
+        response.headers["content-disposition"]
+        == 'attachment; filename="ic-session-annotations.xml"'
+    )
 
     # Subsequent mutating endpoints should now 409 (state conflict).
     classify_resp = client.post(f"/sessions/{sid}/classify", json={})
     assert classify_resp.status_code == 409
     assert classify_resp.json()["code"] == "state_conflict"
+
+
+def test_complete_export_filename_derives_from_uploaded_name(client):
+    # A real-world upload name carries a directory part, spaces and the
+    # .json extension; the export keeps a safe stem of it so the file is
+    # recognisable without the user renaming it by hand.
+    response = client.post(
+        "/sessions",
+        **_multipart(annotations_filename="MOTHRA_NZ-Wt MSR-03 109v.json"),
+    )
+    sid = response.json()["id"]
+
+    response = client.post(f"/sessions/{sid}/complete")
+    assert (
+        response.headers["content-disposition"]
+        == 'attachment; filename="ic-session-MOTHRA_NZ-Wt_MSR-03_109v.xml"'
+    )
+
+
+def test_complete_export_filename_includes_training_suffix(client):
+    sid = client.post(
+        "/sessions",
+        **_multipart(annotations_filename="page42.json"),
+    ).json()["id"]
+
+    response = client.post(f"/sessions/{sid}/complete?include_training=true")
+    assert (
+        response.headers["content-disposition"]
+        == 'attachment; filename="ic-session-page42-with-training.xml"'
+    )
+
+
+def test_complete_is_repeatable_for_multiple_exports(client):
+    # The export menu can download both a page-only and a page+training
+    # GameraXML from the same finalised session. Completing is a one-shot
+    # cleanup, but the download must stay repeatable — a second /complete
+    # re-serialises rather than 409ing.
+    sid = _create_session(client)
+
+    first = client.post(f"/sessions/{sid}/complete")
+    assert first.status_code == 200
+    assert first.content.startswith(b"<?xml")
+
+    second = client.post(f"/sessions/{sid}/complete?include_training=true")
+    assert second.status_code == 200
+    assert second.content.startswith(b"<?xml")
+
+    # Mutations remain forbidden after completion.
+    assert client.post(f"/sessions/{sid}/classify", json={}).status_code == 409
 
 
 # ---------------------------------------------------------------------------

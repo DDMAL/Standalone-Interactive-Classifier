@@ -11,6 +11,12 @@ interface UiState {
 
   hoverGlyphId: string | null;
 
+  // True only while the user holds the "h" hotkey — temporarily hides all
+  // bboxes on the page so the underlying image is unobscured. Transient;
+  // never persisted and reset on session change.
+  bboxesHidden: boolean;
+  setBboxesHidden: (v: boolean) => void;
+
   // Set when a glyph is selected from the grid (tile click). PageImagePane
   // watches this to re-center the page on that glyph; cleared via
   // consumeFocus once handled. Selections from the page overlay or lasso
@@ -64,10 +70,13 @@ export const useUiStore = create<UiState>((set, get) => ({
   selectedGlyphIds: new Set(),
   primaryGlyphId: null,
   hoverGlyphId: null,
+  bboxesHidden: false,
   pendingFocusGlyphId: null,
   deletedGlyphIds: new Set(),
   classTreeCollapsed: false,
   knnK: 3,
+
+  setBboxesHidden: (v) => set({ bboxesHidden: v }),
 
   setClassTreeCollapsed: (v) => set({ classTreeCollapsed: v }),
 
@@ -82,6 +91,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       selectedGlyphIds: new Set(),
       primaryGlyphId: null,
       hoverGlyphId: null,
+      bboxesHidden: false,
       pendingFocusGlyphId: null,
       deletedGlyphIds: new Set(),
       classTreeCollapsed: false,
@@ -97,6 +107,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       selectedGlyphIds: new Set(),
       primaryGlyphId: null,
       hoverGlyphId: null,
+      bboxesHidden: false,
       pendingFocusGlyphId: null,
       deletedGlyphIds: new Set(),
       classTreeCollapsed: false,
