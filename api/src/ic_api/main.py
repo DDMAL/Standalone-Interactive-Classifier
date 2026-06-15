@@ -104,20 +104,14 @@ Store = Annotated[InMemorySessionStore, Depends(get_store)]
 
 
 # ---------------------------------------------------------------------------
-# Built-in training sets
+# Training sets
 # ---------------------------------------------------------------------------
 #
-# Pre-built GameraXML training databases live under ``core/data/derived``
-# (e.g. ``Hufnagel_training_data.xml``). The frontend offers them as a
-# dropdown on the upload screen; picking one seeds the session's training
-# pool so the first classify round applies that vocabulary directly.
-#
-# The directory is resolved relative to the repo root and may be
-# overridden via ``IC_DERIVED_DIR`` to stay consistent with
-# ``core/scripts/paths.py``. The API only ever opens files it has itself
-# enumerated in this directory — a client-supplied name is validated
-# against that listing before any disk access, so path traversal
-# (``../secrets.xml``) cannot escape the directory.
+# Training sets are GameraXML databases uploaded by the client as the
+# ``training_files`` part of ``POST /sessions`` (see :func:`create_session`).
+# Their glyphs seed the session's training pool and a classify round runs
+# server-side before the response. The API never opens a server-side
+# training file chosen by the client.
 
 
 # ---------------------------------------------------------------------------

@@ -34,7 +34,7 @@ ENV UV_LINK_MODE=copy \
 
 WORKDIR /app
 # Preserve the repo layout so api's relative dependency on ../core/ic_core
-# resolves and the runtime data-dir env vars below point at real directories.
+# resolves and the IC_TRAIN_DIR env below points at a real directory.
 COPY core/ ./core/
 COPY api/ ./api/
 
@@ -42,22 +42,12 @@ COPY api/ ./api/
 WORKDIR /app/api
 RUN uv sync --frozen --no-dev
 
-# Pre-build the Hufnagel training-set XML from the committed annotation/image
-# pairs under core/data/train (the prebuilt XML in core/data/derived is
-# gitignored, so it is regenerated here). If this ever fails the demo still
-# runs — the training-set dropdown is just empty and the user labels glyphs
-# interactively.
-WORKDIR /app/core/ic_core
-RUN uv run python ../scripts/convert_hufnagel_csv.py \
-    || echo "WARNING: training-set build failed; dropdown will be empty"
-
 # Drop the built frontend where main.py mounts it (api/src/ic_api/static).
 COPY --from=frontend /build/frontend/dist /app/api/src/ic_api/static
 
-WORKDIR /app/api
 # Bind to all interfaces and honour the platform-provided $PORT (Render, etc.).
+# IC_TRAIN_DIR points at the committed vocabulary CSVs served by /vocabularies.
 ENV HOST=0.0.0.0 \
-    IC_TRAIN_DIR=/app/core/data/train \
-    IC_DERIVED_DIR=/app/core/data/derived
+    IC_TRAIN_DIR=/app/core/data/train
 EXPOSE 8000
 CMD ["uv", "run", "ic-api"]
