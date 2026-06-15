@@ -113,6 +113,10 @@ class Session:
             so :meth:`manual_group` can recover pixels that fall in
             the gap between child glyphs' tight bboxes. ``None`` when
             ingest had no page image (e.g. tests, legacy XML import).
+        source_name: Optional human-facing label for the ingested
+            source (typically the uploaded bbox document's filename,
+            sans extension). Used by the API layer to name the export
+            artefact. Empty when ingest had no named source.
 
     The session is intentionally **mutable**. Each operation method
     mutates ``self`` in place and returns ``None``; the API layer is
@@ -126,6 +130,7 @@ class Session:
     training_glyphs: list[Glyph] = field(default_factory=list)
     imported_class_names: set[str] = field(default_factory=set)
     page_mask: np.ndarray | None = None
+    source_name: str = ""
 
     # ------------------------------------------------------------------
     # Convenience accessors
@@ -178,6 +183,7 @@ class Session:
         training_glyphs: Iterable[Glyph] | None = None,
         class_names: Iterable[str] | None = None,
         page_mask: np.ndarray | None = None,
+        source_name: str = "",
     ) -> None:
         """Load the initial glyph set and transition into ``CLASSIFYING``.
 
@@ -201,6 +207,9 @@ class Session:
                 the session so :meth:`manual_group` can recover
                 between-bbox pixels later. Pass ``None`` when no page
                 image was used (legacy XML import, tests).
+            source_name: Optional label for the ingested source (e.g.
+                the uploaded bbox document's filename). Stored on the
+                session for the API layer to name the export artefact.
 
         Raises:
             StateTransitionError: If called from anywhere except
@@ -212,6 +221,7 @@ class Session:
         if class_names is not None:
             self.imported_class_names.update(class_names)
         self.page_mask = page_mask
+        self.source_name = source_name
         self.state = ClassifierState.CLASSIFYING
 
     # ------------------------------------------------------------------
