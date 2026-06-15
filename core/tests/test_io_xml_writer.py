@@ -16,7 +16,12 @@ import pytest
 from lxml import etree
 
 from ic_core.classifier import UNCLASSIFIED, filter_parts
-from ic_core.glyph import Glyph
+from ic_core.glyph import (
+    CATEGORY_NEUMES,
+    CATEGORY_STAVES,
+    CATEGORY_TEXT,
+    Glyph,
+)
 from ic_core.image import array_to_rle
 from ic_core.io_xml import dumps_glyphs, load_glyphs, write_glyphs
 
@@ -28,6 +33,7 @@ def _make_glyph(
     confidence: float = 0.0,
     ulx: int = 0,
     uly: int = 0,
+    category: str = CATEGORY_NEUMES,
     shape: tuple[int, int] = (4, 4),
 ) -> Glyph:
     arr = np.ones(shape, dtype=bool)
@@ -41,6 +47,7 @@ def _make_glyph(
         uly=uly,
         id_state_manual=id_state_manual,
         confidence=confidence,
+        category=category,
     )
 
 
@@ -61,6 +68,27 @@ def test_state_attribute_reflects_glyph_kind():
     states = [g.find("ids").get("state") for g in root.iterfind(".//glyph")]
 
     assert states == ["MANUAL", "AUTOMATIC", "UNCLASSIFIED"]
+
+
+def test_unclassified_id_name_reflects_category():
+    """UNCLASSIFIED Text/Staves glyphs surface a concrete ``<id>`` name
+    (``text`` / ``staff``); an UNCLASSIFIED Neume keeps the sentinel."""
+    text = _make_glyph(class_name=UNCLASSIFIED, category=CATEGORY_TEXT)
+    staff = _make_glyph(class_name=UNCLASSIFIED, category=CATEGORY_STAVES)
+    neume = _make_glyph(class_name=UNCLASSIFIED, category=CATEGORY_NEUMES)
+
+    root = etree.fromstring(dumps_glyphs([text, staff, neume]))
+    names = [g.find(".//id").get("name") for g in root.iterfind(".//glyph")]
+
+    assert names == ["text", "staff", UNCLASSIFIED]
+
+
+def test_classified_id_name_ignores_category():
+    """A real class name wins regardless of the glyph's category."""
+    g = _make_glyph(class_name="A", id_state_manual=True, confidence=1.0,
+                    category=CATEGORY_TEXT)
+    root = etree.fromstring(dumps_glyphs([g]))
+    assert root.find(".//id").get("name") == "A"
 
 
 def test_geometry_attributes_round_trip(tmp_path: Path):
