@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/Button";
 import { useCreateSession } from "@/hooks/useCreateSession";
-import { useTrainingSets } from "@/hooks/useTrainingSets";
 import { useVocabularies, useVocabularyClasses } from "@/hooks/useVocabularies";
 import type { AnnotationFormat } from "@/types/api";
 import { type FormEvent, useState } from "react";
@@ -9,10 +8,9 @@ export function UploadView() {
   const [pageImage, setPageImage] = useState<File | null>(null);
   const [annotations, setAnnotations] = useState<File | null>(null);
   const [format, setFormat] = useState<AnnotationFormat>("json");
-  const [trainingXml, setTrainingXml] = useState("");
+  const [trainingFile, setTrainingFile] = useState<File | null>(null);
   const [vocabulary, setVocabulary] = useState("");
   const create = useCreateSession();
-  const trainingSets = useTrainingSets();
   const vocabularies = useVocabularies();
   const vocabClasses = useVocabularyClasses(vocabulary);
 
@@ -23,7 +21,7 @@ export function UploadView() {
       pageImage,
       annotations,
       annotationsFormat: format,
-      trainingXml: trainingXml || undefined,
+      trainingFile: trainingFile ?? undefined,
       vocabulary: vocabulary || undefined,
     });
   }
@@ -81,25 +79,16 @@ export function UploadView() {
             Training set{" "}
             <span className="font-normal text-slate-400">(optional)</span>
           </span>
-          <select
-            value={trainingXml}
-            onChange={(e) => setTrainingXml(e.target.value)}
-            disabled={trainingSets.isLoading}
-            className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
-          >
-            <option value="">None</option>
-            {(trainingSets.data ?? []).map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
+          <input
+            type="file"
+            accept=".xml"
+            onChange={(e) => setTrainingFile(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm"
+          />
           <span className="mt-1 block text-xs font-normal text-slate-400">
-            {trainingSets.isError
-              ? "Could not load training sets."
-              : trainingXml
-                ? "Glyphs will be classified with this training set on start."
-                : "Pick a pre-built training set to auto-classify the page."}
+            {trainingFile
+              ? "Glyphs will be classified with this training set on start."
+              : "Upload a GameraXML (.xml) training set to auto-classify the page."}
           </span>
         </label>
 

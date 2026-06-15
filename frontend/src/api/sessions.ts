@@ -11,8 +11,8 @@ export interface CreateSessionArgs {
   annotations: File;
   annotationsFormat: AnnotationFormat;
   classNames?: string[];
-  /** Filename of a pre-built training set (see {@link listTrainingSets}). */
-  trainingXml?: string;
+  /** An uploaded GameraXML (.xml) training-set file. */
+  trainingFile?: File;
   /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
   vocabulary?: string;
 }
@@ -25,17 +25,14 @@ export function createSession(args: CreateSessionArgs): Promise<SessionDTO> {
   if (args.classNames && args.classNames.length > 0) {
     form.append("class_names", JSON.stringify(args.classNames));
   }
-  if (args.trainingXml) {
-    form.append("training_xml", args.trainingXml);
+  if (args.trainingFile) {
+    form.append("training_file", args.trainingFile);
   }
   if (args.vocabulary) {
     form.append("vocabulary", args.vocabulary);
   }
   return http.postForm<SessionDTO>("/sessions", form);
 }
-
-/** List the pre-built training-set XML filenames under core/data/derived. */
-export const listTrainingSets = () => http.get<string[]>("/training-sets");
 
 /** List the vocabulary CSV filenames under core/data/train. */
 export const listVocabularies = () => http.get<string[]>("/vocabularies");
