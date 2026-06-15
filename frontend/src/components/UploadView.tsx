@@ -8,7 +8,7 @@ export function UploadView() {
   const [pageImage, setPageImage] = useState<File | null>(null);
   const [annotations, setAnnotations] = useState<File | null>(null);
   const [format, setFormat] = useState<AnnotationFormat>("json");
-  const [trainingFile, setTrainingFile] = useState<File | null>(null);
+  const [trainingFiles, setTrainingFiles] = useState<File[]>([]);
   const [vocabulary, setVocabulary] = useState("");
   const create = useCreateSession();
   const vocabularies = useVocabularies();
@@ -21,7 +21,7 @@ export function UploadView() {
       pageImage,
       annotations,
       annotationsFormat: format,
-      trainingFile: trainingFile ?? undefined,
+      trainingFiles: trainingFiles.length > 0 ? trainingFiles : undefined,
       vocabulary: vocabulary || undefined,
     });
   }
@@ -82,13 +82,16 @@ export function UploadView() {
           <input
             type="file"
             accept=".xml"
-            onChange={(e) => setTrainingFile(e.target.files?.[0] ?? null)}
+            multiple
+            onChange={(e) => setTrainingFiles(Array.from(e.target.files ?? []))}
             className="block w-full text-sm"
           />
           <span className="mt-1 block text-xs font-normal text-slate-400">
-            {trainingFile
-              ? "Glyphs will be classified with this training set on start."
-              : "Upload a GameraXML (.xml) training set to auto-classify the page."}
+            {trainingFiles.length > 0
+              ? `${trainingFiles.length} training ${
+                  trainingFiles.length === 1 ? "set" : "sets"
+                } will be combined and classified on start.`
+              : "Upload one or more GameraXML (.xml) training sets to auto-classify the page."}
           </span>
         </label>
 

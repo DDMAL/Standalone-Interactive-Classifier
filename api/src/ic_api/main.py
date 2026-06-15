@@ -310,14 +310,15 @@ async def create_session(
         str | None,
         Form(description="Optional JSON-encoded list[str] of class names."),
     ] = None,
-    training_file: Annotated[
-        UploadFile | None,
+    training_files: Annotated[
+        list[UploadFile] | None,
         File(
             description=(
-                "Optional GameraXML (.xml) training-set upload. When given, "
-                "its glyphs seed the training pool and a classify round runs "
-                "automatically so the working set is labelled with that "
-                "training vocabulary before the session is returned."
+                "Optional GameraXML (.xml) training-set uploads. When given, "
+                "the glyphs from every file are concatenated to seed the "
+                "training pool and a classify round runs automatically so the "
+                "working set is labelled with that training vocabulary before "
+                "the session is returned."
             ),
         ),
     ] = None,
@@ -346,10 +347,10 @@ async def create_session(
     (once they have at least one manual or training glyph) or start
     labelling glyphs via :func:`update_glyph`.
 
-    When ``training_file`` carries an uploaded GameraXML training set, its
-    glyphs are loaded into the training pool and a classify round runs
-    before the response is sent, so the returned session is already
-    labelled with that training vocabulary.
+    When ``training_files`` carry uploaded GameraXML training sets, the
+    glyphs from every file are concatenated into the training pool and a
+    classify round runs before the response is sent, so the returned
+    session is already labelled with that training vocabulary.
     """
     parsed_names: list[str] | None = None
     if class_names is not None:
@@ -369,19 +370,21 @@ async def create_session(
         vocab_names = vocabulary_classes(vocabulary)
         parsed_names = sorted(set(parsed_names or []) | set(vocab_names))
 
-    # Parse the optional training-set upload *before* the page work so a
+    # Parse the optional training-set uploads *before* the page work so a
     # bad file fails fast with a 400 rather than after the work. Only
-    # ``.xml`` GameraXML documents are accepted.
+    # ``.xml`` GameraXML documents are accepted; the glyphs from every
+    # uploaded file are concatenated into a single training pool.
     training_glyphs: list | None = None
-    if training_file is not None:
-        name = training_file.filename or ""
-        if not name.lower().endswith(".xml"):
-            raise ValueError("training_file must be a .xml file.")
-        training_bytes = await training_file.read()
-        try:
-            training_glyphs = load_glyphs_bytes(training_bytes)
-        except etree.XMLSyntaxError as e:
-            raise ValueError(f"training_file is not valid XML: {e}") from e
+    if training_files:
+        training_glyphs = []
+        for tf in training_files:
+            name = tf.filename or ""
+            if not name.lower().endswith(".xml"):
+                raise ValueError(f"{name!r} is not a .xml file.")
+            try:
+                training_glyphs.extend(load_glyphs_bytes(await tf.read()))
+            except etree.XMLSyntaxError as e:
+                raise ValueError(f"{name!r} is not valid XML: {e}") from e
 
     page_bytes = await page_image.read()
     annotations_bytes = await annotations.read()

@@ -11,8 +11,8 @@ export interface CreateSessionArgs {
   annotations: File;
   annotationsFormat: AnnotationFormat;
   classNames?: string[];
-  /** An uploaded GameraXML (.xml) training-set file. */
-  trainingFile?: File;
+  /** Uploaded GameraXML (.xml) training-set files; glyphs are concatenated. */
+  trainingFiles?: File[];
   /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
   vocabulary?: string;
 }
@@ -25,8 +25,8 @@ export function createSession(args: CreateSessionArgs): Promise<SessionDTO> {
   if (args.classNames && args.classNames.length > 0) {
     form.append("class_names", JSON.stringify(args.classNames));
   }
-  if (args.trainingFile) {
-    form.append("training_file", args.trainingFile);
+  for (const file of args.trainingFiles ?? []) {
+    form.append("training_files", file);
   }
   if (args.vocabulary) {
     form.append("vocabulary", args.vocabulary);
