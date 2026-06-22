@@ -205,21 +205,27 @@ def build_model(
     lora_alpha: int,
     lora_dropout: float,
     proj_dim: int,
+    resume_from: Path | None = None,
 ) -> SimCLRViT:
     print(f"Loading {model_name}...")
     config = ViTConfig.from_pretrained(model_name)
-    backbone = ViTModel.from_pretrained(model_name, ignore_mismatched_sizes=True)
 
-    lora_config = LoraConfig(
-        r=lora_r,
-        lora_alpha=lora_alpha,
-        lora_dropout=lora_dropout,
-        target_modules=["q_proj", "v_proj"],
-        bias="none",
-    )
-    backbone = get_peft_model(backbone, lora_config)
+    if resume_from is not None:
+        print(f"Resuming LoRA weights from {resume_from} ...")
+        base = ViTModel.from_pretrained(model_name, ignore_mismatched_sizes=True)
+        backbone = PeftModel.from_pretrained(base, str(resume_from), is_trainable=True)
+    else:
+        backbone = ViTModel.from_pretrained(model_name, ignore_mismatched_sizes=True)
+        lora_config = LoraConfig(
+            r=lora_r,
+            lora_alpha=lora_alpha,
+            lora_dropout=lora_dropout,
+            target_modules=["q_proj", "v_proj"],
+            bias="none",
+        )
+        backbone = get_peft_model(backbone, lora_config)
+
     backbone.print_trainable_parameters()
-
     return SimCLRViT(backbone, hidden_size=config.hidden_size, proj_dim=proj_dim)
 
 
@@ -232,6 +238,7 @@ def train(
     crops_dir: Path,
     output_dir: Path,
     epochs: int,
+    start_epoch: int,
     batch_size: int,
     lr: float,
     temperature: float,
@@ -241,6 +248,7 @@ def train(
     proj_dim: int,
     num_workers: int,
     n_crops: int | None,
+    resume_from: Path | None,
 ) -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
@@ -248,13 +256,20 @@ def train(
     loader, steps_per_epoch = build_dataloader(crops_dir, batch_size, num_workers, n_crops)
     print(f"~{steps_per_epoch} batches/epoch")
 
-    model = build_model(model_name, lora_r, lora_alpha, lora_dropout, proj_dim).to(device)
+    model = build_model(model_name, lora_r, lora_alpha, lora_dropout, proj_dim,
+                        resume_from=resume_from).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=0.05)
+    # T_max covers total epochs so LR schedule is consistent whether fresh or resumed
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    # Fast-forward scheduler to where we left off
+    for _ in range(start_epoch - 1):
+        scheduler.step()
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    total_epochs = start_epoch + epochs - 1
+    print(f"Training epochs {start_epoch} → {total_epochs}")
 
-    for epoch in range(1, epochs + 1):
+    for epoch in range(start_epoch, total_epochs + 1):
         model.train()
         total_loss = 0.0
 
@@ -278,7 +293,7 @@ def train(
 
         scheduler.step()
         avg_loss = total_loss / steps_per_epoch
-        print(f"Epoch {epoch}/{epochs}  loss={avg_loss:.4f}  lr={scheduler.get_last_lr()[0]:.2e}")
+        print(f"Epoch {epoch}/{total_epochs}  loss={avg_loss:.4f}  lr={scheduler.get_last_lr()[0]:.2e}")
 
         # Save only the LoRA backbone — projection head is discarded (not needed at eval)
         ckpt_dir = output_dir / f"epoch_{epoch:03d}"
@@ -313,6 +328,10 @@ def main() -> None:
                         help="Projection head output dimension (discarded after training)")
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--n-crops", type=int, default=None)
+    parser.add_argument("--resume-from", type=Path, default=None,
+                        help="Path to a saved LoRA checkpoint directory to resume from.")
+    parser.add_argument("--start-epoch", type=int, default=1,
+                        help="Epoch number to start from (use with --resume-from, e.g. 6 after epoch_005).")
     args = parser.parse_args()
 
     train(
@@ -320,6 +339,7 @@ def main() -> None:
         crops_dir=args.crops_dir,
         output_dir=args.output_dir,
         epochs=args.epochs,
+        start_epoch=args.start_epoch,
         batch_size=args.batch_size,
         lr=args.lr,
         temperature=args.temperature,
@@ -329,6 +349,7 @@ def main() -> None:
         proj_dim=args.proj_dim,
         num_workers=args.num_workers,
         n_crops=args.n_crops,
+        resume_from=args.resume_from,
     )
 
 
