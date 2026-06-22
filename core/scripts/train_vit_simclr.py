@@ -55,7 +55,7 @@ from torchvision import transforms
 from transformers import AutoImageProcessor, ViTConfig, ViTModel
 
 try:
-    from peft import LoraConfig, get_peft_model
+    from peft import LoraConfig, PeftModel, get_peft_model
 except ImportError:
     raise ImportError("Install peft: pip install peft")
 
