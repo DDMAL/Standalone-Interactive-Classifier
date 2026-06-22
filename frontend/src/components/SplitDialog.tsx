@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -297,9 +298,32 @@ function SplitCanvas({
   onPointerUp,
   onDeleteRect,
 }: SplitCanvasProps) {
+  // Screen pixels per viewBox unit. The labels and delete buttons are
+  // authored in *screen* pixels (a constant readable size) and converted
+  // to viewBox units via `k = 1 / unitPx`, so they stay the same physical
+  // size on screen no matter how high-resolution the glyph is — a small
+  // glyph zooms in, a large one zooms out, but the chrome stays legible.
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [unitPx, setUnitPx] = useState(0);
+  useLayoutEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const measure = () => {
+      const w = svg.getBoundingClientRect().width;
+      // width / vbW == height / vbH under xMidYMid meet with a matching
+      // aspect ratio, so either axis yields the same scale.
+      if (w > 0) setUnitPx(w / vbW);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(svg);
+    return () => ro.disconnect();
+  }, [vbW]);
+
   return (
     <div className="mt-4 flex max-h-[60vh] items-center justify-center overflow-hidden rounded border border-slate-200 bg-slate-100 p-2">
       <svg
+        ref={svgRef}
         viewBox={`${-pad} ${-pad} ${vbW} ${vbH}`}
         preserveAspectRatio="xMidYMid meet"
         className="block max-h-[55vh] cursor-crosshair touch-none"
@@ -347,53 +371,98 @@ function SplitCanvas({
           vectorEffect="non-scaling-stroke"
           className="stroke-slate-400 pointer-events-none"
         />
-        {rects.map((r, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: rects are append-only and reorderable via delete only
-          <g key={i}>
-            {/* Same pointer-events-none reasoning as the image above: a
-                committed rect must not block new drags that start on
-                top of it. The delete button inside the foreignObject
-                keeps its own `pointer-events-auto`, so removal still
-                works. */}
-            <rect
-              x={r.x}
-              y={r.y}
-              width={r.w}
-              height={r.h}
-              strokeWidth={1.5}
-              vectorEffect="non-scaling-stroke"
-              className="fill-emerald-500/20 stroke-emerald-600 pointer-events-none"
-            />
-            {/* Numbered label in the top-left corner of the rect. The
-                foreignObject lets us position a real <button> over the
-                SVG so the click target is properly hit-tested. */}
-            <foreignObject
-              x={r.x}
-              y={r.y}
-              width={Math.min(r.w, glyph.ncols)}
-              height={Math.min(r.h, glyph.nrows)}
-              className="pointer-events-none"
-            >
-              <div className="flex h-full w-full items-start justify-between p-0.5">
-                <span className="rounded bg-emerald-600 px-1 text-[10px] font-semibold text-white shadow">
-                  {i + 1}
-                </span>
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteRect(i);
-                  }}
-                  className="pointer-events-auto rounded bg-white/90 px-1 text-[10px] font-semibold text-rose-600 shadow hover:bg-rose-50"
-                  aria-label={`Remove rectangle ${i + 1}`}
+        {rects.map((r, i) => {
+          // ViewBox units per screen pixel — the inverse of `unitPx`. Used
+          // to size the label/button chrome in constant screen pixels.
+          // Until the first measurement lands, `unitPx` is 0; skip the
+          // chrome that frame rather than divide by zero (it appears on
+          // the next paint once the observer fires).
+          const k = unitPx > 0 ? 1 / unitPx : 0;
+          // Chrome sizes in screen px, converted to viewBox units.
+          const font = 20 * k;
+          const padU = 2 * k;
+          const badge = 25 * k; // fixed circular badge size
+          const chromeH = badge + 2 * padU; // row height incl. inset padding
+          const labelNudge = { x: -1, y: 0 };  // screen px; tweak to taste
+          const xNudge = { x: 2, y: -1 };     // × glyphs usually sit a hair high
+
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: rects are append-only and reorderable via delete only
+            <g key={i}>
+              {/* Same pointer-events-none reasoning as the image above: a
+                  committed rect must not block new drags that start on
+                  top of it. The delete button below keeps its own
+                  `pointer-events-auto`, so removal still works. */}
+              <rect
+                x={r.x}
+                y={r.y}
+                width={r.w}
+                height={r.h}
+                strokeWidth={1.5}
+                vectorEffect="non-scaling-stroke"
+                className="fill-emerald-500/20 stroke-emerald-600 pointer-events-none"
+              />
+              {k > 0 && (
+                // One row pinned to the top edge of the rect: number on
+                // the left, delete on the right. Height is the chrome's
+                // own height (not the rect's) and overflow is visible, so
+                // a short or zoomed rect can never clip the controls; the
+                // flex row keeps both flush to the rect's top corners
+                // regardless of the rect's size.
+                <foreignObject
+                  x={r.x}
+                  y={r.y}
+                  width={r.w}
+                  height={chromeH}
+                  className="overflow-visible pointer-events-none"
                 >
-                  ×
-                </button>
-              </div>
-            </foreignObject>
-          </g>
-        ))}
+                  <div
+                    className="flex w-full items-start justify-between"
+                    style={{ gap: `${padU}px`, padding: `${padU}px` }}
+                  >
+                    <span
+                      className="inline-flex shrink-0 items-center justify-center bg-emerald-600 font-semibold leading-none text-white shadow"
+                      style={{
+                        minWidth: `${badge}px`,
+                        height: `${badge}px`,
+                        padding: `0 ${padU * 2}px`,
+                        borderRadius: `${5 * k}px`,
+                        fontSize: `${font}px`,
+                      }}
+                    >
+                      <span style={{ transform: `translate(${labelNudge.x * k}px, ${labelNudge.y * k}px)` }}>
+                        {i + 1}
+                      </span>
+                    </span>
+                    {/* The foreignObject lets us place a real <button> over
+                        the SVG so the click target is properly hit-tested. */}
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteRect(i);
+                      }}
+                      className="pointer-events-auto inline-flex shrink-0 items-center justify-center bg-white/90 font-semibold leading-none text-rose-600 shadow hover:bg-rose-50"
+                      style={{
+                        minWidth: `${badge}px`,
+                        height: `${badge}px`,
+                        padding: `0 ${padU * 2}px`,
+                        borderRadius: `${5 * k}px`,
+                        fontSize: `${font}px`,
+                      }}
+                      aria-label={`Remove rectangle ${i + 1}`}
+                    >
+                      <span style={{ transform: `translate(${xNudge.x * k}px, ${xNudge.y * k}px)` }}>
+                        ×
+                      </span>
+                    </button>
+                  </div>
+                </foreignObject>
+              )}
+            </g>
+          );
+        })}
         {draft && (
           <rect
             x={draft.x}
