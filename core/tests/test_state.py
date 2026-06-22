@@ -106,7 +106,7 @@ def test_classify_replaces_unmanual_glyphs_keeps_manual():
 
     s = Session()
     s.ingest([manual, query])
-    s.classify()
+    s.classify(k=1)
 
     # Manual is preserved (by id, possibly reordered by sort).
     out_manual = next(g for g in s.glyphs if g.id == manual.id)
@@ -131,7 +131,7 @@ def test_classify_outputs_sorted_ascending_by_confidence():
 
     sess = Session()
     sess.ingest([*train, *queries])
-    sess.classify()
+    sess.classify(k=1)
 
     confs = [g.confidence for g in sess.glyphs]
     assert confs == sorted(confs)
