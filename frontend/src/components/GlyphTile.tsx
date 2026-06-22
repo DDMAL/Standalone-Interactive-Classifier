@@ -50,7 +50,7 @@ export function GlyphTile({ glyph, selected }: GlyphTileProps) {
         <img
           src={glyphDataUri(glyph)}
           alt={glyph.class_name}
-          className="max-h-16 max-w-full object-contain"
+          className="h-16 w-full object-contain"
         />
       </div>
       <span

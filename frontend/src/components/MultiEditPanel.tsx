@@ -2,9 +2,9 @@ import { ClassNameInput } from "@/components/ClassNameInput";
 import { GroupDialog } from "@/components/GroupDialog";
 import { Button } from "@/components/ui/Button";
 import { useUpdateGlyphs } from "@/hooks/useUpdateGlyphs";
-import { isEditableTarget } from "@/lib/keymap";
+import { isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
 import { useUiStore } from "@/store/uiStore";
-import type { GlyphDTO } from "@/types/api";
+import { CATEGORY_ORDER, type GlyphCategory, type GlyphDTO } from "@/types/api";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 interface MultiEditPanelProps {
@@ -87,6 +87,18 @@ export function MultiEditPanel({
     void applyToMany();
   }
 
+  // Move every selected glyph to another MOTHRA category. The backend resets
+  // each label on the move, so we skip reclassify and keep the selection — a
+  // mixed batch moved to Neumes can then be bulk-labelled in place.
+  async function moveAllToCategory(target: GlyphCategory) {
+    if (pending || selectedGlyphs.length === 0) return;
+    await updateGlyphs.mutateAsync({
+      glyphIds: selectedGlyphs.map((g) => g.id),
+      patch: { category: target },
+      reclassify: false,
+    });
+  }
+
   function handleDelete() {
     softDeleteGlyphs(selectedGlyphs.map((g) => g.id));
   }
@@ -121,6 +133,24 @@ export function MultiEditPanel({
         const input = inputRef.current?.querySelector("input");
         input?.focus();
       }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [neumeIds.length]);
+
+  // Typing a letter/number jumps into the class-name field and seeds it with
+  // that character, mirroring SingleEditor. Only useful when the selection
+  // includes Neumes to relabel.
+  useEffect(() => {
+    if (neumeIds.length === 0) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (isEditableTarget(e.target)) return;
+      if (!isTypeToFocusKey(e)) return;
+      const input = inputRef.current?.querySelector("input");
+      if (!input) return;
+      e.preventDefault();
+      setClassName(e.key);
+      input.focus();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -185,6 +215,29 @@ export function MultiEditPanel({
             : `Apply to ${neumeCount} Neume${neumeCount === 1 ? "" : "s"}`}
         </Button>
       </form>
+
+      <div className="mt-4 border-t border-slate-200 pt-3">
+        <span className="mb-2 block text-xs font-medium text-slate-700">
+          Move to class
+        </span>
+        <div className="flex flex-wrap gap-2">
+          {CATEGORY_ORDER.map((target) => (
+            <Button
+              key={target}
+              variant="secondary"
+              disabled={pending}
+              onClick={() => moveAllToCategory(target)}
+              className="flex-1 whitespace-nowrap px-2 py-1 text-xs"
+            >
+              → {target}
+            </Button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-slate-400">
+          Moves all {totalCount} selected glyph{totalCount === 1 ? "" : "s"};
+          resets their neume labels.
+        </p>
+      </div>
 
       <div className="mt-4 border-t border-slate-200 pt-3">
         <Button

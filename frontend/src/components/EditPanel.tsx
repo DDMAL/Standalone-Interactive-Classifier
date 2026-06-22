@@ -6,7 +6,7 @@ import { useClassify } from "@/hooks/useClassify";
 import { sessionKey } from "@/hooks/useSession";
 import { useUpdateGlyph } from "@/hooks/useUpdateGlyph";
 import { formatConfidence, glyphDataUri } from "@/lib/format";
-import { isEditableTarget } from "@/lib/keymap";
+import { isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
 import { useUiStore } from "@/store/uiStore";
 import { CATEGORY_ORDER, type GlyphCategory, type GlyphDTO } from "@/types/api";
 import { useQueryClient } from "@tanstack/react-query";
@@ -74,6 +74,10 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
   // listener without re-binding the listener on every render.
   const applyRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
+  // Wraps the ClassNameInput so the type-to-focus listener can reach the
+  // underlying <input>.
+  const inputRef = useRef<HTMLDivElement>(null);
+
   async function applyClassName(override?: string) {
     const name = (override ?? className).trim();
     if (!name) return;
@@ -123,6 +127,25 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  // Typing a letter/number anywhere (with a glyph selected) jumps into the
+  // class-name field and seeds it with that character, so relabelling needs
+  // no extra click. Only meaningful for Neumes, which is the only branch
+  // that renders the input.
+  useEffect(() => {
+    if (!isNeume) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (isEditableTarget(e.target)) return;
+      if (!isTypeToFocusKey(e)) return;
+      const input = inputRef.current?.querySelector("input");
+      if (!input) return;
+      e.preventDefault();
+      setClassName(e.key);
+      input.focus();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isNeume]);
 
   return (
     <aside className="w-72 shrink-0 overflow-auto border-l border-slate-200 bg-white p-4">
@@ -174,7 +197,7 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
 
       {isNeume ? (
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
+          <div ref={inputRef}>
             <span className="mb-1 block text-xs font-medium text-slate-700">
               Class name
             </span>

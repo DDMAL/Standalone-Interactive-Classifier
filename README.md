@@ -65,3 +65,4 @@ npm run build                              # type-check + production build
 - [docs/migration_plan.md](docs/migration_plan.md) — full migration strategy, phasing, and risks
 - [docs/KNN_ALGORITHM.md](docs/KNN_ALGORITHM.md) — algorithm spec and invariants
 - [docs/CLAUDE.md](docs/CLAUDE.md) — architecture notes and conventions for AI-assisted development
+- [docs/USER_MANUAL.md](docs/USER_MANUAL.md) — detailed instructions for user and QA

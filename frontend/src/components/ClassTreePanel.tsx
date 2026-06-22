@@ -60,11 +60,48 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
     renameClass.mutate({ name: node.path, newName: newPath });
   }
 
+  // Glyphs still carrying this class or one of its dotted subclasses.
+  // `onlyPresent` excludes soft-deleted glyphs — used to decide whether the
+  // user still has visible glyphs on this class (→ confirmation pop-up).
+  // The full set (including soft-deleted) is what must be reset to
+  // UNCLASSIFIED: soft-deleted glyphs still live in the backend session until
+  // "complete", so the union-based `class_names` re-derives the class from
+  // them and the delete would otherwise have no effect.
+  function affectedGlyphIds(node: ClassNode, onlyPresent: boolean): string[] {
+    const prefix = `${node.path}.`;
+    const ids: string[] = [];
+    for (const g of session.glyphs) {
+      if (onlyPresent && deletedGlyphIds.has(g.id)) continue;
+      if (g.class_name === node.path || g.class_name.startsWith(prefix)) {
+        ids.push(g.id);
+      }
+    }
+    return ids;
+  }
+
+  function handleDeleteRequest(node: ClassNode) {
+    // No *present* glyph carries this class (any that do are in the deleted
+    // section) — the delete is safe, skip the confirmation pop-up. Still reset
+    // the soft-deleted carriers so the backend union doesn't re-derive it.
+    if (affectedGlyphIds(node, true).length === 0) {
+      deleteClassMut.mutate({
+        name: node.path,
+        unclassifyGlyphIds: affectedGlyphIds(node, false),
+      });
+      return;
+    }
+    setDeleteTarget(node);
+  }
+
   function handleConfirmDelete() {
     if (!deleteTarget) return;
-    deleteClassMut.mutate(deleteTarget.path, {
-      onSettled: () => setDeleteTarget(null),
-    });
+    deleteClassMut.mutate(
+      {
+        name: deleteTarget.path,
+        unclassifyGlyphIds: affectedGlyphIds(deleteTarget, false),
+      },
+      { onSettled: () => setDeleteTarget(null) },
+    );
   }
 
   if (collapsed) {
@@ -84,6 +121,11 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
   }
 
   const descendantCount = deleteTarget ? countDescendants(deleteTarget) - 1 : 0;
+  // The pop-up only opens when present glyphs still carry the class, so this is
+  // always > 0 while the dialog is visible.
+  const affectedCount = deleteTarget
+    ? affectedGlyphIds(deleteTarget, true).length
+    : 0;
 
   return (
     <aside className="flex w-52 shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -118,7 +160,7 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
                 depth={0}
                 onSelect={handleSelect}
                 onRename={handleRename}
-                onDelete={(n) => setDeleteTarget(n)}
+                onDelete={handleDeleteRequest}
                 renamingPath={renamingPath}
                 setRenamingPath={setRenamingPath}
               />
@@ -147,8 +189,10 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
         }
         description={
           <span>
-            Glyphs already labelled with this class will keep their label but
-            the autocomplete will no longer offer it.
+            {affectedCount} glyph{affectedCount === 1 ? "" : "s"} still labelled
+            with this class. Deleting it will mark{" "}
+            {affectedCount === 1 ? "that glyph" : "those glyphs"} as{" "}
+            <strong>UNCLASSIFIED</strong>. This cannot be undone.
           </span>
         }
         confirmLabel="Delete"

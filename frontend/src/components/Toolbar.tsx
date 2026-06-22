@@ -1,22 +1,52 @@
 import { Button } from "@/components/ui/Button";
+import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
 import { useSave } from "@/hooks/useSave";
 import { useUiStore } from "@/store/uiStore";
 import { clsx } from "clsx";
+import { useEffect, useRef, useState } from "react";
 
 interface ToolbarProps {
   sessionId: string;
   glyphCount: number;
+  trainingSize: number;
 }
 
 const K_CHOICES = [1, 3, 5, 7] as const;
 
-export function Toolbar({ sessionId, glyphCount }: ToolbarProps) {
+export function Toolbar({ sessionId, glyphCount, trainingSize }: ToolbarProps) {
   const save = useSave(sessionId);
   const complete = useComplete(sessionId);
+  const classify = useClassify(sessionId);
   const clearSession = useUiStore((s) => s.clearSession);
   const knnK = useUiStore((s) => s.knnK);
   const setKnnK = useUiStore((s) => s.setKnnK);
+
+  // A k value is only meaningful when the training set has at least k
+  // examples — kNN needs k neighbours to vote on. Higher k values become
+  // (un)available as the training set grows or shrinks.
+  const isKAvailable = (k: number) => trainingSize >= k;
+
+  // If the selected k outgrows the training set, fall back to the lowest
+  // available k value so we never ask the classifier for more neighbours
+  // than it has. When the pool is empty (the starting state, no training
+  // set selected), no k is available and we settle on k=1.
+  useEffect(() => {
+    if (trainingSize < knnK) {
+      const fallback = K_CHOICES.find((k) => trainingSize >= k) ?? K_CHOICES[0];
+      if (fallback !== knnK) setKnnK(fallback);
+    }
+  }, [trainingSize, knnK, setKnnK]);
+
+  // Changing k re-runs the classification stage with the new neighbour
+  // count. No-op when the same k is clicked, while a classify is in flight,
+  // or when the training set is too small for that k, to avoid
+  // redundant/concurrent/invalid rounds.
+  const handleKChange = (k: number) => {
+    if (k === knnK || classify.isPending || !isKAvailable(k)) return;
+    setKnnK(k);
+    classify.mutate(k);
+  };
 
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
@@ -33,22 +63,37 @@ export function Toolbar({ sessionId, glyphCount }: ToolbarProps) {
         >
           <span className="text-xs font-medium text-slate-600">k</span>
           <div className="flex overflow-hidden rounded border border-slate-300">
-            {K_CHOICES.map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setKnnK(k)}
-                className={clsx(
-                  "px-2 py-0.5 text-xs font-medium transition-colors",
-                  k === knnK
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-slate-700 hover:bg-slate-100",
-                )}
-              >
-                {k}
-              </button>
-            ))}
+            {K_CHOICES.map((k) => {
+              const available = isKAvailable(k);
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => handleKChange(k)}
+                  disabled={classify.isPending || !available}
+                  title={
+                    available
+                      ? undefined
+                      : `Needs at least ${k} training glyphs (have ${trainingSize})`
+                  }
+                  className={clsx(
+                    "px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                    k === knnK
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-slate-700 hover:bg-slate-100",
+                  )}
+                >
+                  {k}
+                </button>
+              );
+            })}
           </div>
+          <span
+            className="text-xs text-slate-500"
+            title="Number of glyphs in the training set used for kNN classification"
+          >
+            {trainingSize.toLocaleString()} training glyphs
+          </span>
         </div>
         <Button variant="ghost" onClick={clearSession}>
           New session
@@ -60,10 +105,90 @@ export function Toolbar({ sessionId, glyphCount }: ToolbarProps) {
         >
           {save.isPending ? "Saving…" : "Save"}
         </Button>
-        <Button onClick={() => complete.mutate()} disabled={complete.isPending}>
-          {complete.isPending ? "Exporting…" : "Complete & Export"}
-        </Button>
+        <ExportMenu
+          pending={complete.isPending}
+          trainingSize={trainingSize}
+          onExport={(includeTraining) => complete.mutate(includeTraining)}
+        />
       </div>
     </header>
+  );
+}
+
+interface ExportMenuProps {
+  pending: boolean;
+  trainingSize: number;
+  onExport: (includeTraining: boolean) => void;
+}
+
+/**
+ * Split-style export control: clicking the caret reveals a choice between
+ * exporting just this page and exporting this page folded into the whole
+ * training set. The menu closes on outside click or Escape.
+ */
+function ExportMenu({ pending, trainingSize, onExport }: ExportMenuProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const choose = (includeTraining: boolean) => {
+    setOpen(false);
+    onExport(includeTraining);
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      <Button onClick={() => setOpen((v) => !v)} disabled={pending}>
+        {pending ? "Exporting…" : "Complete & Export ▾"}
+      </Button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 w-72 overflow-hidden rounded border border-slate-200 bg-white shadow-lg">
+          <button
+            type="button"
+            onClick={() => choose(false)}
+            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
+          >
+            <span className="font-medium">Export this page</span>
+            <span className="block text-xs text-slate-500">
+              GameraXML for the current page only
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => choose(true)}
+            disabled={trainingSize === 0}
+            title={
+              trainingSize === 0
+                ? "No training set loaded for this session"
+                : undefined
+            }
+            className="block w-full border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+          >
+            <span className="font-medium">Export this page + training set</span>
+            <span className="block text-xs text-slate-500">
+              One GameraXML combining this page with all{" "}
+              {trainingSize.toLocaleString()} training glyphs
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

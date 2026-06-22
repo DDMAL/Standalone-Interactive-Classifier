@@ -4,6 +4,7 @@ F Clef,clef.f,1,"<clef shape=""F""/>"
 F Clef other one,clef.f2,1,"<clef shape=""F""/>"
 Custos,custos,1,<custos/>
 Divisio,divisio.maxima,1,"<divLine form=""maxima""/>"
+Divisio,divisio.maior,1,"<divLine form=""maxima""/>"
 Flat,accidental.flat,1,"<accid accid=""f""/>"
 Natural,accidental.natural,1,"<accid accid=""n""/>"
 Punctum,neume.punctum,1,"<neume>

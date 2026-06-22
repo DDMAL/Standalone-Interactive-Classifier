@@ -71,7 +71,7 @@ class SessionDTO(BaseModel):
 class ClassifyRequest(BaseModel):
     """POST /sessions/{id}/classify body."""
 
-    k: int = Field(default=1, ge=1, description="Neighbour count; default 1.")
+    k: int = Field(default=3, ge=1, description="Neighbour count; default 3.")
 
 
 class UpdateGlyphRequest(BaseModel):
