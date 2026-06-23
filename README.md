@@ -36,6 +36,14 @@ ic_new/
     └── KNN_ALGORITHM.md
 ```
 
+## Prerequisites
+
+- [uv](https://docs.astral.sh/uv/) — Python environment / dependency manager (used by the core and API)
+- Python ≥ 3.11 (uv will install a matching interpreter if needed)
+- Node.js + npm (for the frontend)
+
+To run the full app locally, start the layers in order: **API first** (binds `127.0.0.1:8000`), then the **frontend** dev server (which proxies `/sessions`, `/training-sets`, and `/vocabularies` to the API).
+
 ## Quickstart (algorithm core)
 
 The core package uses [uv](https://docs.astral.sh/uv/) for environment and dependency management.
@@ -48,14 +56,27 @@ uv run python ../scripts/run_pipeline.py   # end-to-end smoke: train → classif
 uv run ruff check .                        # lint
 ```
 
-The API has its own uv project under [api/](api/); see [api/README.md](api/README.md) for endpoint reference and run instructions.
+## Quickstart (API)
+
+The API has its own uv project under [api/](api/). Start it before the frontend.
+
+```bash
+cd api
+uv sync                                    # install dependencies (pulls in sibling ic-core)
+uv run ic-api                              # binds to 127.0.0.1:8000
+uv run pytest                              # run the API test suite
+```
+
+Override the bind address with the `HOST` / `PORT` env vars. CORS is preconfigured for the
+Vite dev origin (`localhost:5173` / `127.0.0.1:5173`). See [api/README.md](api/README.md)
+for the full endpoint reference.
 
 ## Quickstart (frontend)
 
 ```bash
 cd frontend
 npm install
-npm run dev                                # Vite dev server (expects ic-api on 127.0.0.1:8000)
+npm run dev                                # Vite dev server on :5173, proxies API calls to 127.0.0.1:8000
 npm run check                              # Biome lint/format check
 npm run build                              # type-check + production build
 ```
