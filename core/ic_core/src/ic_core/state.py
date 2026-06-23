@@ -132,6 +132,15 @@ class Session:
     page_mask: np.ndarray | None = None
     source_name: str = ""
 
+    # Raw uploaded page-image bytes, kept verbatim so the API layer can
+    # serve the original page back to a frontend that did not perform the
+    # upload itself (e.g. an embedding host that created the session via
+    # the HTTP API and deep-links into the SPA). ``None`` when ingest had
+    # no page image (legacy XML import, tests). Not used by any core
+    # algorithm — purely a convenience for the API/serving layer.
+    page_bytes: bytes | None = None
+    page_media_type: str | None = None
+
     # ------------------------------------------------------------------
     # Convenience accessors
     # ------------------------------------------------------------------

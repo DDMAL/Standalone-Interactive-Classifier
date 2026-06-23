@@ -427,6 +427,12 @@ async def create_session(
         page_mask=page_mask,
         source_name=_source_stem(annotations.filename),
     )
+    # Retain the original page bytes so GET /sessions/{id}/page can serve
+    # them back. A frontend that created this session via the HTTP API
+    # (rather than its own upload form) has no local object URL for the
+    # page, so it deep-links to that endpoint instead.
+    session.page_bytes = page_bytes
+    session.page_media_type = page_image.content_type or "application/octet-stream"
     # A selected training set means "label this page with that vocabulary
     # now" — run the first classify round server-side so the frontend
     # lands on an already-classified session.
@@ -441,6 +447,30 @@ def get_session(session_id: str, store: Store) -> SessionDTO:
     """Fetch the full current state of a session."""
     with store.session(session_id) as session:
         return session_to_dto(session)
+
+
+@app.get("/sessions/{session_id}/page")
+def get_session_page(session_id: str, store: Store) -> Response:
+    """Serve the original uploaded page image for a session.
+
+    Lets a frontend that did not perform the upload itself (an
+    embedding host that created the session via :func:`create_session`
+    and deep-linked into the SPA) render the page. Returns 404 when the
+    session was created without a page image.
+    """
+    with store.session(session_id) as session:
+        if not session.page_bytes:
+            return JSONResponse(
+                status_code=404,
+                content=ErrorResponse(
+                    detail="Session has no page image.",
+                    code="not_found",
+                ).model_dump(),
+            )
+        return Response(
+            content=session.page_bytes,
+            media_type=session.page_media_type or "application/octet-stream",
+        )
 
 
 @app.delete("/sessions/{session_id}", status_code=204)
