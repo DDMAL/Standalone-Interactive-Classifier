@@ -34,6 +34,44 @@ export function createSession(args: CreateSessionArgs): Promise<SessionDTO> {
   return http.postForm<SessionDTO>("/sessions", form);
 }
 
+/** Metadata for a page + bboxes staged by an embedding host (see /staging). */
+export interface StagingInfo {
+  staging_id: string;
+  page_name: string;
+  annotations_format: AnnotationFormat;
+  annotation_count: number;
+}
+
+export const getStaging = (id: string) =>
+  http.get<StagingInfo>(`/staging/${id}`);
+
+export interface CreateSessionFromStagingArgs {
+  stagingId: string;
+  classNames?: string[];
+  /** Uploaded GameraXML (.xml) training-set files; glyphs are concatenated. */
+  trainingFiles?: File[];
+  /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
+  vocabulary?: string;
+}
+
+/** Create a session from a staged page + bboxes plus the user's choices. */
+export function createSessionFromStaging(
+  args: CreateSessionFromStagingArgs,
+): Promise<SessionDTO> {
+  const form = new FormData();
+  form.append("staging_id", args.stagingId);
+  if (args.classNames && args.classNames.length > 0) {
+    form.append("class_names", JSON.stringify(args.classNames));
+  }
+  for (const file of args.trainingFiles ?? []) {
+    form.append("training_files", file);
+  }
+  if (args.vocabulary) {
+    form.append("vocabulary", args.vocabulary);
+  }
+  return http.postForm<SessionDTO>("/sessions/from-staging", form);
+}
+
 /** List the vocabulary CSV filenames under core/data/train. */
 export const listVocabularies = () => http.get<string[]>("/vocabularies");
 
