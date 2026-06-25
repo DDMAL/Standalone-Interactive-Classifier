@@ -3,7 +3,7 @@ import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
 import { useRebinarize } from "@/hooks/useRebinarize";
 import { useSave } from "@/hooks/useSave";
-import { useUiStore } from "@/store/uiStore";
+import { type GlyphImageMode, useUiStore } from "@/store/uiStore";
 import type { BinarizationMethod } from "@/types/api";
 import { clsx } from "clsx";
 import { useEffect, useRef, useState } from "react";
@@ -23,6 +23,11 @@ const BIN_METHODS: { value: BinarizationMethod; label: string }[] = [
   { value: "sauvola", label: "Sauvola" },
 ];
 
+const GLYPH_VIEWS: { value: GlyphImageMode; label: string }[] = [
+  { value: "binarized", label: "Binarized" },
+  { value: "original", label: "Original" },
+];
+
 export function Toolbar({
   sessionId,
   glyphCount,
@@ -36,6 +41,8 @@ export function Toolbar({
   const clearSession = useUiStore((s) => s.clearSession);
   const knnK = useUiStore((s) => s.knnK);
   const setKnnK = useUiStore((s) => s.setKnnK);
+  const glyphImageMode = useUiStore((s) => s.glyphImageMode);
+  const setGlyphImageMode = useUiStore((s) => s.setGlyphImageMode);
 
   // A k value is only meaningful when the training set has at least k
   // examples — kNN needs k neighbours to vote on. Higher k values become
@@ -106,6 +113,29 @@ export function Toolbar({
           {rebinarize.isPending && (
             <span className="text-xs text-slate-500">Re-binarizing…</span>
           )}
+        </div>
+        <div
+          className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
+          title="What the glyph tiles show: the binarized foreground mask, or the original page crop. Display-only; does not change the underlying glyph data."
+        >
+          <span className="text-xs font-medium text-slate-600">Glyphs</span>
+          <div className="flex overflow-hidden rounded border border-slate-300">
+            {GLYPH_VIEWS.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setGlyphImageMode(value)}
+                className={clsx(
+                  "px-2 py-0.5 text-xs font-medium transition-colors",
+                  value === glyphImageMode
+                    ? "bg-blue-600 text-white"
+                    : "bg-white text-slate-700 hover:bg-slate-100",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
         <div
           className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
