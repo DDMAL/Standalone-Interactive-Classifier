@@ -1,0 +1,25 @@
+# Keep the build context small and deterministic — these are regenerated
+# inside the image or are irrelevant to the build.
+.git
+**/node_modules
+**/.venv
+**/dist
+**/dist-ssr
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/*.tsbuildinfo
+
+# Built SPA copied into the API at image-build time (stage 2 COPY), never from host.
+api/src/ic_api/static/
+
+# Large, regenerable training artifacts — not needed to run the service.
+core/data/derived/
+
+# Local cruft
+**/.DS_Store
+*.db
+*.sqlite3
+Dockerfile
+.dockerignore
