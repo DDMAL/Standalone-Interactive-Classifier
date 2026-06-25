@@ -141,6 +141,19 @@ class Session:
     page_bytes: bytes | None = None
     page_media_type: str | None = None
 
+    # Raw bbox-annotation bytes + their format, kept verbatim so the API
+    # layer can re-binarise the page on demand (the working-page method
+    # toggle re-runs ingest from these against a different binarisation
+    # method). ``None`` when ingest had no annotation document (tests,
+    # legacy XML import). Convenience for the API layer, like page_bytes.
+    annotations_bytes: bytes | None = None
+    annotations_format: str | None = None
+
+    # Which binarisation method produced the current glyph masks
+    # ("global" | "otsu" | "sauvola"). Surfaced to the frontend so the
+    # method toggle reflects the active choice; updated by :meth:`rebinarize`.
+    binarization_method: str = "global"
+
     # ------------------------------------------------------------------
     # Convenience accessors
     # ------------------------------------------------------------------
@@ -281,6 +294,58 @@ class Session:
         # Sort here so the API response is already in display order; the
         # frontend regroups by category, so non-neumes simply trail behind.
         self.glyphs = neumes + others
+
+    def rebinarize(
+        self,
+        glyphs: Iterable[Glyph],
+        *,
+        page_mask: np.ndarray | None,
+        method: str,
+    ) -> None:
+        """Swap in a freshly re-binarised glyph set, keeping user labels.
+
+        Used when the user changes the binarisation method on the working
+        page. ``glyphs`` is the result of re-running ingest on the same
+        page + bboxes under the new ``method`` — a base glyph set with the
+        detector's original ids (stable for MOTHRA JSON) and no labels. We
+        carry each prior glyph's label and category override onto its
+        re-binarised counterpart by id, so the user's classification work
+        survives the switch; the new masks replace the old.
+
+        What does *not* survive: manual groups and splits — their glyphs
+        carry fresh ids absent from the base set, so they fall away (the
+        user picks a method first, then re-derives those). Auto labels are
+        carried as-is but are stale under the new masks; a classify round
+        refreshes them from the new pixels.
+
+        Args:
+            glyphs: Re-binarised base glyph set (from a fresh ingest).
+            page_mask: Full-page mask under the new method, for grouping.
+            method: The method that produced ``glyphs`` / ``page_mask``.
+
+        Raises:
+            StateTransitionError: If called outside ``CLASSIFYING``.
+        """
+        self._require_state(ClassifierState.CLASSIFYING)
+        prior = {g.id: g for g in self.glyphs}
+        carried: list[Glyph] = []
+        for g in glyphs:
+            old = prior.get(g.id)
+            if old is not None:
+                # Restore a user category move first (classify_* leave
+                # category untouched), then re-apply the prior label onto
+                # the fresh, cache-less glyph so its features recompute
+                # from the new mask on the next classify round.
+                if old.category != g.category:
+                    g = replace(g, category=old.category)
+                if old.id_state_manual:
+                    g = g.classify_manual(old.class_name)
+                elif old.class_name != UNCLASSIFIED:
+                    g = g.classify_automatic(old.class_name, old.confidence)
+            carried.append(g)
+        self.glyphs = carried
+        self.page_mask = page_mask
+        self.binarization_method = method
 
     def update_glyph(
         self,

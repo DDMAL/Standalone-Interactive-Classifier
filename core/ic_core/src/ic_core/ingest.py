@@ -79,6 +79,7 @@ from typing import Iterator, Literal
 
 import numpy as np
 from PIL import Image as PILImage
+from skimage.filters import threshold_otsu, threshold_sauvola
 
 from ic_core.classifier import UNCLASSIFIED
 from ic_core.glyph import (
@@ -101,12 +102,34 @@ _MOTHRA_CLASS_TO_CATEGORY: dict[int, str] = {
 #: Discriminator for which annotation parser :func:`ingest_page` picks.
 AnnotationFormat = Literal["json", "yolo"]
 
-#: Pixel-intensity cutoff: values ≤ this become foreground (True).
-#: 127 corresponds to "everything darker than mid-grey is ink",
-#: which works on both pre-binarised neume crops and lightly
-#: noisy ones. Override per-call with the ``threshold`` argument
-#: to :func:`ingest_page` if a specific dataset needs it.
+#: Which binarisation algorithm turns the greyscale page into a
+#: foreground/background mask. ``"global"`` is the historical fixed
+#: cutoff; ``"otsu"`` derives one global cutoff from the page
+#: histogram; ``"sauvola"`` is a local adaptive threshold that
+#: recovers faint ink (e.g. staff lines) on unevenly-lit parchment.
+#: See :func:`binarize_array`.
+BinarizationMethod = Literal["global", "otsu", "sauvola"]
+
+#: Default binarisation method. Kept at ``"global"`` so existing
+#: callers (scripts, tests) and re-ingests are byte-for-byte
+#: unchanged; the frontend opts into ``"sauvola"`` explicitly.
+DEFAULT_METHOD: BinarizationMethod = "global"
+
+#: Pixel-intensity cutoff for ``method="global"``: values ≤ this
+#: become foreground (True). 127 corresponds to "everything darker
+#: than mid-grey is ink", which works on both pre-binarised neume
+#: crops and lightly noisy ones. Override per-call with the
+#: ``threshold`` argument to :func:`ingest_page` if a specific
+#: dataset needs it.
 DEFAULT_THRESHOLD: int = 127
+
+#: Defaults for ``method="sauvola"``. The window should be a few×
+#: the stroke width — large enough not to eat the interior of thick
+#: neumes, small enough not to revert toward a global threshold. ``k``
+#: weights the local std-dev: higher is more conservative (less ink).
+#: 25 / 0.2 won an A/B on the ``core/data/test`` folios.
+SAUVOLA_WINDOW_SIZE: int = 25
+SAUVOLA_K: float = 0.2
 
 
 # ---------------------------------------------------------------------------
@@ -114,24 +137,84 @@ DEFAULT_THRESHOLD: int = 127
 # ---------------------------------------------------------------------------
 
 
+def binarize_array(
+    page: np.ndarray,
+    *,
+    method: BinarizationMethod = DEFAULT_METHOD,
+    threshold: int = DEFAULT_THRESHOLD,
+    window_size: int = SAUVOLA_WINDOW_SIZE,
+    k: float = SAUVOLA_K,
+) -> np.ndarray:
+    """Binarise a greyscale page array to a foreground mask.
+
+    The single source of truth for foreground/background discrimination;
+    both :func:`binarize_page` and the per-glyph crops in
+    :func:`ingest_page` go through here so a session's per-glyph masks
+    and its full-page grouping mask always agree.
+
+    Args:
+        page: 8-bit greyscale page, shape ``(height, width)``.
+        method: ``"global"`` (pixels ≤ ``threshold``), ``"otsu"`` (one
+            histogram-derived cutoff), or ``"sauvola"`` (local adaptive
+            threshold over a ``window_size`` window weighted by ``k``).
+        threshold: Cutoff for ``method="global"`` (also the fallback for
+            ``"otsu"`` on a uniform page).
+        window_size: Sauvola window edge in pixels (odd).
+        k: Sauvola std-dev weight.
+
+    Returns:
+        Boolean array of shape ``(height, width)``; ``True`` where the
+        page has foreground ink.
+
+    Note:
+        Sauvola's per-pixel threshold depends on the surrounding window,
+        so it does *not* commute with cropping — it must be computed on
+        the whole page and then sliced, never per crop. ``"global"`` and
+        ``"otsu"`` do commute, so all three are handled whole-page here.
+    """
+    if method == "global":
+        return page <= threshold
+    if method == "otsu":
+        # threshold_otsu raises on a single-valued image; a blank/uniform
+        # crop has no bimodal histogram, so fall back to the global cutoff.
+        if page.min() == page.max():
+            return page <= threshold
+        return page <= threshold_otsu(page)
+    if method == "sauvola":
+        return page < threshold_sauvola(page, window_size=window_size, k=k)
+    raise ValueError(
+        f"Unrecognised binarization method {method!r}; "
+        "expected 'global', 'otsu', or 'sauvola'"
+    )
+
+
 def binarize_page(
     page_image: bytes,
     *,
+    method: BinarizationMethod = DEFAULT_METHOD,
     threshold: int = DEFAULT_THRESHOLD,
+    window_size: int = SAUVOLA_WINDOW_SIZE,
+    k: float = SAUVOLA_K,
 ) -> np.ndarray:
     """Decode a page image and binarise it to a full-page foreground mask.
 
-    Same threshold convention as :func:`ingest_page` (pixels ≤
-    ``threshold`` are foreground). The returned array is needed by
-    manual grouping so pixels falling *between* child glyph bboxes —
-    which the per-glyph crops at ingest time never captured — can be
-    recovered when the user groups those children later.
+    Same method/parameter convention as :func:`ingest_page`; this is the
+    full-page mask manual grouping relies on to recover ink falling
+    *between* child glyph bboxes (never copied into any crop). It MUST be
+    produced with the same ``method`` as the page's glyphs were, or the
+    grouping mask and the per-glyph masks disagree.
 
     Returns:
-        Boolean array of shape ``(height, width)``; ``True`` where
-        the page has foreground ink.
+        Boolean array of shape ``(height, width)``; ``True`` where the
+        page has foreground ink.
     """
-    return _load_page(page_image) <= threshold
+    return binarize_array(
+        _load_page(page_image),
+        method=method,
+        threshold=threshold,
+        window_size=window_size,
+        k=k,
+    )
 
 
 def ingest_page(
@@ -139,7 +222,10 @@ def ingest_page(
     annotations: bytes,
     *,
     format: AnnotationFormat,
+    method: BinarizationMethod = DEFAULT_METHOD,
     threshold: int = DEFAULT_THRESHOLD,
+    window_size: int = SAUVOLA_WINDOW_SIZE,
+    k: float = SAUVOLA_K,
 ) -> list[Glyph]:
     """Crop a page into glyphs using a bbox annotation document.
 
@@ -153,8 +239,10 @@ def ingest_page(
             disambiguate, and because letting callers (HTTP clients)
             choose a parser by guessing file extensions is the same
             anti-pattern that motivated this byte-based API.
-        threshold: Foreground/background cutoff used when binarising
-            each cropped region.
+        method: Binarisation algorithm — see :func:`binarize_array`.
+        threshold: Foreground/background cutoff for ``method="global"``.
+        window_size: Sauvola window edge in pixels.
+        k: Sauvola std-dev weight.
 
     Returns:
         One :class:`Glyph` per bounding box, in the order the
@@ -164,10 +252,11 @@ def ingest_page(
         ValueError: If ``format`` is not one of ``"json"`` /
             ``"yolo"``.
     """
+    bin_kwargs = dict(method=method, threshold=threshold, window_size=window_size, k=k)
     if format == "json":
-        return ingest_page_json(page_image, annotations, threshold=threshold)
+        return ingest_page_json(page_image, annotations, **bin_kwargs)
     if format == "yolo":
-        return ingest_page_yolo(page_image, annotations, threshold=threshold)
+        return ingest_page_yolo(page_image, annotations, **bin_kwargs)
     raise ValueError(
         f"Unrecognised annotation format {format!r}; expected 'json' or 'yolo'"
     )
@@ -177,7 +266,10 @@ def ingest_page_json(
     page_image: bytes,
     annotations_json: bytes,
     *,
+    method: BinarizationMethod = DEFAULT_METHOD,
     threshold: int = DEFAULT_THRESHOLD,
+    window_size: int = SAUVOLA_WINDOW_SIZE,
+    k: float = SAUVOLA_K,
 ) -> list[Glyph]:
     """Crop using a MOTHRA JSON annotation document.
 
@@ -195,7 +287,10 @@ def ingest_page_json(
     Args:
         page_image: Raw bytes of the page image.
         annotations_json: Raw bytes of the MOTHRA JSON document.
-        threshold: Binarisation cutoff.
+        method: Binarisation algorithm — see :func:`binarize_array`.
+        threshold: Cutoff for ``method="global"``.
+        window_size: Sauvola window edge in pixels.
+        k: Sauvola std-dev weight.
 
     Returns:
         One :class:`Glyph` per annotation.
@@ -207,19 +302,25 @@ def ingest_page_json(
     doc = _unwrap_page(json.loads(annotations_json))
     annotations = doc.get("annotations", [])
 
-    # Open the page once; reuse the array across crops. Much cheaper
-    # than re-opening per glyph (136 glyphs × tens of KB of decode
-    # work each adds up).
-    page = _load_page(page_image)
+    # Binarise the whole page once, then slice each glyph out of the
+    # resulting mask. Opening the page per glyph would be wasteful, and
+    # binarising per crop would break Sauvola (its window must see the
+    # real page, not a crop's mirror-padded edge).
+    mask = binarize_array(
+        _load_page(page_image),
+        method=method,
+        threshold=threshold,
+        window_size=window_size,
+        k=k,
+    )
 
     return [
         _crop_to_glyph(
-            page,
+            mask,
             ulx=int(round(a["bbox"][0])),
             uly=int(round(a["bbox"][1])),
             width=int(round(a["bbox"][2])),
             height=int(round(a["bbox"][3])),
-            threshold=threshold,
             glyph_id=_normalise_uuid(a["id"]),
             category=_MOTHRA_CLASS_TO_CATEGORY.get(a.get("classId"), CATEGORY_NEUMES),
         )
@@ -231,7 +332,10 @@ def ingest_page_yolo(
     page_image: bytes,
     annotations_yolo: bytes,
     *,
+    method: BinarizationMethod = DEFAULT_METHOD,
     threshold: int = DEFAULT_THRESHOLD,
+    window_size: int = SAUVOLA_WINDOW_SIZE,
+    k: float = SAUVOLA_K,
 ) -> list[Glyph]:
     """Crop using a YOLO ``.txt`` annotation document.
 
@@ -240,26 +344,35 @@ def ingest_page_yolo(
     Args:
         page_image: Raw bytes of the page image.
         annotations_yolo: Raw bytes of the YOLO ``.txt`` document.
-        threshold: Binarisation cutoff.
+        method: Binarisation algorithm — see :func:`binarize_array`.
+        threshold: Cutoff for ``method="global"``.
+        window_size: Sauvola window edge in pixels.
+        k: Sauvola std-dev weight.
 
     Returns:
         One :class:`Glyph` per non-empty, non-comment line.
     """
-    page = _load_page(page_image)
-    img_h, img_w = page.shape
+    # Whole-page binarise once (see ingest_page_json for why), then slice.
+    mask = binarize_array(
+        _load_page(page_image),
+        method=method,
+        threshold=threshold,
+        window_size=window_size,
+        k=k,
+    )
+    img_h, img_w = mask.shape
 
     glyphs: list[Glyph] = []
     for _class, ulx, uly, width, height in _iter_yolo_bboxes(annotations_yolo, img_w, img_h):
         glyphs.append(
             _crop_to_glyph(
-                page,
+                mask,
                 ulx=ulx,
                 uly=uly,
                 width=width,
                 height=height,
-                threshold=threshold,
                 glyph_id=None,  # fresh UUID — YOLO has none to inherit
-                category=_MOTHRA_CLASS_TO_CATEGORY.get(int(_class)+1, CATEGORY_NEUMES),            
+                category=_MOTHRA_CLASS_TO_CATEGORY.get(int(_class)+1, CATEGORY_NEUMES),
             )
         )
     return glyphs
@@ -297,9 +410,8 @@ def _load_page(page_image: bytes) -> np.ndarray:
 
     Returns:
         Array of shape ``(height, width)`` and dtype ``uint8``.
-        Foreground/background discrimination is deferred to crop
-        time so the threshold can be configured per call without
-        having to re-open the page.
+        Foreground/background discrimination is left to
+        :func:`binarize_array`, which runs once over the whole page.
     """
     with PILImage.open(io.BytesIO(page_image)) as im:
         grey = im.convert("L")
@@ -307,24 +419,29 @@ def _load_page(page_image: bytes) -> np.ndarray:
 
 
 def _crop_to_glyph(
-    page: np.ndarray,
+    page_mask: np.ndarray,
     *,
     ulx: int,
     uly: int,
     width: int,
     height: int,
-    threshold: int,
     glyph_id: str | None,
     category: str = CATEGORY_NEUMES,
 ) -> Glyph:
-    """Slice ``page[uly:uly+h, ulx:ulx+w]``, binarise, wrap as a Glyph.
+    """Slice ``page_mask[uly:uly+h, ulx:ulx+w]`` and wrap it as a Glyph.
+
+    ``page_mask`` is the whole-page boolean foreground mask (already
+    binarised by :func:`binarize_array`); this just slices it. Binarising
+    whole-page-then-slice — rather than per-crop — is what keeps Sauvola
+    correct (its window sees the real page) and keeps every glyph mask
+    consistent with the full-page grouping mask.
 
     Out-of-bounds bboxes are clamped to the page rectangle — a bbox
     that runs a pixel past the edge stays as a glyph (the upstream
     detector occasionally rounds outward), but its actual footprint
     is whatever fell inside the page.
     """
-    img_h, img_w = page.shape
+    img_h, img_w = page_mask.shape
 
     # Clamp to the page rectangle. We keep the *declared* ulx/uly so
     # downstream auto-grouping still places the glyph at the
@@ -342,8 +459,7 @@ def _crop_to_glyph(
         mask = np.zeros((1, 1), dtype=bool)
         nrows = ncols = 1
     else:
-        crop = page[y0:y1, x0:x1]
-        mask = crop <= threshold
+        mask = page_mask[y0:y1, x0:x1]
         nrows, ncols = mask.shape
 
     return Glyph.new(
