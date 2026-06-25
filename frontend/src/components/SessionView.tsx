@@ -8,7 +8,7 @@ import { useSession } from "@/hooks/useSession";
 import { useZoomPan } from "@/hooks/useZoomPan";
 import { byConfidenceAsc, trainingPoolSize } from "@/lib/format";
 import { actionForKey, isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
-import { useUiStore } from "@/store/uiStore";
+import { isModalOpen, useUiStore } from "@/store/uiStore";
 import { useEffect, useMemo } from "react";
 
 export function SessionView({ sessionId }: { sessionId: string }) {
@@ -38,6 +38,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // A modal dialog (Split/Group) owns the keyboard while open; Radix
+      // handles its own Esc-to-close, so page zoom/pan/clear must stand down.
+      if (isModalOpen()) return;
       if (isEditableTarget(e.target)) return;
       // While a glyph is selected, bare alphanumeric keys are claimed by the
       // edit panel (type-to-focus), so don't let e.g. "0" reset the zoom.
@@ -84,6 +87,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "h" || e.repeat) return;
+      if (isModalOpen()) return;
       if (isEditableTarget(e.target)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       setBboxesHidden(true);

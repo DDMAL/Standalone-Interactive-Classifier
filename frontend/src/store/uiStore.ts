@@ -17,6 +17,15 @@ interface UiState {
   bboxesHidden: boolean;
   setBboxesHidden: (v: boolean) => void;
 
+  // Count of open modal dialogs (Split, Group, …). While > 0, window-level
+  // keyboard shortcuts (Enter-to-classify, type-to-focus, zoom/pan, Esc) must
+  // stand down so a keypress meant for the dialog doesn't also fire an action
+  // on the page underneath. A counter rather than a boolean so overlapping
+  // open/close transitions can't desync the flag.
+  modalOpenCount: number;
+  openModal: () => void;
+  closeModal: () => void;
+
   // Set when a glyph is selected from the grid (tile click). PageImagePane
   // watches this to re-center the page on that glyph; cleared via
   // consumeFocus once handled. Selections from the page overlay or lasso
@@ -71,12 +80,17 @@ export const useUiStore = create<UiState>((set, get) => ({
   primaryGlyphId: null,
   hoverGlyphId: null,
   bboxesHidden: false,
+  modalOpenCount: 0,
   pendingFocusGlyphId: null,
   deletedGlyphIds: new Set(),
   classTreeCollapsed: false,
   knnK: 3,
 
   setBboxesHidden: (v) => set({ bboxesHidden: v }),
+
+  openModal: () => set((s) => ({ modalOpenCount: s.modalOpenCount + 1 })),
+  closeModal: () =>
+    set((s) => ({ modalOpenCount: Math.max(0, s.modalOpenCount - 1) })),
 
   setClassTreeCollapsed: (v) => set({ classTreeCollapsed: v }),
 
@@ -218,3 +232,11 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   consumeFocus: () => set({ pendingFocusGlyphId: null }),
 }));
+
+/**
+ * Non-reactive read for use inside window-level keydown listeners, which
+ * read state imperatively rather than subscribing. Returns true while any
+ * modal dialog is open, signalling page-level shortcuts to stand down.
+ */
+export const isModalOpen = (): boolean =>
+  useUiStore.getState().modalOpenCount > 0;
