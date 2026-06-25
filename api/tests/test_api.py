@@ -705,3 +705,63 @@ def test_create_session_seeds_class_names_from_vocabulary(client, train_dir):
     names = response.json()["class_names"]
     assert "clef.c" in names
     assert "neume.punctum" in names
+
+
+# ---------------------------------------------------------------------------
+# Re-binarization — POST /sessions/{id}/binarization
+# ---------------------------------------------------------------------------
+
+
+def test_create_session_reports_default_binarization_method(client):
+    body = client.post("/sessions", **_multipart()).json()
+    assert body["binarization_method"] == "global"
+
+
+def test_rebinarize_switches_method_and_rebuilds_masks(client):
+    sid = _create_session(client)
+    before = client.get(f"/sessions/{sid}").json()
+    masks_before = {g["id"]: g["image_b64"] for g in before["glyphs"]}
+
+    r = client.post(f"/sessions/{sid}/binarization", json={"method": "sauvola"})
+    assert r.status_code == 200, r.text
+    after = r.json()
+    assert after["binarization_method"] == "sauvola"
+    masks_after = {g["id"]: g["image_b64"] for g in after["glyphs"]}
+    # Same glyph set (ids preserved), different pixels.
+    assert masks_before.keys() == masks_after.keys()
+    assert any(masks_before[i] != masks_after[i] for i in masks_before)
+
+
+def test_rebinarize_keeps_manual_labels(client):
+    sid = _create_session(client)
+    gid = client.get(f"/sessions/{sid}").json()["glyphs"][0]["id"]
+    client.post(
+        f"/sessions/{sid}/glyphs/{gid}",
+        json={"class_name": "neume.A", "id_state_manual": True},
+    )
+
+    after = client.post(
+        f"/sessions/{sid}/binarization", json={"method": "otsu"}
+    ).json()
+    moved = next(g for g in after["glyphs"] if g["id"] == gid)
+    assert moved["class_name"] == "neume.A"
+    assert moved["id_state_manual"] is True
+
+
+def test_rebinarize_rejects_unknown_method(client):
+    sid = _create_session(client)
+    r = client.post(f"/sessions/{sid}/binarization", json={"method": "bogus"})
+    assert r.status_code == 422
+
+
+def test_rebinarize_without_retained_page_is_400(client, store):
+    # A session created without a page+bbox upload (e.g. legacy XML import)
+    # has nothing to re-binarise from.
+    from ic_core.state import Session
+
+    session = Session()
+    session.ingest([])  # → CLASSIFYING, no page/annotation bytes
+    store.create(session)
+
+    r = client.post(f"/sessions/{session.id}/binarization", json={"method": "sauvola"})
+    assert r.status_code == 400
