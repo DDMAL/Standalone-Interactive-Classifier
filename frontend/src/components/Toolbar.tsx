@@ -1,8 +1,10 @@
 import { Button } from "@/components/ui/Button";
 import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
+import { useRebinarize } from "@/hooks/useRebinarize";
 import { useSave } from "@/hooks/useSave";
 import { useUiStore } from "@/store/uiStore";
+import type { BinarizationMethod } from "@/types/api";
 import { clsx } from "clsx";
 import { useEffect, useRef, useState } from "react";
 
@@ -10,14 +12,27 @@ interface ToolbarProps {
   sessionId: string;
   glyphCount: number;
   trainingSize: number;
+  binarizationMethod: BinarizationMethod;
 }
 
 const K_CHOICES = [1, 3, 5, 7] as const;
 
-export function Toolbar({ sessionId, glyphCount, trainingSize }: ToolbarProps) {
+const BIN_METHODS: { value: BinarizationMethod; label: string }[] = [
+  { value: "global", label: "Global" },
+  { value: "otsu", label: "Otsu" },
+  { value: "sauvola", label: "Sauvola" },
+];
+
+export function Toolbar({
+  sessionId,
+  glyphCount,
+  trainingSize,
+  binarizationMethod,
+}: ToolbarProps) {
   const save = useSave(sessionId);
   const complete = useComplete(sessionId);
   const classify = useClassify(sessionId);
+  const rebinarize = useRebinarize(sessionId);
   const clearSession = useUiStore((s) => s.clearSession);
   const knnK = useUiStore((s) => s.knnK);
   const setKnnK = useUiStore((s) => s.setKnnK);
@@ -48,6 +63,14 @@ export function Toolbar({ sessionId, glyphCount, trainingSize }: ToolbarProps) {
     classify.mutate(k);
   };
 
+  // Switching the method re-binarises the page and rebuilds every glyph
+  // mask. No-op when the active method is re-clicked or a switch is in
+  // flight. Manual groups/splits reset; labels are kept (see the hook).
+  const handleMethodChange = (method: BinarizationMethod) => {
+    if (method === binarizationMethod || rebinarize.isPending) return;
+    rebinarize.mutate(method);
+  };
+
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
       <div className="flex items-baseline gap-3">
@@ -57,6 +80,33 @@ export function Toolbar({ sessionId, glyphCount, trainingSize }: ToolbarProps) {
         <span className="text-sm text-slate-500">{glyphCount} glyphs</span>
       </div>
       <div className="flex items-center gap-2">
+        <div
+          className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
+          title="Page binarisation. Switching rebuilds glyph masks; manual groups/splits reset, labels are kept. Re-run classify to refresh auto labels."
+        >
+          <span className="text-xs font-medium text-slate-600">Binarize</span>
+          <div className="flex overflow-hidden rounded border border-slate-300">
+            {BIN_METHODS.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => handleMethodChange(value)}
+                disabled={rebinarize.isPending}
+                className={clsx(
+                  "px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                  value === binarizationMethod
+                    ? "bg-blue-600 text-white"
+                    : "bg-white text-slate-700 hover:bg-slate-100",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {rebinarize.isPending && (
+            <span className="text-xs text-slate-500">Re-binarizing…</span>
+          )}
+        </div>
         <div
           className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
           title="Neighbour count for kNN classification"

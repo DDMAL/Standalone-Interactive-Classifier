@@ -130,6 +130,7 @@ export function SessionView({ sessionId }: { sessionId: string }) {
         sessionId={sessionId}
         glyphCount={session.glyphs.length}
         trainingSize={trainingPoolSize(session)}
+        binarizationMethod={session.binarization_method}
       />
       <div className="flex min-h-0 flex-1">
         <ClassTreePanel sessionId={sessionId} session={session} />
