@@ -43,6 +43,8 @@ import csv
 import json
 import os
 import re
+import threading
+import uuid
 from pathlib import Path
 from typing import Annotated
 
@@ -232,6 +234,159 @@ def vocabulary_classes(name: str) -> list[str]:
     return sorted(n for n in names if n)
 
 
+# ---------------------------------------------------------------------------
+# Session-building helpers (shared by /sessions and /sessions/from-staging)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_class_names(
+    class_names: str | None, vocabulary: str | None
+) -> list[str] | None:
+    """Merge an explicit JSON class-name list with a vocabulary's classes.
+
+    ``class_names`` is a JSON-encoded ``list[str]`` (see the multipart
+    workaround note on :func:`create_session`); ``vocabulary`` is a CSV
+    filename whose distinct classes are unioned in. Either may be ``None``.
+    """
+    parsed_names: list[str] | None = None
+    if class_names is not None:
+        try:
+            parsed_names = json.loads(class_names)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"class_names is not valid JSON: {e}") from e
+        if not isinstance(parsed_names, list) or not all(
+            isinstance(n, str) for n in parsed_names
+        ):
+            raise ValueError("class_names must be a JSON list of strings.")
+    if vocabulary:
+        vocab_names = vocabulary_classes(vocabulary)
+        parsed_names = sorted(set(parsed_names or []) | set(vocab_names))
+    return parsed_names
+
+
+async def _parse_training_files(training_files) -> list | None:
+    """Concatenate glyphs from uploaded GameraXML (.xml) training sets.
+
+    Returns ``None`` when no files were given. Raises ``ValueError`` (→ 400)
+    on a non-``.xml`` name or invalid XML, before any page work so a bad
+    file fails fast.
+    """
+    if not training_files:
+        return None
+    training_glyphs: list = []
+    for tf in training_files:
+        name = tf.filename or ""
+        if not name.lower().endswith(".xml"):
+            raise ValueError(f"{name!r} is not a .xml file.")
+        try:
+            training_glyphs.extend(load_glyphs_bytes(await tf.read()))
+        except etree.XMLSyntaxError as e:
+            raise ValueError(f"{name!r} is not valid XML: {e}") from e
+    return training_glyphs
+
+
+def _finalize_session(
+    store: InMemorySessionStore,
+    *,
+    page_bytes: bytes,
+    page_media_type: str | None,
+    source_filename: str | None,
+    annotations_bytes: bytes,
+    annotations_format: AnnotationFormat,
+    parsed_names: list[str] | None,
+    training_glyphs: list | None,
+) -> SessionDTO:
+    """Ingest a page + bboxes into a stored session and return its DTO.
+
+    Shared by :func:`create_session` (direct upload) and
+    :func:`create_session_from_staging` (mothra-staged page + bboxes).
+    """
+    glyphs = ingest_page(page_bytes, annotations_bytes, format=annotations_format)
+    # Keep the full-page mask so manual grouping can recover ink that falls
+    # in the gap between child glyph bboxes (never copied into any crop).
+    page_mask = binarize_page(page_bytes)
+    session = Session()
+    session.ingest(
+        glyphs,
+        training_glyphs=training_glyphs,
+        class_names=parsed_names,
+        page_mask=page_mask,
+        source_name=_source_stem(source_filename),
+    )
+    # Retain the original page bytes so GET /sessions/{id}/page can serve
+    # them back to a frontend that did not perform the upload itself.
+    session.page_bytes = page_bytes
+    session.page_media_type = page_media_type or "application/octet-stream"
+    # A training set means "label this page with that vocabulary now" — run
+    # the first classify round so the frontend lands already-classified.
+    if training_glyphs:
+        session.classify()
+    store.create(session)
+    return session_to_dto(session)
+
+
+# ---------------------------------------------------------------------------
+# Staging — a page + bboxes pushed by an embedding host (mothra) before the
+# user has chosen training data / vocabulary
+# ---------------------------------------------------------------------------
+#
+# mothra owns the page image and generates the bboxes, but we still want the
+# user to see IC's real create-session screen so they can add training sets
+# and pick a vocabulary. mothra therefore *stages* the page + bboxes here and
+# deep-links the SPA to ``/?staged=<id>``; the UploadView pre-fills the staged
+# page + bboxes (locked) and leaves only training/vocabulary to the user. On
+# submit the SPA calls POST /sessions/from-staging, which pairs the staged
+# page + bboxes with the user's choices. Staging entries are single-use and
+# live only in memory — the same single-user-tool tradeoff as the session
+# store.
+
+
+class _Staged:
+    __slots__ = (
+        "page_bytes",
+        "page_media_type",
+        "page_name",
+        "annotations_bytes",
+        "annotations_format",
+    )
+
+    def __init__(
+        self,
+        page_bytes: bytes,
+        page_media_type: str,
+        page_name: str,
+        annotations_bytes: bytes,
+        annotations_format: AnnotationFormat,
+    ) -> None:
+        self.page_bytes = page_bytes
+        self.page_media_type = page_media_type
+        self.page_name = page_name
+        self.annotations_bytes = annotations_bytes
+        self.annotations_format = annotations_format
+
+
+_staging: dict[str, _Staged] = {}
+_staging_lock = threading.Lock()
+
+
+def _annotation_count(annotations_bytes: bytes, fmt: AnnotationFormat) -> int:
+    """Best-effort count of boxes in a staged annotation document."""
+    try:
+        if fmt == "json":
+            doc = json.loads(annotations_bytes)
+            if isinstance(doc, list):
+                doc = doc[0] if doc else {}
+            return len(doc.get("annotations", []))
+        # YOLO: one non-empty, non-comment line per box.
+        return sum(
+            1
+            for line in annotations_bytes.decode("utf-8", "ignore").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+    except Exception:
+        return 0
+
+
 # Why every handler goes through ``store.session(...)``:
 # The store's registry lock keeps the dict thread-safe, but a
 # retrieved :class:`Session` is a plain mutable object. Two requests
@@ -374,72 +529,138 @@ async def create_session(
     classify round runs before the response is sent, so the returned
     session is already labelled with that training vocabulary.
     """
-    parsed_names: list[str] | None = None
-    if class_names is not None:
-        try:
-            parsed_names = json.loads(class_names)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"class_names is not valid JSON: {e}") from e
-        if not isinstance(parsed_names, list) or not all(
-            isinstance(n, str) for n in parsed_names
-        ):
-            raise ValueError("class_names must be a JSON list of strings.")
-
-    # A selected vocabulary contributes its class names to the same
-    # autocomplete pool as an explicit ``class_names`` list. Resolving it
-    # here (before uploads) also fails fast on a bad filename with a 400.
-    if vocabulary:
-        vocab_names = vocabulary_classes(vocabulary)
-        parsed_names = sorted(set(parsed_names or []) | set(vocab_names))
-
-    # Parse the optional training-set uploads *before* the page work so a
-    # bad file fails fast with a 400 rather than after the work. Only
-    # ``.xml`` GameraXML documents are accepted; the glyphs from every
-    # uploaded file are concatenated into a single training pool.
-    training_glyphs: list | None = None
-    if training_files:
-        training_glyphs = []
-        for tf in training_files:
-            name = tf.filename or ""
-            if not name.lower().endswith(".xml"):
-                raise ValueError(f"{name!r} is not a .xml file.")
-            try:
-                training_glyphs.extend(load_glyphs_bytes(await tf.read()))
-            except etree.XMLSyntaxError as e:
-                raise ValueError(f"{name!r} is not valid XML: {e}") from e
+    parsed_names = _resolve_class_names(class_names, vocabulary)
+    training_glyphs = await _parse_training_files(training_files)
 
     page_bytes = await page_image.read()
     annotations_bytes = await annotations.read()
-    glyphs = ingest_page(
-        page_bytes,
-        annotations_bytes,
-        format=annotations_format,
-    )
-    # Keep the full-page mask so manual grouping can recover ink that
-    # falls in the gap between child glyph bboxes (those pixels were
-    # never copied into any per-glyph crop at ingest time).
-    page_mask = binarize_page(page_bytes)
-    session = Session()
-    session.ingest(
-        glyphs,
+    return _finalize_session(
+        store,
+        page_bytes=page_bytes,
+        page_media_type=page_image.content_type,
+        source_filename=annotations.filename,
+        annotations_bytes=annotations_bytes,
+        annotations_format=annotations_format,
+        parsed_names=parsed_names,
         training_glyphs=training_glyphs,
-        class_names=parsed_names,
-        page_mask=page_mask,
-        source_name=_source_stem(annotations.filename),
     )
-    # Retain the original page bytes so GET /sessions/{id}/page can serve
-    # them back. A frontend that created this session via the HTTP API
-    # (rather than its own upload form) has no local object URL for the
-    # page, so it deep-links to that endpoint instead.
-    session.page_bytes = page_bytes
-    session.page_media_type = page_image.content_type or "application/octet-stream"
-    # A selected training set means "label this page with that vocabulary
-    # now" — run the first classify round server-side so the frontend
-    # lands on an already-classified session.
-    if training_glyphs:
-        session.classify()
-    store.create(session)
-    return session_to_dto(session)
+
+
+@app.post("/staging", status_code=201)
+async def stage_page(
+    page_image: Annotated[UploadFile, File(description="Full-page image.")],
+    annotations: Annotated[
+        UploadFile, File(description="MOTHRA JSON or YOLO TXT bbox document.")
+    ],
+    annotations_format: Annotated[
+        AnnotationFormat, Form(description="'json' or 'yolo'.")
+    ],
+):
+    """Stage a page + bboxes for a later from-staging session creation.
+
+    Used by an embedding host (mothra) that owns the page and generates the
+    bboxes but wants the user to complete IC's own create-session screen
+    (training data + vocabulary). Returns a single-use ``staging_id`` the
+    SPA references via ``/?staged=<id>``.
+    """
+    page_bytes = await page_image.read()
+    annotations_bytes = await annotations.read()
+    staging_id = uuid.uuid4().hex
+    staged = _Staged(
+        page_bytes=page_bytes,
+        page_media_type=page_image.content_type or "application/octet-stream",
+        page_name=page_image.filename or "page",
+        annotations_bytes=annotations_bytes,
+        annotations_format=annotations_format,
+    )
+    with _staging_lock:
+        _staging[staging_id] = staged
+    return {
+        "staging_id": staging_id,
+        "page_name": staged.page_name,
+        "annotations_format": annotations_format,
+        "annotation_count": _annotation_count(annotations_bytes, annotations_format),
+    }
+
+
+def _get_staged_or_404(staging_id: str) -> "_Staged | JSONResponse":
+    with _staging_lock:
+        staged = _staging.get(staging_id)
+    if staged is None:
+        return JSONResponse(
+            status_code=404,
+            content=ErrorResponse(
+                detail=f"Unknown staging id: {staging_id!r}", code="not_found"
+            ).model_dump(),
+        )
+    return staged
+
+
+@app.get("/staging/{staging_id}")
+def get_staging(staging_id: str):
+    """Return metadata for a staged page + bboxes (for the UploadView)."""
+    staged = _get_staged_or_404(staging_id)
+    if isinstance(staged, JSONResponse):
+        return staged
+    return {
+        "staging_id": staging_id,
+        "page_name": staged.page_name,
+        "annotations_format": staged.annotations_format,
+        "annotation_count": _annotation_count(
+            staged.annotations_bytes, staged.annotations_format
+        ),
+    }
+
+
+@app.get("/staging/{staging_id}/page")
+def get_staging_page(staging_id: str) -> Response:
+    """Serve a staged page image (lets the UploadView preview it)."""
+    staged = _get_staged_or_404(staging_id)
+    if isinstance(staged, JSONResponse):
+        return staged
+    return Response(content=staged.page_bytes, media_type=staged.page_media_type)
+
+
+@app.post("/sessions/from-staging", response_model=SessionDTO, status_code=201)
+async def create_session_from_staging(
+    staging_id: Annotated[str, Form(description="Id returned by POST /staging.")],
+    # See create_session for why Depends(get_store) is used inline (not the
+    # Store alias) and why class_names is a JSON string.
+    store: InMemorySessionStore = Depends(get_store),
+    class_names: Annotated[
+        str | None, Form(description="Optional JSON-encoded list[str].")
+    ] = None,
+    training_files: Annotated[
+        list[UploadFile] | None,
+        File(description="Optional GameraXML (.xml) training-set uploads."),
+    ] = None,
+    vocabulary: Annotated[
+        str | None, Form(description="Optional vocabulary CSV filename.")
+    ] = None,
+) -> SessionDTO:
+    """Create a session from staged page + bboxes plus the user's choices.
+
+    Pairs the page + bboxes staged by :func:`stage_page` with the
+    training sets / vocabulary the user picked on IC's create-session
+    screen. The staging entry is consumed (single-use).
+    """
+    with _staging_lock:
+        staged = _staging.pop(staging_id, None)
+    if staged is None:
+        # Maps to 404 via _key_error_handler.
+        raise KeyError(f"Unknown staging id: {staging_id!r}")
+    parsed_names = _resolve_class_names(class_names, vocabulary)
+    training_glyphs = await _parse_training_files(training_files)
+    return _finalize_session(
+        store,
+        page_bytes=staged.page_bytes,
+        page_media_type=staged.page_media_type,
+        source_filename=staged.page_name,
+        annotations_bytes=staged.annotations_bytes,
+        annotations_format=staged.annotations_format,
+        parsed_names=parsed_names,
+        training_glyphs=training_glyphs,
+    )
 
 
 @app.get("/sessions/{session_id}", response_model=SessionDTO)
