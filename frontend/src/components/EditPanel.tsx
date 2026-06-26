@@ -7,7 +7,7 @@ import { sessionKey } from "@/hooks/useSession";
 import { useUpdateGlyph } from "@/hooks/useUpdateGlyph";
 import { formatConfidence, glyphDataUri } from "@/lib/format";
 import { isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
-import { useUiStore } from "@/store/uiStore";
+import { isModalOpen, useUiStore } from "@/store/uiStore";
 import { CATEGORY_ORDER, type GlyphCategory, type GlyphDTO } from "@/types/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useRef, useState } from "react";
@@ -120,6 +120,7 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Enter") return;
+      if (isModalOpen()) return;
       if (isEditableTarget(e.target)) return;
       e.preventDefault();
       void applyRef.current();
@@ -135,6 +136,7 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
   useEffect(() => {
     if (!isNeume) return;
     function onKeyDown(e: KeyboardEvent) {
+      if (isModalOpen()) return;
       if (isEditableTarget(e.target)) return;
       if (!isTypeToFocusKey(e)) return;
       const input = inputRef.current?.querySelector("input");

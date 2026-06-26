@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/Button";
+import { useModalGuard } from "@/hooks/useModalGuard";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { ReactNode } from "react";
 
@@ -29,6 +30,10 @@ export function ConfirmDialog({
   pending = false,
   destructive = false,
 }: ConfirmDialogProps) {
+  // Stand down page-level keyboard shortcuts while this prompt is open so a
+  // stray Enter confirms here rather than firing an action behind the dialog.
+  useModalGuard(open);
+
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
