@@ -59,6 +59,7 @@ from ic_api.schemas import (
     ErrorResponse,
     GlyphDTO,
     GroupRequest,
+    RebinarizeRequest,
     RenameClassRequest,
     SessionDTO,
     SplitRequest,
@@ -67,7 +68,12 @@ from ic_api.schemas import (
     session_to_dto,
 )
 from ic_api.store import InMemorySessionStore, default_store
-from ic_core.ingest import AnnotationFormat, binarize_page, ingest_page
+from ic_core.ingest import (
+    AnnotationFormat,
+    BinarizationMethod,
+    binarize_page,
+    ingest_page,
+)
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
 from ic_core.state import Session, StateTransitionError
 
@@ -293,6 +299,7 @@ def _finalize_session(
     source_filename: str | None,
     annotations_bytes: bytes,
     annotations_format: AnnotationFormat,
+    binarization_method: BinarizationMethod,
     parsed_names: list[str] | None,
     training_glyphs: list | None,
 ) -> SessionDTO:
@@ -301,10 +308,14 @@ def _finalize_session(
     Shared by :func:`create_session` (direct upload) and
     :func:`create_session_from_staging` (mothra-staged page + bboxes).
     """
-    glyphs = ingest_page(page_bytes, annotations_bytes, format=annotations_format)
+    glyphs = ingest_page(
+        page_bytes, annotations_bytes,
+        format=annotations_format, method=binarization_method,
+    )
     # Keep the full-page mask so manual grouping can recover ink that falls
     # in the gap between child glyph bboxes (never copied into any crop).
-    page_mask = binarize_page(page_bytes)
+    # It must use the SAME method as the glyphs, or it disagrees with them.
+    page_mask = binarize_page(page_bytes, method=binarization_method)
     session = Session()
     session.ingest(
         glyphs,
@@ -317,6 +328,11 @@ def _finalize_session(
     # them back to a frontend that did not perform the upload itself.
     session.page_bytes = page_bytes
     session.page_media_type = page_media_type or "application/octet-stream"
+    # Retain the bboxes + method too, so POST /sessions/{id}/binarization can
+    # re-run ingest under a different method without a fresh upload.
+    session.annotations_bytes = annotations_bytes
+    session.annotations_format = annotations_format
+    session.binarization_method = binarization_method
     # A training set means "label this page with that vocabulary now" — run
     # the first classify round so the frontend lands already-classified.
     if training_glyphs:
@@ -472,6 +488,17 @@ async def create_session(
         AnnotationFormat,
         Form(description="Which annotation parser to use: 'json' or 'yolo'."),
     ],
+    binarization_method: Annotated[
+        BinarizationMethod,
+        Form(
+            description=(
+                "How to binarise the page: 'global' (fixed ≤127 cutoff), "
+                "'otsu' (histogram-derived global cutoff), or 'sauvola' "
+                "(local adaptive — recovers faint staff lines on uneven "
+                "parchment). Baked into each glyph's mask at ingest."
+            ),
+        ),
+    ] = "global",
     # NOTE on parameter ordering and types:
     # * Using ``Depends(get_store)`` directly (rather than the
     #   ``Store`` Annotated alias) — FastAPI mis-classifies the body
@@ -541,6 +568,7 @@ async def create_session(
         source_filename=annotations.filename,
         annotations_bytes=annotations_bytes,
         annotations_format=annotations_format,
+        binarization_method=binarization_method,
         parsed_names=parsed_names,
         training_glyphs=training_glyphs,
     )
@@ -627,6 +655,10 @@ async def create_session_from_staging(
     # See create_session for why Depends(get_store) is used inline (not the
     # Store alias) and why class_names is a JSON string.
     store: InMemorySessionStore = Depends(get_store),
+    binarization_method: Annotated[
+        BinarizationMethod,
+        Form(description="'global', 'otsu', or 'sauvola'; see POST /sessions."),
+    ] = "global",
     class_names: Annotated[
         str | None, Form(description="Optional JSON-encoded list[str].")
     ] = None,
@@ -658,6 +690,7 @@ async def create_session_from_staging(
         source_filename=staged.page_name,
         annotations_bytes=staged.annotations_bytes,
         annotations_format=staged.annotations_format,
+        binarization_method=binarization_method,
         parsed_names=parsed_names,
         training_glyphs=training_glyphs,
     )
@@ -711,6 +744,37 @@ def classify(session_id: str, body: ClassifyRequest, store: Store) -> SessionDTO
     """Re-train and re-classify every non-manual glyph in one round."""
     with store.session(session_id) as session:
         session.classify(k=body.k)
+        return session_to_dto(session)
+
+
+@app.post("/sessions/{session_id}/binarization", response_model=SessionDTO)
+def rebinarize(
+    session_id: str, body: RebinarizeRequest, store: Store
+) -> SessionDTO:
+    """Switch the page's binarisation method and rebuild every glyph mask.
+
+    Re-runs ingest on the session's retained page + bboxes under the new
+    method, then carries forward the user's labels by glyph id (see
+    :meth:`ic_core.state.Session.rebinarize`). Manual groups/splits reset;
+    a classify round refreshes auto labels from the new masks.
+    """
+    with store.session(session_id) as session:
+        if session.page_bytes is None or session.annotations_bytes is None:
+            # Sessions created without a page+bbox upload (legacy XML import)
+            # have nothing to re-binarise from.
+            raise ValueError(
+                "This session has no retained page image and bboxes to "
+                "re-binarise; the method can only be changed on sessions "
+                "created from a page upload."
+            )
+        glyphs = ingest_page(
+            session.page_bytes,
+            session.annotations_bytes,
+            format=session.annotations_format,
+            method=body.method,
+        )
+        page_mask = binarize_page(session.page_bytes, method=body.method)
+        session.rebinarize(glyphs, page_mask=page_mask, method=body.method)
         return session_to_dto(session)
 
 

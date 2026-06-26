@@ -1,5 +1,5 @@
+import { GlyphImage } from "@/components/GlyphImage";
 import { Button } from "@/components/ui/Button";
-import { glyphDataUri } from "@/lib/format";
 import { useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
 import { clsx } from "clsx";
@@ -61,9 +61,8 @@ export function DeletedSection({ glyphs }: { glyphs: GlyphDTO[] }) {
               className="flex h-full w-full flex-col items-center gap-1 rounded border border-amber-200 bg-white p-1 text-center"
             >
               <div className="flex h-16 w-full items-center justify-center overflow-hidden bg-white opacity-70">
-                <img
-                  src={glyphDataUri(glyph)}
-                  alt={glyph.class_name}
+                <GlyphImage
+                  glyph={glyph}
                   className="max-h-16 max-w-full object-contain"
                 />
               </div>

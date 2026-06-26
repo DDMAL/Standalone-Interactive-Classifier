@@ -1,4 +1,5 @@
-import { formatConfidence, glyphDataUri } from "@/lib/format";
+import { GlyphImage } from "@/components/GlyphImage";
+import { formatConfidence } from "@/lib/format";
 import { registerTile } from "@/lib/tileRefs";
 import { useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
@@ -47,11 +48,7 @@ export function GlyphTile({ glyph, selected }: GlyphTileProps) {
       )}
     >
       <div className="flex h-16 w-full items-center justify-center overflow-hidden bg-white">
-        <img
-          src={glyphDataUri(glyph)}
-          alt={glyph.class_name}
-          className="h-16 w-full object-contain"
-        />
+        <GlyphImage glyph={glyph} className="h-16 w-full object-contain" />
       </div>
       <span
         className="w-full truncate text-xs text-slate-700"

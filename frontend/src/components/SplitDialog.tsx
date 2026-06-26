@@ -383,8 +383,8 @@ function SplitCanvas({
           const padU = 2 * k;
           const badge = 25 * k; // fixed circular badge size
           const chromeH = badge + 2 * padU; // row height incl. inset padding
-          const labelNudge = { x: -1, y: 0 };  // screen px; tweak to taste
-          const xNudge = { x: 2, y: -1 };     // × glyphs usually sit a hair high
+          const labelNudge = { x: -1, y: 0 }; // screen px; tweak to taste
+          const xNudge = { x: 2, y: -1 }; // × glyphs usually sit a hair high
 
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: rects are append-only and reorderable via delete only
@@ -430,7 +430,11 @@ function SplitCanvas({
                         fontSize: `${font}px`,
                       }}
                     >
-                      <span style={{ transform: `translate(${labelNudge.x * k}px, ${labelNudge.y * k}px)` }}>
+                      <span
+                        style={{
+                          transform: `translate(${labelNudge.x * k}px, ${labelNudge.y * k}px)`,
+                        }}
+                      >
                         {i + 1}
                       </span>
                     </span>
@@ -453,7 +457,11 @@ function SplitCanvas({
                       }}
                       aria-label={`Remove rectangle ${i + 1}`}
                     >
-                      <span style={{ transform: `translate(${xNudge.x * k}px, ${xNudge.y * k}px)` }}>
+                      <span
+                        style={{
+                          transform: `translate(${xNudge.x * k}px, ${xNudge.y * k}px)`,
+                        }}
+                      >
                         ×
                       </span>
                     </button>

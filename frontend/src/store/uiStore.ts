@@ -1,5 +1,9 @@
 import { create } from "zustand";
 
+/** What the glyph-grid tiles render: the binarized foreground mask, or the
+ * original page crop. A display preference, not session state. */
+export type GlyphImageMode = "binarized" | "original";
+
 interface UiState {
   sessionId: string | null;
   pageObjectUrl: string | null;
@@ -38,6 +42,11 @@ interface UiState {
   knnK: number;
   setKnnK: (k: number) => void;
 
+  // Whether the glyph grid shows binarized masks or original page crops.
+  // A display preference; like knnK it persists across session changes.
+  glyphImageMode: GlyphImageMode;
+  setGlyphImageMode: (mode: GlyphImageMode) => void;
+
   setSession: (id: string, objectUrl: string) => void;
   clearSession: () => void;
 
@@ -75,12 +84,15 @@ export const useUiStore = create<UiState>((set, get) => ({
   deletedGlyphIds: new Set(),
   classTreeCollapsed: false,
   knnK: 3,
+  glyphImageMode: "binarized",
 
   setBboxesHidden: (v) => set({ bboxesHidden: v }),
 
   setClassTreeCollapsed: (v) => set({ classTreeCollapsed: v }),
 
   setKnnK: (k) => set({ knnK: k }),
+
+  setGlyphImageMode: (mode) => set({ glyphImageMode: mode }),
 
   setSession: (id, objectUrl) => {
     const prev = get().pageObjectUrl;

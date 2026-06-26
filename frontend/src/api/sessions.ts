@@ -1,6 +1,7 @@
 import { http, postForBlob } from "@/api/client";
 import type {
   AnnotationFormat,
+  BinarizationMethod,
   GlyphCategory,
   GlyphDTO,
   SessionDTO,
@@ -86,6 +87,15 @@ export const deleteSession = (id: string) => http.delete(`/sessions/${id}`);
 
 export const classify = (id: string, k = 3) =>
   http.post<SessionDTO>(`/sessions/${id}/classify`, { k });
+
+/**
+ * Re-binarise the page with a different method and rebuild every glyph
+ * mask. Manual labels are kept (matched by glyph id); manual groups/splits
+ * reset to the detector's base glyphs. Auto labels stay until the next
+ * classify round, which re-derives them from the new masks.
+ */
+export const rebinarize = (id: string, method: BinarizationMethod) =>
+  http.post<SessionDTO>(`/sessions/${id}/binarization`, { method });
 
 export interface UpdateGlyphArgs {
   class_name?: string | null;

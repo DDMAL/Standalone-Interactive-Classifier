@@ -18,6 +18,8 @@ from PIL import Image as PILImage
 from ic_core.classifier import UNCLASSIFIED
 from ic_core.ingest import (
     _unwrap_page,
+    binarize_array,
+    binarize_page,
     ingest_page,
     ingest_page_json,
     ingest_page_yolo,
@@ -186,3 +188,79 @@ def test_crop_has_some_foreground_pixels():
     glyphs = ingest_page_json(PAGE_BYTES, JSON_BYTES)
     total_fg = sum(int(g.to_array().sum()) for g in glyphs)
     assert total_fg > 0
+
+
+# ---------------------------------------------------------------------------
+# Binarisation methods
+# ---------------------------------------------------------------------------
+
+
+def test_default_method_is_global_backcompat():
+    # The default path must stay byte-for-byte what it produced before
+    # methods existed, so existing callers / fixtures don't shift.
+    default = ingest_page_json(PAGE_BYTES, JSON_BYTES)
+    explicit = ingest_page_json(PAGE_BYTES, JSON_BYTES, method="global")
+    assert [g.image_rle for g in default] == [g.image_rle for g in explicit]
+
+
+def test_global_and_threshold_arg_still_apply():
+    # The legacy `threshold` knob still drives method="global".
+    loose = ingest_page_json(PAGE_BYTES, JSON_BYTES, method="global", threshold=60)
+    tight = ingest_page_json(PAGE_BYTES, JSON_BYTES, method="global", threshold=200)
+    # A higher cutoff calls more pixels ink, so total foreground grows.
+    assert sum(int(g.to_array().sum()) for g in tight) > sum(
+        int(g.to_array().sum()) for g in loose
+    )
+
+
+def test_sauvola_differs_from_global():
+    g = ingest_page_json(PAGE_BYTES, JSON_BYTES, method="global")
+    s = ingest_page_json(PAGE_BYTES, JSON_BYTES, method="sauvola")
+    assert [x.image_rle for x in g] != [x.image_rle for x in s]
+
+
+@pytest.mark.parametrize("method", ["global", "otsu", "sauvola"])
+def test_binarize_array_returns_full_page_bool_mask(method):
+    from ic_core.ingest import _load_page
+
+    page = _load_page(PAGE_BYTES)
+    mask = binarize_array(page, method=method)
+    assert mask.dtype == np.bool_
+    assert mask.shape == page.shape
+    assert mask.any()  # a real chant page is never all-background
+
+
+def test_binarize_array_rejects_unknown_method():
+    with pytest.raises(ValueError, match="Unrecognised binarization method"):
+        binarize_array(np.zeros((4, 4), dtype=np.uint8), method="bogus")  # type: ignore[arg-type]
+
+
+def test_otsu_uniform_image_does_not_raise():
+    # threshold_otsu raises on a single-valued image; binarize_array must
+    # fall back to the global cutoff instead of blowing up.
+    bright = np.full((20, 20), 200, dtype=np.uint8)  # all background (>127)
+    dark = np.full((20, 20), 10, dtype=np.uint8)  # all foreground (<=127)
+    assert binarize_array(bright, method="otsu").sum() == 0
+    assert binarize_array(dark, method="otsu").all()
+
+
+@pytest.mark.parametrize("method", ["global", "otsu", "sauvola"])
+def test_per_glyph_mask_matches_full_page_mask(method):
+    # The no-desync invariant: a glyph's mask is exactly the slice of the
+    # full-page mask (what manual grouping uses) at its bbox — for every
+    # method. This is what whole-page binarisation buys us; per-crop
+    # Sauvola would break it.
+    page_mask = binarize_page(PAGE_BYTES, method=method)
+    h, w = page_mask.shape
+    glyphs = ingest_page_json(PAGE_BYTES, JSON_BYTES, method=method)
+
+    checked = 0
+    for g in glyphs:
+        # Skip edge-clamped glyphs — their declared bbox runs past the
+        # page, so a naive slice wouldn't line up.
+        if g.ulx < 0 or g.uly < 0 or g.ulx + g.ncols > w or g.uly + g.nrows > h:
+            continue
+        sub = page_mask[g.uly : g.uly + g.nrows, g.ulx : g.ulx + g.ncols]
+        assert np.array_equal(sub, g.to_array())
+        checked += 1
+    assert checked > 0
