@@ -14,9 +14,13 @@ interface ClassTreeNodeProps {
   /** Working-set count for every class path. Built once at the panel root. */
   countsByClass: Map<string, number>;
   depth: number;
+  /** Label every currently-selected Neume with this node's class. */
+  onApply: (node: ClassNode) => void;
   onSelect: (node: ClassNode) => void;
   onRename: (node: ClassNode, newSegment: string) => void;
   onDelete: (node: ClassNode) => void;
+  /** How many selected glyphs are Neumes — i.e. how many `onApply` affects. */
+  selectedNeumeCount: number;
   /** Path of the node whose rename input is currently open (one at a time). */
   renamingPath: string | null;
   setRenamingPath: (path: string | null) => void;
@@ -28,9 +32,11 @@ export function ClassTreeNode({
   node,
   countsByClass,
   depth,
+  onApply,
   onSelect,
   onRename,
   onDelete,
+  selectedNeumeCount,
   renamingPath,
   setRenamingPath,
 }: ClassTreeNodeProps) {
@@ -88,8 +94,14 @@ export function ClassTreeNode({
         ) : (
           <button
             type="button"
-            onClick={() => onSelect(node)}
-            title={`Select all glyphs in ${node.path}`}
+            onClick={() => onApply(node)}
+            title={
+              selectedNeumeCount > 0
+                ? `Label ${selectedNeumeCount} selected Neume${
+                    selectedNeumeCount === 1 ? "" : "s"
+                  } as '${node.path}'`
+                : `Select Neumes first, then click to label them '${node.path}'`
+            }
             className={clsx(
               "min-w-0 flex-1 truncate text-left text-sm",
               orphan
@@ -138,9 +150,11 @@ export function ClassTreeNode({
               node={child}
               countsByClass={countsByClass}
               depth={depth + 1}
+              onApply={onApply}
               onSelect={onSelect}
               onRename={onRename}
               onDelete={onDelete}
+              selectedNeumeCount={selectedNeumeCount}
               renamingPath={renamingPath}
               setRenamingPath={setRenamingPath}
             />

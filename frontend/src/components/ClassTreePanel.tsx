@@ -4,6 +4,7 @@ import { ChevronLeftIcon, ChevronRightIcon } from "@/components/ui/icons";
 import { useClassSelection } from "@/hooks/useClassSelection";
 import { useDeleteClass } from "@/hooks/useDeleteClass";
 import { useRenameClass } from "@/hooks/useRenameClass";
+import { useUpdateGlyphs } from "@/hooks/useUpdateGlyphs";
 import { type ClassNode, buildClassTree } from "@/lib/classTree";
 import { useUiStore } from "@/store/uiStore";
 import type { SessionDTO } from "@/types/api";
@@ -23,10 +24,12 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
   const collapsed = useUiStore((s) => s.classTreeCollapsed);
   const setCollapsed = useUiStore((s) => s.setClassTreeCollapsed);
   const deletedGlyphIds = useUiStore((s) => s.deletedGlyphIds);
+  const selectedGlyphIds = useUiStore((s) => s.selectedGlyphIds);
 
   const renameClass = useRenameClass(sessionId);
   const deleteClassMut = useDeleteClass(sessionId);
   const selectByClass = useClassSelection();
+  const updateGlyphs = useUpdateGlyphs(sessionId);
 
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ClassNode | null>(null);
@@ -48,8 +51,33 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
     return counts;
   }, [session.glyphs, deletedGlyphIds]);
 
+  // Selected glyphs that can actually carry a class label: Neumes only, and
+  // not soft-deleted. Mirrors MultiEditPanel's filtering — applying a class to
+  // a non-Neume is meaningless, so we silently skip those.
+  const selectedNeumeIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const g of session.glyphs) {
+      if (!selectedGlyphIds.has(g.id)) continue;
+      if (deletedGlyphIds.has(g.id)) continue;
+      if (g.category !== "Neumes") continue;
+      ids.push(g.id);
+    }
+    return ids;
+  }, [session.glyphs, selectedGlyphIds, deletedGlyphIds]);
+
   function handleSelect(node: ClassNode) {
     selectByClass(node.path, !node.isLeafClass || node.children.length > 0);
+  }
+
+  // Clicking a class name labels every selected Neume with that class and
+  // reclassifies — the bulk counterpart to the per-glyph apply in EditPanel.
+  // No-op when nothing applicable is selected (the name then reads as a hint).
+  function handleApply(node: ClassNode) {
+    if (selectedNeumeIds.length === 0 || updateGlyphs.isPending) return;
+    updateGlyphs.mutate({
+      glyphIds: selectedNeumeIds,
+      patch: { class_name: node.path, id_state_manual: true },
+    });
   }
 
   function handleRename(node: ClassNode, newSegment: string) {
@@ -158,9 +186,11 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
                 node={node}
                 countsByClass={countsByClass}
                 depth={0}
+                onApply={handleApply}
                 onSelect={handleSelect}
                 onRename={handleRename}
                 onDelete={handleDeleteRequest}
+                selectedNeumeCount={selectedNeumeIds.length}
                 renamingPath={renamingPath}
                 setRenamingPath={setRenamingPath}
               />
@@ -169,9 +199,17 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
         )}
       </div>
 
-      {(renameClass.isError || deleteClassMut.isError) && (
+      {(renameClass.isError ||
+        deleteClassMut.isError ||
+        updateGlyphs.isError) && (
         <p className="border-t border-red-200 bg-red-50 p-2 text-xs text-red-700">
-          {((renameClass.error ?? deleteClassMut.error) as Error)?.message}
+          {
+            (
+              (renameClass.error ??
+                deleteClassMut.error ??
+                updateGlyphs.error) as Error
+            )?.message
+          }
         </p>
       )}
 
