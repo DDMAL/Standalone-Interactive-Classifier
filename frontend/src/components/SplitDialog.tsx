@@ -1,11 +1,14 @@
 import { Button } from "@/components/ui/Button";
+import { useModalGuard } from "@/hooks/useModalGuard";
 import { useSplit } from "@/hooks/useSplit";
 import { rectFromAnchor } from "@/lib/bbox";
 import type { Rect } from "@/lib/bbox";
 import { glyphDataUri } from "@/lib/format";
+import { isEditableTarget } from "@/lib/keymap";
 import type { GlyphDTO } from "@/types/api";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -63,6 +66,10 @@ export function SplitDialog({
   const rafRef = useRef<number | null>(null);
   const split = useSplit(sessionId);
   const splitReset = split.reset;
+
+  // Suppress page-level keyboard shortcuts while the dialog is open so an
+  // Enter meant to confirm the split doesn't also classify the glyph behind it.
+  useModalGuard(open);
 
   // Pad the drawing surface beyond the image so the user can start/end
   // drags from outside the image. Scales with the smaller dimension so
@@ -169,6 +176,19 @@ export function SplitDialog({
     setRects([]);
   }
 
+  // Enter commits the split from anywhere in the dialog so the user doesn't
+  // have to mouse over to the button after drawing. preventDefault overrides
+  // the native activation of whatever button happens to be focused (Cancel,
+  // the submit button, a per-rect ×), so Enter always means "split" — Escape
+  // still cancels via Radix. A no-op when there's nothing drawn yet.
+  function handleKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Enter") return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    if (isEditableTarget(e.target)) return;
+    e.preventDefault();
+    void handleSubmit();
+  }
+
   async function handleSubmit() {
     if (rects.length === 0 || split.isPending) return;
     const regions: [number, number, number, number][] = rects.map((r) => [
@@ -189,7 +209,10 @@ export function SplitDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-900/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-5 shadow-lg focus:outline-none">
+        <Dialog.Content
+          onKeyDown={handleKeyDown}
+          className="fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-5 shadow-lg focus:outline-none"
+        >
           <Dialog.Title className="text-base font-semibold text-slate-800">
             Split glyph into pieces
           </Dialog.Title>
@@ -383,8 +406,8 @@ function SplitCanvas({
           const padU = 2 * k;
           const badge = 25 * k; // fixed circular badge size
           const chromeH = badge + 2 * padU; // row height incl. inset padding
-          const labelNudge = { x: -1, y: 0 };  // screen px; tweak to taste
-          const xNudge = { x: 2, y: -1 };     // × glyphs usually sit a hair high
+          const labelNudge = { x: -1, y: 0 }; // screen px; tweak to taste
+          const xNudge = { x: 2, y: -1 }; // × glyphs usually sit a hair high
 
           return (
             // biome-ignore lint/suspicious/noArrayIndexKey: rects are append-only and reorderable via delete only
@@ -430,7 +453,11 @@ function SplitCanvas({
                         fontSize: `${font}px`,
                       }}
                     >
-                      <span style={{ transform: `translate(${labelNudge.x * k}px, ${labelNudge.y * k}px)` }}>
+                      <span
+                        style={{
+                          transform: `translate(${labelNudge.x * k}px, ${labelNudge.y * k}px)`,
+                        }}
+                      >
                         {i + 1}
                       </span>
                     </span>
@@ -453,7 +480,11 @@ function SplitCanvas({
                       }}
                       aria-label={`Remove rectangle ${i + 1}`}
                     >
-                      <span style={{ transform: `translate(${xNudge.x * k}px, ${xNudge.y * k}px)` }}>
+                      <span
+                        style={{
+                          transform: `translate(${xNudge.x * k}px, ${xNudge.y * k}px)`,
+                        }}
+                      >
                         ×
                       </span>
                     </button>

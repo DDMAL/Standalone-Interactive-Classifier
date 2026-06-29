@@ -456,3 +456,80 @@ def test_complete_freezes_session_against_further_mutation():
         s.classify()
     with pytest.raises(StateTransitionError):
         s.delete_glyph("anything")
+
+
+# ---------------------------------------------------------------------------
+# rebinarize — re-derive masks under a new method, carry labels by id
+# ---------------------------------------------------------------------------
+
+
+def _make_glyph_with_id(
+    gid: str,
+    arr: np.ndarray,
+    *,
+    class_name: str = UNCLASSIFIED,
+    id_state_manual: bool = False,
+    confidence: float = 0.0,
+) -> Glyph:
+    arr = np.asarray(arr, dtype=bool)
+    nrows, ncols = arr.shape
+    return Glyph.new(
+        id=gid,
+        class_name=class_name,
+        image_rle=array_to_rle(arr),
+        ncols=ncols,
+        nrows=nrows,
+        ulx=0,
+        uly=0,
+        id_state_manual=id_state_manual,
+        confidence=confidence,
+    )
+
+
+def test_rebinarize_swaps_masks_and_carries_labels_by_id():
+    # Session as it stands after some labelling: "a" manual, "b" auto.
+    old_a = _make_glyph_with_id(
+        "a", np.zeros((2, 2)), class_name="X", id_state_manual=True, confidence=1.0
+    )
+    old_b = _make_glyph_with_id(
+        "b", np.zeros((2, 2)), class_name="Y", confidence=0.5
+    )
+    s = Session()
+    s.ingest([old_a, old_b])
+
+    # The fresh ingest under a new method: same ids, *different* masks,
+    # all UNCLASSIFIED (as ingest produces).
+    new_a = _make_glyph_with_id("a", np.ones((2, 2)))
+    new_b = _make_glyph_with_id("b", np.ones((2, 2)))
+    new_mask = np.ones((4, 4), dtype=bool)
+    s.rebinarize([new_a, new_b], page_mask=new_mask, method="sauvola")
+
+    by_id = {g.id: g for g in s.glyphs}
+    # Masks are the new ones.
+    assert by_id["a"].image_rle == new_a.image_rle
+    assert by_id["b"].image_rle == new_b.image_rle
+    # Labels carried forward.
+    assert by_id["a"].class_name == "X" and by_id["a"].id_state_manual is True
+    assert by_id["b"].class_name == "Y" and by_id["b"].id_state_manual is False
+    # Method + page mask updated.
+    assert s.binarization_method == "sauvola"
+    assert s.page_mask is new_mask
+
+
+def test_rebinarize_drops_glyphs_absent_from_base_set():
+    # A grouped/split glyph carries a fresh id not in the detector's base
+    # set, so it falls away when we re-derive from the base annotations.
+    base = _make_glyph_with_id("a", np.zeros((2, 2)), class_name="X")
+    grouped = _make_glyph_with_id("group-1", np.ones((3, 3)), class_name="G")
+    s = Session()
+    s.ingest([base, grouped])
+
+    s.rebinarize([_make_glyph_with_id("a", np.ones((2, 2)))], page_mask=None, method="otsu")
+
+    assert [g.id for g in s.glyphs] == ["a"]
+
+
+def test_rebinarize_requires_classifying_state():
+    s = Session()  # still IMPORT
+    with pytest.raises(StateTransitionError):
+        s.rebinarize([], page_mask=None, method="global")

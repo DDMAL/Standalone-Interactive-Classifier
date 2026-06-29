@@ -3,7 +3,7 @@ import { GroupDialog } from "@/components/GroupDialog";
 import { Button } from "@/components/ui/Button";
 import { useUpdateGlyphs } from "@/hooks/useUpdateGlyphs";
 import { isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
-import { useUiStore } from "@/store/uiStore";
+import { isModalOpen, useUiStore } from "@/store/uiStore";
 import { CATEGORY_ORDER, type GlyphCategory, type GlyphDTO } from "@/types/api";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
@@ -109,6 +109,7 @@ export function MultiEditPanel({
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Enter") return;
+      if (isModalOpen()) return;
       if (isEditableTarget(e.target)) return;
       e.preventDefault();
       void applyRef.current();
@@ -122,6 +123,7 @@ export function MultiEditPanel({
   const inputRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      if (isModalOpen()) return;
       if (isEditableTarget(e.target)) return;
       if (!(e.metaKey || e.ctrlKey)) return;
       const key = e.key.toLowerCase();
@@ -144,6 +146,7 @@ export function MultiEditPanel({
   useEffect(() => {
     if (neumeIds.length === 0) return;
     function onKeyDown(e: KeyboardEvent) {
+      if (isModalOpen()) return;
       if (isEditableTarget(e.target)) return;
       if (!isTypeToFocusKey(e)) return;
       const input = inputRef.current?.querySelector("input");

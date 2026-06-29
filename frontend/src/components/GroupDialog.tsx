@@ -1,6 +1,7 @@
 import { ClassNameInput } from "@/components/ClassNameInput";
 import { Button } from "@/components/ui/Button";
 import { useGroup } from "@/hooks/useGroup";
+import { useModalGuard } from "@/hooks/useModalGuard";
 import * as Dialog from "@radix-ui/react-dialog";
 import { type FormEvent, useEffect, useState } from "react";
 
@@ -30,6 +31,11 @@ export function GroupDialog({
   const [className, setClassName] = useState(initialClassName);
   const group = useGroup(sessionId);
   const groupReset = group.reset;
+
+  // Suppress page-level keyboard shortcuts while the dialog is open so an
+  // Enter (e.g. when focus isn't in the input) doesn't also fire a
+  // background apply/classify on the selection underneath.
+  useModalGuard(open);
 
   // Reset the seed and any prior mutation error whenever the dialog opens.
   useEffect(() => {

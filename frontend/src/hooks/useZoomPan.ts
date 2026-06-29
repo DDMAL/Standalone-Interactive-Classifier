@@ -32,7 +32,11 @@ export interface UseZoomPan {
    * `naturalW` is needed to map them to the inner div's CSS layout, which
    * is what `tx/ty` are denominated in.
    */
-  centerOnImagePoint: (imageX: number, imageY: number, naturalW: number) => void;
+  centerOnImagePoint: (
+    imageX: number,
+    imageY: number,
+    naturalW: number,
+  ) => void;
 }
 
 /**

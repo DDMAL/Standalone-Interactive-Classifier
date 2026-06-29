@@ -2,6 +2,9 @@ export type ClassifierState = "import" | "classifying" | "export";
 
 export type AnnotationFormat = "json" | "yolo";
 
+/** How the page is binarised at ingest. See POST /sessions. */
+export type BinarizationMethod = "global" | "otsu" | "sauvola";
+
 /** Coarse MOTHRA detector category. Only "Neumes" glyphs get classified. */
 export type GlyphCategory = "Text" | "Neumes" | "Staves";
 
@@ -37,6 +40,8 @@ export interface SessionDTO {
   glyphs: GlyphDTO[];
   training_glyphs: GlyphDTO[];
   class_names: string[];
+  /** Method that produced the current glyph masks. */
+  binarization_method: BinarizationMethod;
 }
 
 export type ErrorCode =

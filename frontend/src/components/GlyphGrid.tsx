@@ -1,5 +1,6 @@
 import { ClassSection } from "@/components/ClassSection";
 import { DeletedSection } from "@/components/DeletedSection";
+import { PageImageProvider } from "@/hooks/usePageImage";
 import { useUiStore } from "@/store/uiStore";
 import {
   CATEGORY_DEFAULT_OPEN,
@@ -36,23 +37,27 @@ export function GlyphGrid({ glyphs }: { glyphs: GlyphDTO[] }) {
   }, [glyphs, deletedGlyphIds]);
 
   return (
-    <div className="min-w-0 flex-1 overflow-auto bg-slate-50 p-2">
-      {glyphs.length === 0 ? (
-        <p className="p-4 text-sm text-slate-400">No glyphs in this session.</p>
-      ) : (
-        <>
-          {CATEGORY_ORDER.map((category) => (
-            <ClassSection
-              key={category}
-              category={category}
-              glyphs={byCategory[category]}
-              defaultOpen={CATEGORY_DEFAULT_OPEN[category]}
-              sortable={category === "Neumes"}
-            />
-          ))}
-          <DeletedSection glyphs={deleted} />
-        </>
-      )}
-    </div>
+    <PageImageProvider>
+      <div className="min-w-0 flex-1 overflow-auto bg-slate-50 p-2">
+        {glyphs.length === 0 ? (
+          <p className="p-4 text-sm text-slate-400">
+            No glyphs in this session.
+          </p>
+        ) : (
+          <>
+            {CATEGORY_ORDER.map((category) => (
+              <ClassSection
+                key={category}
+                category={category}
+                glyphs={byCategory[category]}
+                defaultOpen={CATEGORY_DEFAULT_OPEN[category]}
+                sortable={category === "Neumes"}
+              />
+            ))}
+            <DeletedSection glyphs={deleted} />
+          </>
+        )}
+      </div>
+    </PageImageProvider>
   );
 }

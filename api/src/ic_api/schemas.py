@@ -21,6 +21,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ic_core.glyph import Glyph
+from ic_core.ingest import BinarizationMethod
 from ic_core.state import ClassifierState, Session
 
 
@@ -61,6 +62,9 @@ class SessionDTO(BaseModel):
     class_names: list[str] = Field(
         ..., description="Sorted union of all known class names."
     )
+    binarization_method: BinarizationMethod = Field(
+        ..., description="Method that produced the current glyph masks."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -72,6 +76,18 @@ class ClassifyRequest(BaseModel):
     """POST /sessions/{id}/classify body."""
 
     k: int = Field(default=3, ge=1, description="Neighbour count; default 3.")
+
+
+class RebinarizeRequest(BaseModel):
+    """POST /sessions/{id}/binarization body.
+
+    Switches the binarisation method and rebuilds every glyph mask from
+    the session's retained page + bboxes. See :meth:`Session.rebinarize`.
+    """
+
+    method: BinarizationMethod = Field(
+        ..., description="'global', 'otsu', or 'sauvola'."
+    )
 
 
 class UpdateGlyphRequest(BaseModel):
@@ -146,6 +162,7 @@ def session_to_dto(session: Session) -> SessionDTO:
         glyphs=[glyph_to_dto(g) for g in session.glyphs],
         training_glyphs=[glyph_to_dto(g) for g in session.training_glyphs],
         class_names=sorted(session.class_names),
+        binarization_method=session.binarization_method,
     )
 
 
