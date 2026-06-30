@@ -28,34 +28,41 @@ export function MultiEditPanel({
   const softDeleteGlyphs = useUiStore((s) => s.softDeleteGlyphs);
   const updateGlyphs = useUpdateGlyphs(sessionId);
 
-  const { neumeIds, neumeCount, nonNeumeCount, dominant, hasMultipleClasses } =
-    useMemo(() => {
-      const neumes = selectedGlyphs.filter((g) => g.category === "Neumes");
-      const counts = new Map<string, number>();
-      for (const g of neumes) {
-        const key = g.class_name.trim();
-        if (!key) continue;
-        counts.set(key, (counts.get(key) ?? 0) + 1);
+  const {
+    neumeGlyphs,
+    neumeIds,
+    neumeCount,
+    nonNeumeCount,
+    dominant,
+    hasMultipleClasses,
+  } = useMemo(() => {
+    const neumes = selectedGlyphs.filter((g) => g.category === "Neumes");
+    const counts = new Map<string, number>();
+    for (const g of neumes) {
+      const key = g.class_name.trim();
+      if (!key) continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    let best = "";
+    let bestN = 0;
+    for (const [k, n] of counts) {
+      if (n > bestN) {
+        best = k;
+        bestN = n;
       }
-      let best = "";
-      let bestN = 0;
-      for (const [k, n] of counts) {
-        if (n > bestN) {
-          best = k;
-          bestN = n;
-        }
-      }
-      const uniqueNamedClasses = [...counts.keys()].filter(
-        (k) => k !== "UNCLASSIFIED",
-      ).length;
-      return {
-        neumeIds: neumes.map((g) => g.id),
-        neumeCount: neumes.length,
-        nonNeumeCount: selectedGlyphs.length - neumes.length,
-        dominant: best,
-        hasMultipleClasses: uniqueNamedClasses > 1,
-      };
-    }, [selectedGlyphs]);
+    }
+    const uniqueNamedClasses = [...counts.keys()].filter(
+      (k) => k !== "UNCLASSIFIED",
+    ).length;
+    return {
+      neumeGlyphs: neumes,
+      neumeIds: neumes.map((g) => g.id),
+      neumeCount: neumes.length,
+      nonNeumeCount: selectedGlyphs.length - neumes.length,
+      dominant: best,
+      hasMultipleClasses: uniqueNamedClasses > 1,
+    };
+  }, [selectedGlyphs]);
 
   const [className, setClassName] = useState(dominant);
   const [groupOpen, setGroupOpen] = useState(false);
@@ -298,7 +305,7 @@ export function MultiEditPanel({
         open={groupOpen}
         onOpenChange={setGroupOpen}
         sessionId={sessionId}
-        glyphIds={neumeIds}
+        glyphs={neumeGlyphs}
         initialClassName={dominant || className}
         classNames={classNames}
       />
