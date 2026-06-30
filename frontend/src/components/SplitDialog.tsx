@@ -1,10 +1,12 @@
 import { Button } from "@/components/ui/Button";
+import { useClassify } from "@/hooks/useClassify";
 import { useModalGuard } from "@/hooks/useModalGuard";
 import { useSplit } from "@/hooks/useSplit";
 import { rectFromAnchor } from "@/lib/bbox";
 import type { Rect } from "@/lib/bbox";
 import { glyphDataUri } from "@/lib/format";
 import { isEditableTarget } from "@/lib/keymap";
+import { useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
@@ -66,6 +68,10 @@ export function SplitDialog({
   const rafRef = useRef<number | null>(null);
   const split = useSplit(sessionId);
   const splitReset = split.reset;
+  const classify = useClassify(sessionId);
+  const classifyReset = classify.reset;
+  const knnK = useUiStore((s) => s.knnK);
+  const pending = split.isPending || classify.isPending;
 
   // Suppress page-level keyboard shortcuts while the dialog is open so an
   // Enter meant to confirm the split doesn't also classify the glyph behind it.
@@ -89,8 +95,9 @@ export function SplitDialog({
       setDraft(null);
       draftRef.current = null;
       splitReset();
+      classifyReset();
     }
-  }, [open, splitReset]);
+  }, [open, splitReset, classifyReset]);
 
   // Convert a client (screen) pointer position into viewBox coordinates.
   // Since our viewBox starts at (-pad, -pad), this naturally produces
@@ -120,14 +127,14 @@ export function SplitDialog({
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<SVGSVGElement>) => {
       if (e.target !== e.currentTarget) return;
-      if (split.isPending) return;
+      if (pending) return;
       e.preventDefault();
       const { x, y } = pointerToGlyph(e);
       draftRef.current = { pointerId: e.pointerId, anchorX: x, anchorY: y };
       e.currentTarget.setPointerCapture(e.pointerId);
       setDraft({ x, y, w: 0, h: 0 });
     },
-    [pointerToGlyph, split.isPending],
+    [pointerToGlyph, pending],
   );
 
   const onPointerMove = useCallback(
@@ -189,16 +196,25 @@ export function SplitDialog({
     void handleSubmit();
   }
 
+  function buildRegions(): [number, number, number, number][] {
+    return rects.map((r) => [r.x + glyph.ulx, r.y + glyph.uly, r.w, r.h]);
+  }
+
   async function handleSubmit() {
-    if (rects.length === 0 || split.isPending) return;
-    const regions: [number, number, number, number][] = rects.map((r) => [
-      r.x + glyph.ulx,
-      r.y + glyph.uly,
-      r.w,
-      r.h,
-    ]);
+    if (rects.length === 0 || pending) return;
     try {
-      await split.mutateAsync({ glyphId: glyph.id, regions });
+      await split.mutateAsync({ glyphId: glyph.id, regions: buildRegions() });
+      onOpenChange(false);
+    } catch {
+      // error state shown inline; dialog stays open so the user can adjust
+    }
+  }
+
+  async function handleSplitAndReclassify() {
+    if (rects.length === 0 || pending) return;
+    try {
+      await split.mutateAsync({ glyphId: glyph.id, regions: buildRegions() });
+      await classify.mutateAsync(knnK);
       onOpenChange(false);
     } catch {
       // error state shown inline; dialog stays open so the user can adjust
@@ -218,8 +234,8 @@ export function SplitDialog({
           </Dialog.Title>
           <Dialog.Description className="mt-2 text-sm text-slate-600">
             Drag on the image to draw rectangles. Each rectangle becomes one new
-            unclassified glyph; the original is removed. Children are
-            re-classified on the next round.
+            unclassified glyph; the original is removed. Use "Split &amp;
+            Reclassify" to run kNN immediately after splitting.
           </Dialog.Description>
 
           <SplitCanvas
@@ -245,7 +261,7 @@ export function SplitDialog({
               <Button
                 variant="ghost"
                 onClick={handleClearAll}
-                disabled={split.isPending}
+                disabled={pending}
                 className="px-2 py-0.5 text-xs"
               >
                 Clear all
@@ -258,22 +274,40 @@ export function SplitDialog({
               {(split.error as Error)?.message}
             </p>
           )}
+          {classify.isError && (
+            <p className="mt-2 text-xs text-red-600">
+              Reclassify failed: {(classify.error as Error)?.message}
+            </p>
+          )}
 
           <div className="mt-5 flex justify-end gap-2">
             <Dialog.Close asChild>
-              <Button variant="ghost" disabled={split.isPending}>
+              <Button variant="ghost" disabled={pending}>
                 Cancel
               </Button>
             </Dialog.Close>
             <Button
+              variant="secondary"
               onClick={() => void handleSubmit()}
-              disabled={rects.length === 0 || split.isPending}
+              disabled={rects.length === 0 || pending}
             >
               {split.isPending
                 ? "Splitting…"
                 : `Split into ${rects.length || ""} glyph${
                     rects.length === 1 ? "" : "s"
                   }`.trim()}
+            </Button>
+            <Button
+              onClick={() => void handleSplitAndReclassify()}
+              disabled={rects.length === 0 || pending}
+            >
+              {split.isPending
+                ? "Splitting…"
+                : classify.isPending
+                  ? "Classifying…"
+                  : `Split & Reclassify into ${rects.length || ""} glyph${
+                      rects.length === 1 ? "" : "s"
+                    }`.trim()}
             </Button>
           </div>
         </Dialog.Content>
