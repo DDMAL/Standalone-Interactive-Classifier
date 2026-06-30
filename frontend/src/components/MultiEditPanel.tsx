@@ -1,3 +1,4 @@
+import { BatchConfirmDialog } from "@/components/BatchConfirmDialog";
 import { ClassNameInput } from "@/components/ClassNameInput";
 import { GroupDialog } from "@/components/GroupDialog";
 import { Button } from "@/components/ui/Button";
@@ -27,32 +28,38 @@ export function MultiEditPanel({
   const softDeleteGlyphs = useUiStore((s) => s.softDeleteGlyphs);
   const updateGlyphs = useUpdateGlyphs(sessionId);
 
-  const { neumeIds, neumeCount, nonNeumeCount, dominant } = useMemo(() => {
-    const neumes = selectedGlyphs.filter((g) => g.category === "Neumes");
-    const counts = new Map<string, number>();
-    for (const g of neumes) {
-      const key = g.class_name.trim();
-      if (!key) continue;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    let best = "";
-    let bestN = 0;
-    for (const [k, n] of counts) {
-      if (n > bestN) {
-        best = k;
-        bestN = n;
+  const { neumeIds, neumeCount, nonNeumeCount, dominant, hasMultipleClasses } =
+    useMemo(() => {
+      const neumes = selectedGlyphs.filter((g) => g.category === "Neumes");
+      const counts = new Map<string, number>();
+      for (const g of neumes) {
+        const key = g.class_name.trim();
+        if (!key) continue;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
       }
-    }
-    return {
-      neumeIds: neumes.map((g) => g.id),
-      neumeCount: neumes.length,
-      nonNeumeCount: selectedGlyphs.length - neumes.length,
-      dominant: best,
-    };
-  }, [selectedGlyphs]);
+      let best = "";
+      let bestN = 0;
+      for (const [k, n] of counts) {
+        if (n > bestN) {
+          best = k;
+          bestN = n;
+        }
+      }
+      const uniqueNamedClasses = [...counts.keys()].filter(
+        (k) => k !== "UNCLASSIFIED",
+      ).length;
+      return {
+        neumeIds: neumes.map((g) => g.id),
+        neumeCount: neumes.length,
+        nonNeumeCount: selectedGlyphs.length - neumes.length,
+        dominant: best,
+        hasMultipleClasses: uniqueNamedClasses > 1,
+      };
+    }, [selectedGlyphs]);
 
   const [className, setClassName] = useState(dominant);
   const [groupOpen, setGroupOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
 
   // Reseed the input when the selection (and therefore dominant) changes,
   // but only when the user hasn't typed something else of their own. We
@@ -210,12 +217,22 @@ export function MultiEditPanel({
         )}
         <Button
           type="submit"
+          variant={hasMultipleClasses ? "secondary" : "primary"}
           disabled={pending || !className.trim() || neumeIds.length === 0}
           className="w-full"
         >
           {pending
             ? "Applying…"
             : `Apply to ${neumeCount} Neume${neumeCount === 1 ? "" : "s"}`}
+        </Button>
+        <Button
+          type="button"
+          variant={hasMultipleClasses ? "primary" : "secondary"}
+          disabled={pending || neumeIds.length === 0}
+          onClick={() => setBatchOpen(true)}
+          className="w-full"
+        >
+          Apply each in own class…
         </Button>
       </form>
 
@@ -237,7 +254,7 @@ export function MultiEditPanel({
           ))}
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Moves all {totalCount} selected glyph{totalCount === 1 ? "" : "s"};
+          Moves all {totalCount} selected glyph{totalCount === 1 ? "" : "s"} and
           resets their neume labels.
         </p>
       </div>
@@ -283,6 +300,14 @@ export function MultiEditPanel({
         sessionId={sessionId}
         glyphIds={neumeIds}
         initialClassName={dominant || className}
+        classNames={classNames}
+      />
+
+      <BatchConfirmDialog
+        open={batchOpen}
+        onOpenChange={setBatchOpen}
+        sessionId={sessionId}
+        glyphs={selectedGlyphs.filter((g) => g.category === "Neumes")}
         classNames={classNames}
       />
     </aside>

@@ -3,6 +3,7 @@ import { EditPanel } from "@/components/EditPanel";
 import { GlyphGrid } from "@/components/GlyphGrid";
 import { PageImagePane } from "@/components/PageImagePane";
 import { Toolbar } from "@/components/Toolbar";
+import { PageImageProvider } from "@/hooks/usePageImage";
 import { useSelectionSync } from "@/hooks/useSelectionSync";
 import { useSession } from "@/hooks/useSession";
 import { useZoomPan } from "@/hooks/useZoomPan";
@@ -129,28 +130,32 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const showEditPanel = selectionSize >= 1;
 
   return (
-    <div className="flex h-full flex-col">
-      <Toolbar
-        sessionId={sessionId}
-        glyphCount={session.glyphs.length}
-        trainingSize={trainingPoolSize(session)}
-        binarizationMethod={session.binarization_method}
-      />
-      <div className="flex min-h-0 flex-1">
-        <ClassTreePanel sessionId={sessionId} session={session} />
-        <PageImagePane glyphs={session.glyphs} zoomPan={zoomPan} />
-        <GlyphGrid glyphs={sortedGlyphs} />
-        {showEditPanel && (
-          <EditPanel
-            key={selectionSize === 1 ? (primaryGlyphId ?? "primary") : "multi"}
-            sessionId={sessionId}
-            primaryGlyph={primaryGlyph}
-            selectionSize={selectionSize}
-            selectedGlyphs={selectedGlyphs}
-            classNames={session.class_names}
-          />
-        )}
+    <PageImageProvider>
+      <div className="flex h-full flex-col">
+        <Toolbar
+          sessionId={sessionId}
+          glyphCount={session.glyphs.length}
+          trainingSize={trainingPoolSize(session)}
+          binarizationMethod={session.binarization_method}
+        />
+        <div className="flex min-h-0 flex-1">
+          <ClassTreePanel sessionId={sessionId} session={session} />
+          <PageImagePane glyphs={session.glyphs} zoomPan={zoomPan} />
+          <GlyphGrid glyphs={sortedGlyphs} />
+          {showEditPanel && (
+            <EditPanel
+              key={
+                selectionSize === 1 ? (primaryGlyphId ?? "primary") : "multi"
+              }
+              sessionId={sessionId}
+              primaryGlyph={primaryGlyph}
+              selectionSize={selectionSize}
+              selectedGlyphs={selectedGlyphs}
+              classNames={session.class_names}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </PageImageProvider>
   );
 }
