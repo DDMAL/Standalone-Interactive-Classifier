@@ -16,6 +16,38 @@ interface BulkUpdateResult {
   failed: { glyphId: string; error: unknown }[];
 }
 
+interface PerGlyphUpdateArgs {
+  assignments: { id: string; class_name: string }[];
+}
+
+/**
+ * Fan-out updateGlyph with a different class_name per glyph, then classify.
+ * Used by BatchConfirmDialog to confirm each neume into its own class.
+ */
+export function useUpdateGlyphsPerGlyph(sessionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<BulkUpdateResult, Error, PerGlyphUpdateArgs>({
+    mutationFn: async ({ assignments }) => {
+      const results = await Promise.allSettled(
+        assignments.map(({ id, class_name }) =>
+          updateGlyph(sessionId, id, { class_name, id_state_manual: true }),
+        ),
+      );
+      const failed: { glyphId: string; error: unknown }[] = [];
+      let applied = 0;
+      results.forEach((r, i) => {
+        if (r.status === "fulfilled") applied += 1;
+        else failed.push({ glyphId: assignments[i].id, error: r.reason });
+      });
+      if (applied > 0) {
+        await classify(sessionId, useUiStore.getState().knnK);
+      }
+      queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
+      return { applied, failed };
+    },
+  });
+}
+
 /**
  * Fan-out updateGlyph + single classify + invalidate. Used by MultiEditPanel
  * to apply one class name to N glyphs. Returns per-id error info so the

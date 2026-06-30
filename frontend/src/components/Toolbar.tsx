@@ -168,6 +168,21 @@ export function Toolbar({
               );
             })}
           </div>
+          <button
+            type="button"
+            onClick={() => classify.mutate(knnK)}
+            disabled={classify.isPending || !isKAvailable(knnK)}
+            title={
+              trainingSize === 0
+                ? "No training glyphs yet — apply at least one label first"
+                : !isKAvailable(knnK)
+                  ? `Needs at least ${knnK} training glyphs (have ${trainingSize})`
+                  : "Re-run kNN classification with the current k and training set"
+            }
+            className="px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 bg-blue-600 text-white hover:bg-blue-700 rounded"
+          >
+            {classify.isPending ? "Classifying…" : "↺ Reclassify"}
+          </button>
           <span
             className="text-xs text-slate-500"
             title="Number of glyphs in the training set used for kNN classification"
