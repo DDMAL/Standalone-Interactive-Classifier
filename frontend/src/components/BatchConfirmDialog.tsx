@@ -20,16 +20,26 @@ interface BatchConfirmDialogProps {
 
 type GroupedSnapshot = [string, GlyphDTO[]][];
 
+function normalizeClassName(className: string): string {
+  return className.trim();
+}
+
+function isUnclassifiedClassName(className: string): boolean {
+  return normalizeClassName(className).toUpperCase() === "UNCLASSIFIED";
+}
+
 function buildGroups(
   glyphs: GlyphDTO[],
   assignments: Map<string, string>,
 ): GroupedSnapshot {
   const map = new Map<string, GlyphDTO[]>();
   for (const glyph of glyphs) {
-    const cls =
-      (assignments.get(glyph.id) ?? glyph.class_name).trim() || "UNCLASSIFIED";
-    if (!map.has(cls)) map.set(cls, []);
-    map.get(cls)?.push(glyph);
+    const cls = normalizeClassName(
+      assignments.get(glyph.id) ?? glyph.class_name,
+    );
+    const groupedClassName = cls || "UNCLASSIFIED";
+    if (!map.has(groupedClassName)) map.set(groupedClassName, []);
+    map.get(groupedClassName)?.push(glyph);
   }
   return [...map.entries()].sort(([a], [b]) => {
     if (a === "UNCLASSIFIED") return 1;
@@ -85,15 +95,20 @@ export function BatchConfirmDialog({
     const items = glyphs
       .map((g) => ({
         id: g.id,
-        class_name: assignments.get(g.id) ?? g.class_name,
+        class_name: normalizeClassName(assignments.get(g.id) ?? g.class_name),
       }))
       .filter(
-        ({ class_name }) => class_name.trim() && class_name !== "UNCLASSIFIED",
+        ({ class_name }) => class_name && !isUnclassifiedClassName(class_name),
       );
-    if (items.length === 0) return;
-    try {
-      await updatePerGlyph.mutateAsync({ assignments: items });
+    if (items.length === 0) {
       onOpenChange(false);
+      return;
+    }
+    try {
+      const result = await updatePerGlyph.mutateAsync({ assignments: items });
+      if (result.failed.length === 0) {
+        onOpenChange(false);
+      }
     } catch {
       // error shown inline; dialog stays open
     }
@@ -105,9 +120,10 @@ export function BatchConfirmDialog({
 
   // Count unclassified from live assignments so the warning stays accurate.
   const unclassifiedCount = glyphs.filter((g) => {
-    const cls = assignments.get(g.id) ?? g.class_name;
-    return !cls.trim() || cls === "UNCLASSIFIED";
+    const cls = normalizeClassName(assignments.get(g.id) ?? g.class_name);
+    return !cls || isUnclassifiedClassName(cls);
   }).length;
+  const lastResult = updatePerGlyph.data;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -214,6 +230,12 @@ export function BatchConfirmDialog({
           {updatePerGlyph.isError && (
             <p className="mt-2 text-xs text-red-600">
               {(updatePerGlyph.error as Error)?.message}
+            </p>
+          )}
+          {lastResult && lastResult.failed.length > 0 && (
+            <p className="mt-2 text-xs text-amber-700">
+              {lastResult.applied} of{" "}
+              {lastResult.applied + lastResult.failed.length} applied.
             </p>
           )}
 
