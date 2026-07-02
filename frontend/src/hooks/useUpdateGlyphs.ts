@@ -3,6 +3,27 @@ import { sessionKey } from "@/hooks/useSession";
 import { useUiStore } from "@/store/uiStore";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+/**
+ * Pops the top entry from the undo stack and restores each glyph's
+ * class_name / id_state_manual to its pre-apply snapshot. Does NOT
+ * trigger classify — the user can run Reclassify manually afterwards.
+ */
+export function useUndoApply(sessionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const entry = useUiStore.getState().popUndo();
+      if (!entry || entry.snapshots.length === 0) return;
+      await Promise.allSettled(
+        entry.snapshots.map(({ id, class_name, id_state_manual }) =>
+          updateGlyph(sessionId, id, { class_name, id_state_manual }),
+        ),
+      );
+      queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
+    },
+  });
+}
+
 interface BulkUpdateArgs {
   glyphIds: string[];
   patch: UpdateGlyphArgs;

@@ -4,6 +4,11 @@ import { create } from "zustand";
  * original page crop. A display preference, not session state. */
 export type GlyphImageMode = "binarized" | "original";
 
+export interface UndoEntry {
+  description: string;
+  snapshots: { id: string; class_name: string; id_state_manual: boolean }[];
+}
+
 interface UiState {
   sessionId: string | null;
   pageObjectUrl: string | null;
@@ -56,6 +61,13 @@ interface UiState {
   glyphImageMode: GlyphImageMode;
   setGlyphImageMode: (mode: GlyphImageMode) => void;
 
+  // Undo stack for apply operations (class_name changes). Max 5 entries;
+  // each entry holds the before-state for every glyph affected. Cleared on
+  // session change. Does not cover split / group / rebinarize.
+  undoStack: UndoEntry[];
+  pushUndo: (entry: UndoEntry) => void;
+  popUndo: () => UndoEntry | undefined;
+
   setSession: (id: string, objectUrl: string) => void;
   clearSession: () => void;
 
@@ -95,6 +107,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   classTreeCollapsed: false,
   knnK: 3,
   glyphImageMode: "binarized",
+  undoStack: [],
 
   setBboxesHidden: (v) => set({ bboxesHidden: v }),
 
@@ -107,6 +120,19 @@ export const useUiStore = create<UiState>((set, get) => ({
   setKnnK: (k) => set({ knnK: k }),
 
   setGlyphImageMode: (mode) => set({ glyphImageMode: mode }),
+
+  pushUndo: (entry) =>
+    set((s) => ({
+      undoStack: [...s.undoStack.slice(-4), entry],
+    })),
+
+  popUndo: () => {
+    const stack = get().undoStack;
+    if (stack.length === 0) return undefined;
+    const entry = stack[stack.length - 1];
+    set({ undoStack: stack.slice(0, -1) });
+    return entry;
+  },
 
   setSession: (id, objectUrl) => {
     const prev = get().pageObjectUrl;
@@ -121,6 +147,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       pendingFocusGlyphId: null,
       deletedGlyphIds: new Set(),
       classTreeCollapsed: false,
+      undoStack: [],
     });
   },
 
@@ -137,6 +164,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       pendingFocusGlyphId: null,
       deletedGlyphIds: new Set(),
       classTreeCollapsed: false,
+      undoStack: [],
     });
   },
 
