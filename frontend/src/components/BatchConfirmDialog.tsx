@@ -3,7 +3,7 @@ import { GlyphImage } from "@/components/GlyphImage";
 import { Button } from "@/components/ui/Button";
 import { useModalGuard } from "@/hooks/useModalGuard";
 import { useUpdateGlyphsPerGlyph } from "@/hooks/useUpdateGlyphs";
-import { useUiStore } from "@/store/uiStore";
+import { type UndoEntry, useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
 import * as Dialog from "@radix-ui/react-dialog";
 import { clsx } from "clsx";
@@ -91,6 +91,8 @@ export function BatchConfirmDialog({
     });
   }
 
+  const pushUndo = useUiStore((s) => s.pushUndo);
+
   async function handleConfirm() {
     const items = glyphs
       .map((g) => ({
@@ -104,9 +106,21 @@ export function BatchConfirmDialog({
       onOpenChange(false);
       return;
     }
+    const itemIds = new Set(items.map(({ id }) => id));
+    const undoEntry: UndoEntry = {
+      description: `Confirm ${items.length} neume${items.length === 1 ? "" : "s"} in own classes`,
+      snapshots: glyphs
+        .filter((g) => itemIds.has(g.id))
+        .map((g) => ({
+          id: g.id,
+          class_name: g.class_name,
+          id_state_manual: g.id_state_manual,
+        })),
+    };
     try {
       const result = await updatePerGlyph.mutateAsync({ assignments: items });
       if (result.failed.length === 0) {
+        pushUndo(undoEntry);
         onOpenChange(false);
       }
     } catch {

@@ -65,6 +65,7 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
   const queryClient = useQueryClient();
   const clearSelection = useUiStore((s) => s.clearSelection);
   const softDeleteGlyphs = useUiStore((s) => s.softDeleteGlyphs);
+  const pushUndo = useUiStore((s) => s.pushUndo);
   const knnK = useUiStore((s) => s.knnK);
 
   const pending = updateGlyph.isPending || classify.isPending;
@@ -80,18 +81,20 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
 
   async function applyClassName(override?: string) {
     const name = (override ?? className).trim();
-    if (!name) return;
-    if (!isNeume) return;
-    if (pending) return;
-    if (override !== undefined && override !== className) {
-      setClassName(name);
-    }
+    if (!name || !isNeume || pending) return;
+    if (override !== undefined && override !== className) setClassName(name);
+    const snapshot = {
+      id: glyph.id,
+      class_name: glyph.class_name,
+      id_state_manual: glyph.id_state_manual,
+    };
     await updateGlyph.mutateAsync({
       glyphId: glyph.id,
       patch: { class_name: name, id_state_manual: true },
     });
     await classify.mutateAsync(knnK);
     queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
+    pushUndo({ description: "Apply to 1 neume", snapshots: [snapshot] });
   }
   applyRef.current = () => applyClassName();
 

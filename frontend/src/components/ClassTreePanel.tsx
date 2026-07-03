@@ -30,6 +30,7 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
   const deleteClassMut = useDeleteClass(sessionId);
   const selectByClass = useClassSelection();
   const updateGlyphs = useUpdateGlyphs(sessionId);
+  const pushUndo = useUiStore((s) => s.pushUndo);
 
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ClassNode | null>(null);
@@ -72,11 +73,22 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
   // Clicking a class name labels every selected Neume with that class and
   // reclassifies — the bulk counterpart to the per-glyph apply in EditPanel.
   // No-op when nothing applicable is selected (the name then reads as a hint).
-  function handleApply(node: ClassNode) {
+  async function handleApply(node: ClassNode) {
     if (selectedNeumeIds.length === 0 || updateGlyphs.isPending) return;
-    updateGlyphs.mutate({
+    const snapshot = session.glyphs
+      .filter((g) => selectedNeumeIds.includes(g.id))
+      .map((g) => ({
+        id: g.id,
+        class_name: g.class_name,
+        id_state_manual: g.id_state_manual,
+      }));
+    await updateGlyphs.mutateAsync({
       glyphIds: selectedNeumeIds,
       patch: { class_name: node.path, id_state_manual: true },
+    });
+    pushUndo({
+      description: `Apply '${node.path}' to ${selectedNeumeIds.length} neume${selectedNeumeIds.length === 1 ? "" : "s"}`,
+      snapshots: snapshot,
     });
   }
 

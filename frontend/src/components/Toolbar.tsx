@@ -3,6 +3,7 @@ import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
 import { useRebinarize } from "@/hooks/useRebinarize";
 import { useSave } from "@/hooks/useSave";
+import { useUndoApply } from "@/hooks/useUpdateGlyphs";
 import { type GlyphImageMode, useUiStore } from "@/store/uiStore";
 import type { BinarizationMethod } from "@/types/api";
 import { clsx } from "clsx";
@@ -38,8 +39,10 @@ export function Toolbar({
   const complete = useComplete(sessionId);
   const classify = useClassify(sessionId);
   const rebinarize = useRebinarize(sessionId);
+  const undoApply = useUndoApply(sessionId);
   const clearSession = useUiStore((s) => s.clearSession);
   const knnK = useUiStore((s) => s.knnK);
+  const undoStack = useUiStore((s) => s.undoStack);
   const setKnnK = useUiStore((s) => s.setKnnK);
   const glyphImageMode = useUiStore((s) => s.glyphImageMode);
   const setGlyphImageMode = useUiStore((s) => s.setGlyphImageMode);
@@ -190,6 +193,18 @@ export function Toolbar({
             {trainingSize.toLocaleString()} training glyphs
           </span>
         </div>
+        <Button
+          variant="secondary"
+          onClick={() => undoApply.mutate()}
+          disabled={undoStack.length === 0 || undoApply.isPending}
+          title={
+            undoStack.length > 0
+              ? `Undo: ${undoStack[undoStack.length - 1].description}`
+              : "Nothing to undo"
+          }
+        >
+          {undoApply.isPending ? "Undoing…" : "Undo"}
+        </Button>
         <Button variant="ghost" onClick={clearSession}>
           New session
         </Button>
