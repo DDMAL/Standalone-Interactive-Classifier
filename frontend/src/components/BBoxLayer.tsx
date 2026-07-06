@@ -99,7 +99,9 @@ function BBoxLayerImpl({ glyphs, selectedIds, hoverId }: BBoxLayerProps) {
             onPointerLeave={() => setHover(null)}
             onPointerDown={onRectPointerDown}
             onClick={(e) => onRectClick(g.id, e)}
-          />
+          >
+            <title>{g.class_name}</title>
+          </rect>
         );
       })}
     </g>
