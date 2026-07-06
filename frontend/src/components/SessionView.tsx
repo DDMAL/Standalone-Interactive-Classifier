@@ -6,11 +6,12 @@ import { Toolbar } from "@/components/Toolbar";
 import { PageImageProvider } from "@/hooks/usePageImage";
 import { useSelectionSync } from "@/hooks/useSelectionSync";
 import { useSession } from "@/hooks/useSession";
+import { useUndoApply } from "@/hooks/useUpdateGlyphs";
 import { useZoomPan } from "@/hooks/useZoomPan";
 import { byConfidenceAsc, trainingPoolSize } from "@/lib/format";
 import { actionForKey, isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
 import { isModalOpen, useUiStore } from "@/store/uiStore";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 export function SessionView({ sessionId }: { sessionId: string }) {
   const { data: session, isLoading, isError, error } = useSession(sessionId);
@@ -19,6 +20,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   const clearSelection = useUiStore((s) => s.clearSelection);
   const setBboxesHidden = useUiStore((s) => s.setBboxesHidden);
   const zoomPan = useZoomPan();
+  const undoApply = useUndoApply(sessionId);
+  const undoApplyRef = useRef(undoApply.mutate);
+  undoApplyRef.current = undoApply.mutate;
 
   useSelectionSync();
 
@@ -80,6 +84,22 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     zoomPan.pan,
     clearSelection,
   ]);
+
+  // Cmd/Ctrl+Z triggers undo for the last apply operation.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key !== "z" && e.key !== "Z") return;
+      if (e.shiftKey) return;
+      if (isModalOpen()) return;
+      if (isEditableTarget(e.target)) return;
+      if (useUiStore.getState().undoStack.length === 0) return;
+      e.preventDefault();
+      undoApplyRef.current();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Hold "h" to temporarily hide all bboxes; release to bring them back.
   // Separate from actionForKey because it's a press-and-hold gesture (keydown

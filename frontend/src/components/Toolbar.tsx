@@ -1,8 +1,10 @@
 import { Button } from "@/components/ui/Button";
+import { AlertCircleIcon } from "@/components/ui/icons";
 import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
 import { useRebinarize } from "@/hooks/useRebinarize";
 import { useSave } from "@/hooks/useSave";
+import { useUndoApply } from "@/hooks/useUpdateGlyphs";
 import { type GlyphImageMode, useUiStore } from "@/store/uiStore";
 import type { BinarizationMethod } from "@/types/api";
 import { clsx } from "clsx";
@@ -16,6 +18,10 @@ interface ToolbarProps {
 }
 
 const K_CHOICES = [1, 3, 5, 7] as const;
+
+// Below this many training glyphs, kNN has too few examples to classify
+// reliably, so we surface a warning next to the training-set count.
+const SMALL_TRAINING_THRESHOLD = 10;
 
 const BIN_METHODS: { value: BinarizationMethod; label: string }[] = [
   { value: "global", label: "Global" },
@@ -38,8 +44,10 @@ export function Toolbar({
   const complete = useComplete(sessionId);
   const classify = useClassify(sessionId);
   const rebinarize = useRebinarize(sessionId);
+  const undoApply = useUndoApply(sessionId);
   const clearSession = useUiStore((s) => s.clearSession);
   const knnK = useUiStore((s) => s.knnK);
+  const undoStack = useUiStore((s) => s.undoStack);
   const setKnnK = useUiStore((s) => s.setKnnK);
   const glyphImageMode = useUiStore((s) => s.glyphImageMode);
   const setGlyphImageMode = useUiStore((s) => s.setGlyphImageMode);
@@ -189,7 +197,20 @@ export function Toolbar({
           >
             {trainingSize.toLocaleString()} training glyphs
           </span>
+          {trainingSize < SMALL_TRAINING_THRESHOLD && <SmallTrainingWarning />}
         </div>
+        <Button
+          variant="secondary"
+          onClick={() => undoApply.mutate()}
+          disabled={undoStack.length === 0 || undoApply.isPending}
+          title={
+            undoStack.length > 0
+              ? `Undo: ${undoStack[undoStack.length - 1].description}`
+              : "Nothing to undo"
+          }
+        >
+          {undoApply.isPending ? "Undoing…" : "Undo"}
+        </Button>
         <Button variant="ghost" onClick={clearSession}>
           New session
         </Button>
@@ -207,6 +228,34 @@ export function Toolbar({
         />
       </div>
     </header>
+  );
+}
+
+/**
+ * Circled exclamation mark surfaced when the training set is small. Hovering
+ * (or focusing) it reveals a notification warning that kNN may perform poorly
+ * with so few training examples.
+ */
+function SmallTrainingWarning() {
+  return (
+    <span className="group relative inline-flex">
+      <button
+        type="button"
+        aria-label="Small training set warning"
+        aria-describedby="small-training-warning-tooltip"
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-amber-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+      >
+        <AlertCircleIcon width={16} height={16} />
+      </button>
+      <span
+        id="small-training-warning-tooltip"
+        role="tooltip"
+        className="pointer-events-none absolute right-0 top-full z-20 mt-1.5 w-56 rounded border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs leading-snug text-amber-800 opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        The training set is small (fewer than {SMALL_TRAINING_THRESHOLD}{" "}
+        glyphs), so kNN classification may perform poorly.
+      </span>
+    </span>
   );
 }
 

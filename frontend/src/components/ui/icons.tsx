@@ -63,3 +63,14 @@ export function ChevronRightIcon(props: IconProps) {
     </svg>
   );
 }
+
+export function AlertCircleIcon(props: IconProps) {
+  return (
+    <svg {...base} {...props} aria-hidden>
+      <title>Warning</title>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+  );
+}

@@ -26,6 +26,7 @@ export function MultiEditPanel({
 }: MultiEditPanelProps) {
   const clearSelection = useUiStore((s) => s.clearSelection);
   const softDeleteGlyphs = useUiStore((s) => s.softDeleteGlyphs);
+  const pushUndo = useUiStore((s) => s.pushUndo);
   const updateGlyphs = useUpdateGlyphs(sessionId);
 
   const {
@@ -86,12 +87,19 @@ export function MultiEditPanel({
   async function applyToMany(override?: string) {
     const name = (override ?? className).trim();
     if (!name || neumeIds.length === 0 || pending) return;
-    if (override !== undefined && override !== className) {
-      setClassName(name);
-    }
+    if (override !== undefined && override !== className) setClassName(name);
+    const snapshot = neumeGlyphs.map((g) => ({
+      id: g.id,
+      class_name: g.class_name,
+      id_state_manual: g.id_state_manual,
+    }));
     await updateGlyphs.mutateAsync({
       glyphIds: neumeIds,
       patch: { class_name: name, id_state_manual: true },
+    });
+    pushUndo({
+      description: `Apply to ${neumeCount} neume${neumeCount === 1 ? "" : "s"}`,
+      snapshots: snapshot,
     });
   }
   applyRef.current = () => applyToMany();
