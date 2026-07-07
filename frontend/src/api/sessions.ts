@@ -157,7 +157,26 @@ export const deleteClass = (id: string, name: string) =>
 export const saveSession = (id: string) =>
   http.post<SessionDTO>(`/sessions/${id}/save`);
 
-export const completeSession = (id: string, includeTraining = false) =>
-  postForBlob(
-    `/sessions/${id}/complete${includeTraining ? "?include_training=true" : ""}`,
-  );
+/**
+ * Which sections to fold into the exported GameraXML. Mirrors the boolean
+ * flags on POST /sessions/{id}/complete; at least one must be true.
+ */
+export interface ExportSelection {
+  /** Every working glyph on the annotated page. */
+  page?: boolean;
+  /** Only the working neumes the user labelled by hand. */
+  manualNeumes?: boolean;
+  /** Training glyphs that came from a built-in preset. */
+  presetTraining?: boolean;
+  /** Training glyphs the user uploaded. */
+  uploadedTraining?: boolean;
+}
+
+export const completeSession = (id: string, selection: ExportSelection) => {
+  const params = new URLSearchParams();
+  if (selection.page) params.set("page", "true");
+  if (selection.manualNeumes) params.set("manual_neumes", "true");
+  if (selection.presetTraining) params.set("preset_training", "true");
+  if (selection.uploadedTraining) params.set("uploaded_training", "true");
+  return postForBlob(`/sessions/${id}/complete?${params.toString()}`);
+};
