@@ -14,6 +14,8 @@ export interface CreateSessionArgs {
   classNames?: string[];
   /** Uploaded GameraXML (.xml) training-set files; glyphs are concatenated. */
   trainingFiles?: File[];
+  /** Built-in preset filenames (see {@link listTrainingPresets}); concatenated ahead of uploads. */
+  trainingPresets?: string[];
   /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
   vocabulary?: string;
 }
@@ -28,6 +30,9 @@ export function createSession(args: CreateSessionArgs): Promise<SessionDTO> {
   }
   for (const file of args.trainingFiles ?? []) {
     form.append("training_files", file);
+  }
+  if (args.trainingPresets && args.trainingPresets.length > 0) {
+    form.append("training_presets", JSON.stringify(args.trainingPresets));
   }
   if (args.vocabulary) {
     form.append("vocabulary", args.vocabulary);
@@ -51,6 +56,8 @@ export interface CreateSessionFromStagingArgs {
   classNames?: string[];
   /** Uploaded GameraXML (.xml) training-set files; glyphs are concatenated. */
   trainingFiles?: File[];
+  /** Built-in preset filenames (see {@link listTrainingPresets}); concatenated ahead of uploads. */
+  trainingPresets?: string[];
   /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
   vocabulary?: string;
 }
@@ -67,11 +74,18 @@ export function createSessionFromStaging(
   for (const file of args.trainingFiles ?? []) {
     form.append("training_files", file);
   }
+  if (args.trainingPresets && args.trainingPresets.length > 0) {
+    form.append("training_presets", JSON.stringify(args.trainingPresets));
+  }
   if (args.vocabulary) {
     form.append("vocabulary", args.vocabulary);
   }
   return http.postForm<SessionDTO>("/sessions/from-staging", form);
 }
+
+/** List the built-in training-set preset filenames under core/data/presets. */
+export const listTrainingPresets = () =>
+  http.get<string[]>("/training-presets");
 
 /** List the vocabulary CSV filenames under core/data/train. */
 export const listVocabularies = () => http.get<string[]>("/vocabularies");

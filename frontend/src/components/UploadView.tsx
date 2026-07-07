@@ -4,6 +4,7 @@ import {
   useCreateSession,
   useCreateSessionFromStaging,
 } from "@/hooks/useCreateSession";
+import { useTrainingPresets } from "@/hooks/useTrainingPresets";
 import { useVocabularies, useVocabularyClasses } from "@/hooks/useVocabularies";
 import type { AnnotationFormat } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
@@ -22,11 +23,21 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const [annotations, setAnnotations] = useState<File | null>(null);
   const [format, setFormat] = useState<AnnotationFormat>("json");
   const [trainingFiles, setTrainingFiles] = useState<File[]>([]);
+  const [selectedPresets, setSelectedPresets] = useState<string[]>([]);
   const [vocabulary, setVocabulary] = useState("");
   const create = useCreateSession();
   const createFromStaging = useCreateSessionFromStaging();
+  const presets = useTrainingPresets();
   const vocabularies = useVocabularies();
   const vocabClasses = useVocabularyClasses(vocabulary);
+
+  function togglePreset(name: string, checked: boolean) {
+    setSelectedPresets((prev) =>
+      checked ? [...prev, name] : prev.filter((n) => n !== name),
+    );
+  }
+
+  const totalTrainingSets = selectedPresets.length + trainingFiles.length;
 
   const staging = useQuery({
     queryKey: ["staging", stagedId],
@@ -39,10 +50,14 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    const training = trainingFiles.length > 0 ? trainingFiles : undefined;
+    const presetNames =
+      selectedPresets.length > 0 ? selectedPresets : undefined;
     if (stagedId) {
       createFromStaging.mutate({
         stagingId: stagedId,
-        trainingFiles: trainingFiles.length > 0 ? trainingFiles : undefined,
+        trainingFiles: training,
+        trainingPresets: presetNames,
         vocabulary: vocabulary || undefined,
       });
       return;
@@ -52,7 +67,8 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
       pageImage,
       annotations,
       annotationsFormat: format,
-      trainingFiles: trainingFiles.length > 0 ? trainingFiles : undefined,
+      trainingFiles: training,
+      trainingPresets: presetNames,
       vocabulary: vocabulary || undefined,
     });
   }
@@ -140,26 +156,65 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
           </>
         )}
 
-        <label className="block text-sm">
-          <span className="mb-1 block font-medium text-slate-700">
-            Training set{" "}
+        <div className="space-y-2 text-sm">
+          <span className="block font-medium text-slate-700">
+            Training data{" "}
             <span className="font-normal text-slate-400">(optional)</span>
           </span>
-          <input
-            type="file"
-            accept=".xml"
-            multiple
-            onChange={(e) => setTrainingFiles(Array.from(e.target.files ?? []))}
-            className="block w-full text-sm"
-          />
-          <span className="mt-1 block text-xs font-normal text-slate-400">
-            {trainingFiles.length > 0
-              ? `${trainingFiles.length} training ${
-                  trainingFiles.length === 1 ? "set" : "sets"
+
+          <div>
+            <span className="mb-1 block text-xs font-medium text-slate-600">
+              Presets
+            </span>
+            {presets.isLoading ? (
+              <span className="text-xs text-slate-400">Loading presets…</span>
+            ) : presets.isError ? (
+              <span className="text-xs text-red-600">
+                Could not load presets.
+              </span>
+            ) : (presets.data ?? []).length === 0 ? (
+              <span className="text-xs text-slate-400">
+                No presets available.
+              </span>
+            ) : (
+              <div className="space-y-1">
+                {(presets.data ?? []).map((name) => (
+                  <label key={name} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedPresets.includes(name)}
+                      onChange={(e) => togglePreset(name, e.target.checked)}
+                    />
+                    <span className="text-slate-700">{name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">
+              Upload
+            </span>
+            <input
+              type="file"
+              accept=".xml"
+              multiple
+              onChange={(e) =>
+                setTrainingFiles(Array.from(e.target.files ?? []))
+              }
+              className="block w-full text-sm"
+            />
+          </label>
+
+          <span className="block text-xs font-normal text-slate-400">
+            {totalTrainingSets > 0
+              ? `${totalTrainingSets} training ${
+                  totalTrainingSets === 1 ? "set" : "sets"
                 } will be combined and classified on start.`
-              : "Upload one or more GameraXML (.xml) training sets to auto-classify the page."}
+              : "Pick presets and/or upload GameraXML (.xml) training sets to auto-classify the page."}
           </span>
-        </label>
+        </div>
 
         <label className="block text-sm">
           <span className="mb-1 block font-medium text-slate-700">
