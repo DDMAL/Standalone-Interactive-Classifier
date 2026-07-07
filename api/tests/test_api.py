@@ -708,6 +708,113 @@ def test_create_session_seeds_class_names_from_vocabulary(client, train_dir):
 
 
 # ---------------------------------------------------------------------------
+# Training-set presets
+# ---------------------------------------------------------------------------
+
+# Class labels baked into the hermetic preset / uploaded training fixtures.
+PRESET_LABEL = "neume.punctum"
+PRESET_GLYPH_COUNT = 5
+UPLOAD_LABEL = "neume.virga"
+UPLOAD_GLYPH_COUNT = 3
+
+
+def _labelled_training_xml(label: str, count: int) -> bytes:
+    """A real GameraXML training doc: the first ``count`` ingested test glyphs
+    labelled ``label``. Using the ingest pipeline gives glyphs with genuine
+    masks/features so a classify round over them actually runs."""
+    from ic_core.ingest import ingest_page
+    from ic_core.io_xml import dumps_glyphs
+
+    glyphs = ingest_page(PAGE_BYTES, JSON_BYTES, format="json")[:count]
+    return dumps_glyphs([g.classify_manual(label) for g in glyphs])
+
+
+@pytest.fixture
+def presets_dir(monkeypatch, tmp_path) -> Path:
+    """A hermetic core/data/presets dir with one real labelled GameraXML preset."""
+    (tmp_path / "SamplePreset.xml").write_bytes(
+        _labelled_training_xml(PRESET_LABEL, PRESET_GLYPH_COUNT)
+    )
+    # A non-xml file must not be listed as a preset.
+    (tmp_path / "notes.txt").write_text("not a preset", encoding="utf-8")
+    monkeypatch.setenv("IC_PRESETS_DIR", str(tmp_path))
+    return tmp_path
+
+
+def test_list_training_presets_only_returns_xml_files(client, presets_dir):
+    response = client.get("/training-presets")
+    assert response.status_code == 200
+    assert response.json() == ["SamplePreset.xml"]
+
+
+def test_create_session_seeds_training_pool_from_preset(client, presets_dir):
+    files = {
+        "page_image": ("page.png", PAGE_BYTES, "image/png"),
+        "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+    }
+    response = client.post(
+        "/sessions",
+        files=files,
+        data={
+            "annotations_format": "json",
+            "training_presets": json.dumps(["SamplePreset.xml"]),
+        },
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    # The preset glyphs seed the training pool ...
+    assert len(body["training_glyphs"]) == PRESET_GLYPH_COUNT
+    # ... and the auto-classify round labels the working set from them.
+    assert any(g["class_name"] == PRESET_LABEL for g in body["glyphs"])
+
+
+def test_create_session_concatenates_presets_with_uploaded_training(
+    client, presets_dir
+):
+    files = {
+        "page_image": ("page.png", PAGE_BYTES, "image/png"),
+        "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+        "training_files": (
+            "uploaded.xml",
+            _labelled_training_xml(UPLOAD_LABEL, UPLOAD_GLYPH_COUNT),
+            "application/xml",
+        ),
+    }
+    response = client.post(
+        "/sessions",
+        files=files,
+        data={
+            "annotations_format": "json",
+            "training_presets": json.dumps(["SamplePreset.xml"]),
+        },
+    )
+    assert response.status_code == 201, response.text
+    # Preset glyphs + uploaded glyphs are both concatenated into the pool.
+    assert (
+        len(response.json()["training_glyphs"])
+        == PRESET_GLYPH_COUNT + UPLOAD_GLYPH_COUNT
+    )
+
+
+def test_unknown_training_preset_is_rejected(client, presets_dir):
+    # A client-supplied name outside the enumerated listing (path traversal
+    # or typo) must fail before any disk access.
+    files = {
+        "page_image": ("page.png", PAGE_BYTES, "image/png"),
+        "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+    }
+    response = client.post(
+        "/sessions",
+        files=files,
+        data={
+            "annotations_format": "json",
+            "training_presets": json.dumps(["../secrets.xml"]),
+        },
+    )
+    assert response.status_code == 400
+
+
+# ---------------------------------------------------------------------------
 # Re-binarization — POST /sessions/{id}/binarization
 # ---------------------------------------------------------------------------
 
