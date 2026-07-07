@@ -348,6 +348,8 @@ def _parse_training_presets(training_presets: str | None) -> list:
         path = resolve_preset(name)
         try:
             preset_glyphs.extend(load_glyphs_bytes(path.read_bytes()))
+        except OSError as e:
+             raise ValueError(f"Could not read preset {name!r}: {e}") from e
         except etree.XMLSyntaxError as e:
             raise ValueError(f"Preset {name!r} is not valid XML: {e}") from e
     return preset_glyphs
