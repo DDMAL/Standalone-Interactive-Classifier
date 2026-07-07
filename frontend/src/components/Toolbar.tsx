@@ -1,3 +1,4 @@
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
 import { AlertCircleIcon } from "@/components/ui/icons";
 import { useClassify } from "@/hooks/useClassify";
@@ -51,6 +52,12 @@ export function Toolbar({
   const setKnnK = useUiStore((s) => s.setKnnK);
   const glyphImageMode = useUiStore((s) => s.glyphImageMode);
   const setGlyphImageMode = useUiStore((s) => s.setGlyphImageMode);
+
+  const [newSessionConfirmOpen, setNewSessionConfirmOpen] = useState(false);
+
+  function handleNewSession() {
+    setNewSessionConfirmOpen(true);
+  }
 
   // A k value is only meaningful when the training set has at least k
   // examples — kNN needs k neighbours to vote on. Higher k values become
@@ -211,9 +218,20 @@ export function Toolbar({
         >
           {undoApply.isPending ? "Undoing…" : "Undo"}
         </Button>
-        <Button variant="ghost" onClick={clearSession}>
+        <Button variant="ghost" onClick={handleNewSession}>
           New session
         </Button>
+        <ConfirmDialog
+          open={newSessionConfirmOpen}
+          onOpenChange={setNewSessionConfirmOpen}
+          title="Start a new session?"
+          description="Opening a new session will exit the edit page. Any unsaved progress will be lost."
+          confirmLabel="Open new session"
+          onConfirm={() => {
+            setNewSessionConfirmOpen(false);
+            clearSession();
+          }}
+        />
         <Button
           variant="secondary"
           onClick={() => save.mutate()}
