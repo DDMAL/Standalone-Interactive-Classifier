@@ -74,6 +74,7 @@ from ic_core.ingest import (
     binarize_page,
     ingest_page,
 )
+from ic_core.glyph import CATEGORY_NEUMES
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
 from ic_core.state import Session, StateTransitionError
 
@@ -352,18 +353,20 @@ def _parse_training_presets(training_presets: str | None) -> list:
     return preset_glyphs
 
 
-async def _combine_training_glyphs(training_files, training_presets) -> list | None:
-    """Merge preset + uploaded training sets into one glyph pool.
+async def _training_glyphs_by_source(
+    training_files, training_presets
+) -> tuple[list, list]:
+    """Load preset + uploaded training glyphs, kept separate by source.
 
-    Built-in presets come first, then the user's uploaded files. Returns
-    ``None`` when neither was given, which tells :func:`_finalize_session`
-    to skip the auto-classify round.
+    Returns ``(preset_glyphs, uploaded_glyphs)`` — each an independent list
+    (either may be empty). :func:`_finalize_session` concatenates them for
+    the classifier but records which is which (by glyph id) so the export
+    screen can toggle the two pools independently.
     """
-    combined = [
-        *_parse_training_presets(training_presets),
-        *(await _parse_training_files(training_files)),
-    ]
-    return combined or None
+    return (
+        _parse_training_presets(training_presets),
+        await _parse_training_files(training_files),
+    )
 
 
 def _finalize_session(
@@ -376,17 +379,24 @@ def _finalize_session(
     annotations_format: AnnotationFormat,
     binarization_method: BinarizationMethod,
     parsed_names: list[str] | None,
-    training_glyphs: list | None,
+    preset_glyphs: list,
+    uploaded_glyphs: list,
 ) -> SessionDTO:
     """Ingest a page + bboxes into a stored session and return its DTO.
 
     Shared by :func:`create_session` (direct upload) and
     :func:`create_session_from_staging` (mothra-staged page + bboxes).
+
+    ``preset_glyphs`` and ``uploaded_glyphs`` are the two training-set
+    sources; they are concatenated (presets first) into the session's
+    training pool, and their glyph ids are recorded so the export screen can
+    later toggle the two pools independently.
     """
     glyphs = ingest_page(
         page_bytes, annotations_bytes,
         format=annotations_format, method=binarization_method,
     )
+    training_glyphs = [*preset_glyphs, *uploaded_glyphs]
     # Keep the full-page mask so manual grouping can recover ink that falls
     # in the gap between child glyph bboxes (never copied into any crop).
     # It must use the SAME method as the glyphs, or it disagrees with them.
@@ -399,6 +409,8 @@ def _finalize_session(
         page_mask=page_mask,
         source_name=_source_stem(source_filename),
     )
+    session.preset_training_ids = {g.id for g in preset_glyphs}
+    session.uploaded_training_ids = {g.id for g in uploaded_glyphs}
     # Retain the original page bytes so GET /sessions/{id}/page can serve
     # them back to a frontend that did not perform the upload itself.
     session.page_bytes = page_bytes
@@ -657,7 +669,9 @@ async def create_session(
     labelled with that training vocabulary.
     """
     parsed_names = _resolve_class_names(class_names, vocabulary)
-    training_glyphs = await _combine_training_glyphs(training_files, training_presets)
+    preset_glyphs, uploaded_glyphs = await _training_glyphs_by_source(
+        training_files, training_presets
+    )
 
     page_bytes = await page_image.read()
     annotations_bytes = await annotations.read()
@@ -670,7 +684,8 @@ async def create_session(
         annotations_format=annotations_format,
         binarization_method=binarization_method,
         parsed_names=parsed_names,
-        training_glyphs=training_glyphs,
+        preset_glyphs=preset_glyphs,
+        uploaded_glyphs=uploaded_glyphs,
     )
 
 
@@ -792,7 +807,9 @@ async def create_session_from_staging(
         # Maps to 404 via _key_error_handler.
         raise KeyError(f"Unknown staging id: {staging_id!r}")
     parsed_names = _resolve_class_names(class_names, vocabulary)
-    training_glyphs = await _combine_training_glyphs(training_files, training_presets)
+    preset_glyphs, uploaded_glyphs = await _training_glyphs_by_source(
+        training_files, training_presets
+    )
     return _finalize_session(
         store,
         page_bytes=staged.page_bytes,
@@ -802,7 +819,8 @@ async def create_session_from_staging(
         annotations_format=staged.annotations_format,
         binarization_method=binarization_method,
         parsed_names=parsed_names,
-        training_glyphs=training_glyphs,
+        preset_glyphs=preset_glyphs,
+        uploaded_glyphs=uploaded_glyphs,
     )
 
 
@@ -1038,7 +1056,10 @@ def save_session(session_id: str, store: Store) -> SessionDTO:
 def complete_session(
     session_id: str,
     store: Store,
-    include_training: bool = False,
+    page: bool = False,
+    manual_neumes: bool = False,
+    preset_training: bool = False,
+    uploaded_training: bool = False,
 ) -> Response:
     """Finalise the session and stream back the GameraXML export.
 
@@ -1046,29 +1067,80 @@ def complete_session(
     should treat the returned XML as the canonical artefact for
     downstream MEI pipelines.
 
-    By default only this page's working glyphs are exported. When
-    ``include_training`` is set the working glyphs are concatenated
-    with the session's training set into a single GameraXML document,
-    so the page can be folded back into the training database.
+    The caller picks which sections to fold into a single GameraXML
+    document via independent boolean flags (the export screen's
+    checkboxes):
+
+    * ``page`` — every working glyph on the annotated page.
+    * ``manual_neumes`` — only the working neumes the user labelled by
+      hand (a subset of ``page``).
+    * ``preset_training`` — the training glyphs that came from a
+      built-in preset.
+    * ``uploaded_training`` — the training glyphs the user uploaded.
+
+    Sections are concatenated in that order and de-duplicated by glyph
+    id (so selecting both ``page`` and ``manual_neumes`` never emits a
+    glyph twice). At least one flag must be set, else 400.
 
     Response body is ``application/xml``, not JSON, because the XML
     *is* the deliverable. The session remains in the store so the
     caller can ``DELETE`` it explicitly once they've saved the file.
     """
+    if not (page or manual_neumes or preset_training or uploaded_training):
+        raise ValueError(
+            "Select at least one section to include in the export."
+        )
     with store.session(session_id) as session:
         session.complete()
-        glyphs = (
-            [*session.glyphs, *session.training_glyphs]
-            if include_training
-            else session.glyphs
-        )
-        payload = dumps_glyphs(glyphs)
-        suffix = "-with-training" if include_training else ""
+        selected: list = []
+        seen: set[str] = set()
+
+        def add(glyphs) -> None:
+            for g in glyphs:
+                if g.id not in seen:
+                    seen.add(g.id)
+                    selected.append(g)
+
+        if page:
+            add(session.glyphs)
+        if manual_neumes:
+            add(
+                g
+                for g in session.glyphs
+                if g.category == CATEGORY_NEUMES and g.id_state_manual
+            )
+        if preset_training:
+            add(
+                g
+                for g in session.training_glyphs
+                if g.id in session.preset_training_ids
+            )
+        if uploaded_training:
+            add(
+                g
+                for g in session.training_glyphs
+                if g.id in session.uploaded_training_ids
+            )
+        payload = dumps_glyphs(selected)
+        # Tag the filename with the chosen sections so a user exporting
+        # several variants from one session gets self-describing files.
+        tags = [
+            name
+            for flag, name in (
+                (page, "page"),
+                (manual_neumes, "manual-neumes"),
+                (preset_training, "preset"),
+                (uploaded_training, "uploaded"),
+            )
+            if flag
+        ]
         # Prefer the original bbox document's name so a user exporting
         # several pages gets self-describing files; fall back to the
         # opaque session id when no usable source name was captured.
         stem = session.source_name or session.id
-        filename = f'attachment; filename="ic-session-{stem}{suffix}.xml"'
+        filename = (
+            f'attachment; filename="ic-session-{stem}-{"-".join(tags)}.xml"'
+        )
     return Response(
         content=payload,
         media_type="application/xml",

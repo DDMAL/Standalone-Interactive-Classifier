@@ -65,6 +65,14 @@ class SessionDTO(BaseModel):
     binarization_method: BinarizationMethod = Field(
         ..., description="Method that produced the current glyph masks."
     )
+    preset_training_count: int = Field(
+        ...,
+        description="How many training glyphs came from a built-in preset.",
+    )
+    uploaded_training_count: int = Field(
+        ...,
+        description="How many training glyphs came from an uploaded file.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +171,16 @@ def session_to_dto(session: Session) -> SessionDTO:
         training_glyphs=[glyph_to_dto(g) for g in session.training_glyphs],
         class_names=sorted(session.class_names),
         binarization_method=session.binarization_method,
+        preset_training_count=sum(
+            1
+            for g in session.training_glyphs
+            if g.id in session.preset_training_ids
+        ),
+        uploaded_training_count=sum(
+            1
+            for g in session.training_glyphs
+            if g.id in session.uploaded_training_ids
+        ),
     )
 
 
