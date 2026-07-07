@@ -134,20 +134,55 @@ Store = Annotated[InMemorySessionStore, Depends(get_store)]
 
 
 # ---------------------------------------------------------------------------
-# Built-in training sets
+# Built-in training-set presets
 # ---------------------------------------------------------------------------
 #
-# Pre-built GameraXML training databases live under ``core/data/derived``
-# (e.g. ``Hufnagel_training_data.xml``). The frontend offers them as a
-# dropdown on the upload screen; picking one seeds the session's training
-# pool so the first classify round applies that vocabulary directly.
+# Pre-built GameraXML training databases live under ``core/data/presets``
+# (e.g. ``Hufnagel.xml``, ``Square.xml``). The frontend offers them as
+# checkboxes on the upload screen; the glyphs of every picked preset are
+# concatenated into the session's training pool — alongside any uploaded
+# training sets — so the first classify round applies that vocabulary
+# directly.
 #
-# The directory is resolved relative to the repo root and may be
-# overridden via ``IC_DERIVED_DIR`` to stay consistent with
-# ``core/scripts/paths.py``. The API only ever opens files it has itself
-# enumerated in this directory — a client-supplied name is validated
+# The directory is resolved relative to the repo root and may be overridden
+# via ``IC_PRESETS_DIR``. As with vocabularies, the API only ever opens
+# files it has itself enumerated here — a client-supplied name is validated
 # against that listing before any disk access, so path traversal
 # (``../secrets.xml``) cannot escape the directory.
+
+
+def presets_dir() -> Path:
+    """Directory holding the built-in GameraXML training-set presets."""
+    override = os.environ.get("IC_PRESETS_DIR")
+    if override:
+        return Path(override)
+    # main.py → ic_api → src → api → <repo root>
+    repo_root = Path(__file__).resolve().parents[3]
+    return repo_root / "core" / "data" / "presets"
+
+
+def list_presets() -> list[str]:
+    """Return the sorted filenames of every ``.xml`` preset in :func:`presets_dir`."""
+    root = presets_dir()
+    if not root.is_dir():
+        return []
+    return sorted(p.name for p in root.glob("*.xml") if p.is_file())
+
+
+def resolve_preset(name: str) -> Path:
+    """Map a client-supplied preset filename to a safe on-disk path.
+
+    Raises:
+        ValueError: If ``name`` is not one of the files enumerated by
+            :func:`list_presets` (guards against path traversal and
+            typos alike).
+    """
+    if name not in list_presets():
+        available = ", ".join(list_presets()) or "(none)"
+        raise ValueError(
+            f"Unknown training preset {name!r}. Available: {available}"
+        )
+    return presets_dir() / name
 
 
 # ---------------------------------------------------------------------------
@@ -270,15 +305,15 @@ def _resolve_class_names(
     return parsed_names
 
 
-async def _parse_training_files(training_files) -> list | None:
+async def _parse_training_files(training_files) -> list:
     """Concatenate glyphs from uploaded GameraXML (.xml) training sets.
 
-    Returns ``None`` when no files were given. Raises ``ValueError`` (→ 400)
-    on a non-``.xml`` name or invalid XML, before any page work so a bad
-    file fails fast.
+    Returns an empty list when no files were given. Raises ``ValueError``
+    (→ 400) on a non-``.xml`` name or invalid XML, before any page work so
+    a bad file fails fast.
     """
     if not training_files:
-        return None
+        return []
     training_glyphs: list = []
     for tf in training_files:
         name = tf.filename or ""
@@ -289,6 +324,46 @@ async def _parse_training_files(training_files) -> list | None:
         except etree.XMLSyntaxError as e:
             raise ValueError(f"{name!r} is not valid XML: {e}") from e
     return training_glyphs
+
+
+def _parse_training_presets(training_presets: str | None) -> list:
+    """Concatenate glyphs from built-in training-set presets.
+
+    ``training_presets`` is a JSON-encoded ``list[str]`` of preset filenames
+    (see the multipart workaround note on :func:`create_session`). Each name
+    is validated against :func:`list_presets` before any disk access, so a
+    bad name fails fast (→ 400). Returns an empty list when none were given.
+    """
+    if not training_presets:
+        return []
+    try:
+        names = json.loads(training_presets)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"training_presets is not valid JSON: {e}") from e
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        raise ValueError("training_presets must be a JSON list of strings.")
+    preset_glyphs: list = []
+    for name in names:
+        path = resolve_preset(name)
+        try:
+            preset_glyphs.extend(load_glyphs_bytes(path.read_bytes()))
+        except etree.XMLSyntaxError as e:
+            raise ValueError(f"Preset {name!r} is not valid XML: {e}") from e
+    return preset_glyphs
+
+
+async def _combine_training_glyphs(training_files, training_presets) -> list | None:
+    """Merge preset + uploaded training sets into one glyph pool.
+
+    Built-in presets come first, then the user's uploaded files. Returns
+    ``None`` when neither was given, which tells :func:`_finalize_session`
+    to skip the auto-classify round.
+    """
+    combined = [
+        *_parse_training_presets(training_presets),
+        *(await _parse_training_files(training_files)),
+    ]
+    return combined or None
 
 
 def _finalize_session(
@@ -455,6 +530,18 @@ async def _value_error_handler(_request, exc: ValueError) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
+@app.get("/training-presets", response_model=list[str])
+def get_training_presets() -> list[str]:
+    """List the built-in training-set preset filenames available for selection.
+
+    These are the GameraXML (.xml) files under ``core/data/presets``. The
+    frontend renders them as checkboxes on the upload screen; the chosen
+    filenames are passed back as the ``training_presets`` field of
+    :func:`create_session` and concatenated into the training pool.
+    """
+    return list_presets()
+
+
 @app.get("/vocabularies", response_model=list[str])
 def get_vocabularies() -> list[str]:
     """List the vocabulary CSV filenames available for selection.
@@ -526,6 +613,18 @@ async def create_session(
             ),
         ),
     ] = None,
+    training_presets: Annotated[
+        str | None,
+        Form(
+            description=(
+                "Optional JSON-encoded list[str] of built-in preset filenames "
+                "under core/data/presets (see GET /training-presets). Their "
+                "glyphs are concatenated into the training pool ahead of any "
+                "uploaded training_files. Encoded as a JSON string for the "
+                "same multipart reason as class_names."
+            ),
+        ),
+    ] = None,
     vocabulary: Annotated[
         str | None,
         Form(
@@ -551,13 +650,14 @@ async def create_session(
     (once they have at least one manual or training glyph) or start
     labelling glyphs via :func:`update_glyph`.
 
-    When ``training_files`` carry uploaded GameraXML training sets, the
-    glyphs from every file are concatenated into the training pool and a
-    classify round runs before the response is sent, so the returned
-    session is already labelled with that training vocabulary.
+    When ``training_presets`` and/or ``training_files`` carry GameraXML
+    training sets, the glyphs from every source are concatenated into the
+    training pool (presets first, then uploads) and a classify round runs
+    before the response is sent, so the returned session is already
+    labelled with that training vocabulary.
     """
     parsed_names = _resolve_class_names(class_names, vocabulary)
-    training_glyphs = await _parse_training_files(training_files)
+    training_glyphs = await _combine_training_glyphs(training_files, training_presets)
 
     page_bytes = await page_image.read()
     annotations_bytes = await annotations.read()
@@ -666,6 +766,16 @@ async def create_session_from_staging(
         list[UploadFile] | None,
         File(description="Optional GameraXML (.xml) training-set uploads."),
     ] = None,
+    training_presets: Annotated[
+        str | None,
+        Form(
+            description=(
+                "Optional JSON-encoded list[str] of built-in preset filenames "
+                "under core/data/presets (see GET /training-presets); "
+                "concatenated into the training pool ahead of training_files."
+            ),
+        ),
+    ] = None,
     vocabulary: Annotated[
         str | None, Form(description="Optional vocabulary CSV filename.")
     ] = None,
@@ -682,7 +792,7 @@ async def create_session_from_staging(
         # Maps to 404 via _key_error_handler.
         raise KeyError(f"Unknown staging id: {staging_id!r}")
     parsed_names = _resolve_class_names(class_names, vocabulary)
-    training_glyphs = await _parse_training_files(training_files)
+    training_glyphs = await _combine_training_glyphs(training_files, training_presets)
     return _finalize_session(
         store,
         page_bytes=staged.page_bytes,
