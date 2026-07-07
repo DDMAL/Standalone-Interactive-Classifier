@@ -373,7 +373,7 @@ def test_manual_split_after_complete_returns_409(client):
         f"/sessions/{sid}/glyphs/{parent['id']}",
         json={"class_name": "neume.A", "id_state_manual": True},
     )
-    assert client.post(f"/sessions/{sid}/complete").status_code == 200
+    assert client.post(f"/sessions/{sid}/complete?page=true").status_code == 200
 
     response = client.post(
         f"/sessions/{sid}/glyphs/{parent['id']}/split",
@@ -451,18 +451,19 @@ def test_complete_returns_xml_and_transitions_to_export(client):
         json={"class_name": "neume.A", "id_state_manual": True},
     )
 
-    response = client.post(f"/sessions/{sid}/complete")
+    response = client.post(f"/sessions/{sid}/complete?page=true")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/xml")
     body = response.content
     assert body.startswith(b"<?xml")
     assert b"<gamera-database" in body
     assert b'name="neume.A"' in body
-    # The export is named after the uploaded bbox document (sans .json)
-    # so a user exporting several pages gets self-describing files.
+    # The export is named after the uploaded bbox document (sans .json) plus
+    # the selected sections, so a user exporting several pages/variants gets
+    # self-describing files.
     assert (
         response.headers["content-disposition"]
-        == 'attachment; filename="ic-session-annotations.xml"'
+        == 'attachment; filename="ic-session-annotations-page.xml"'
     )
 
     # Subsequent mutating endpoints should now 409 (state conflict).
@@ -481,38 +482,48 @@ def test_complete_export_filename_derives_from_uploaded_name(client):
     )
     sid = response.json()["id"]
 
-    response = client.post(f"/sessions/{sid}/complete")
+    response = client.post(f"/sessions/{sid}/complete?page=true")
     assert (
         response.headers["content-disposition"]
-        == 'attachment; filename="ic-session-MOTHRA_NZ-Wt_MSR-03_109v.xml"'
+        == 'attachment; filename="ic-session-MOTHRA_NZ-Wt_MSR-03_109v-page.xml"'
     )
 
 
-def test_complete_export_filename_includes_training_suffix(client):
+def test_complete_export_filename_tags_selected_sections(client):
     sid = client.post(
         "/sessions",
         **_multipart(annotations_filename="page42.json"),
     ).json()["id"]
 
-    response = client.post(f"/sessions/{sid}/complete?include_training=true")
+    response = client.post(
+        f"/sessions/{sid}/complete?page=true&manual_neumes=true"
+    )
     assert (
         response.headers["content-disposition"]
-        == 'attachment; filename="ic-session-page42-with-training.xml"'
+        == 'attachment; filename="ic-session-page42-page-manual-neumes.xml"'
     )
 
 
+def test_complete_requires_at_least_one_section(client):
+    # With no section flags there is nothing to export — reject rather than
+    # emit an empty document.
+    sid = _create_session(client)
+    response = client.post(f"/sessions/{sid}/complete")
+    assert response.status_code == 400
+
+
 def test_complete_is_repeatable_for_multiple_exports(client):
-    # The export menu can download both a page-only and a page+training
-    # GameraXML from the same finalised session. Completing is a one-shot
-    # cleanup, but the download must stay repeatable — a second /complete
-    # re-serialises rather than 409ing.
+    # The export menu can download several section combinations from the same
+    # finalised session. Completing is a one-shot cleanup, but the download
+    # must stay repeatable — a second /complete re-serialises rather than
+    # 409ing.
     sid = _create_session(client)
 
-    first = client.post(f"/sessions/{sid}/complete")
+    first = client.post(f"/sessions/{sid}/complete?page=true")
     assert first.status_code == 200
     assert first.content.startswith(b"<?xml")
 
-    second = client.post(f"/sessions/{sid}/complete?include_training=true")
+    second = client.post(f"/sessions/{sid}/complete?manual_neumes=true")
     assert second.status_code == 200
     assert second.content.startswith(b"<?xml")
 
@@ -812,6 +823,93 @@ def test_unknown_training_preset_is_rejected(client, presets_dir):
         },
     )
     assert response.status_code == 400
+
+
+def test_dto_reports_preset_and_uploaded_training_counts_separately(
+    client, presets_dir
+):
+    files = {
+        "page_image": ("page.png", PAGE_BYTES, "image/png"),
+        "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+        "training_files": (
+            "uploaded.xml",
+            _labelled_training_xml(UPLOAD_LABEL, UPLOAD_GLYPH_COUNT),
+            "application/xml",
+        ),
+    }
+    sid = client.post(
+        "/sessions",
+        files=files,
+        data={
+            "annotations_format": "json",
+            "training_presets": json.dumps(["SamplePreset.xml"]),
+        },
+    ).json()["id"]
+
+    dto = client.get(f"/sessions/{sid}").json()
+    assert dto["preset_training_count"] == PRESET_GLYPH_COUNT
+    assert dto["uploaded_training_count"] == UPLOAD_GLYPH_COUNT
+
+
+def test_export_selects_preset_and_uploaded_training_independently(
+    client, presets_dir
+):
+    from ic_core.io_xml import load_glyphs_bytes
+
+    files = {
+        "page_image": ("page.png", PAGE_BYTES, "image/png"),
+        "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+        "training_files": (
+            "uploaded.xml",
+            _labelled_training_xml(UPLOAD_LABEL, UPLOAD_GLYPH_COUNT),
+            "application/xml",
+        ),
+    }
+    sid = client.post(
+        "/sessions",
+        files=files,
+        data={
+            "annotations_format": "json",
+            "training_presets": json.dumps(["SamplePreset.xml"]),
+        },
+    ).json()["id"]
+
+    # Preset-only export carries just the preset glyphs, by their label.
+    preset = load_glyphs_bytes(
+        client.post(f"/sessions/{sid}/complete?preset_training=true").content
+    )
+    assert len(preset) == PRESET_GLYPH_COUNT
+    assert {g.class_name for g in preset} == {PRESET_LABEL}
+
+    # Uploaded-only export carries just the uploaded glyphs.
+    uploaded = load_glyphs_bytes(
+        client.post(
+            f"/sessions/{sid}/complete?uploaded_training=true"
+        ).content
+    )
+    assert len(uploaded) == UPLOAD_GLYPH_COUNT
+    assert {g.class_name for g in uploaded} == {UPLOAD_LABEL}
+
+
+def test_export_manual_neumes_only_includes_hand_labelled_neumes(client):
+    from ic_core.io_xml import load_glyphs_bytes
+
+    sid = _create_session(client)
+    neume = next(
+        g
+        for g in client.get(f"/sessions/{sid}").json()["glyphs"]
+        if g["category"] == "Neumes"
+    )
+    client.post(
+        f"/sessions/{sid}/glyphs/{neume['id']}",
+        json={"class_name": "neume.punctum", "id_state_manual": True},
+    )
+
+    exported = load_glyphs_bytes(
+        client.post(f"/sessions/{sid}/complete?manual_neumes=true").content
+    )
+    assert len(exported) == 1
+    assert exported[0].class_name == "neume.punctum"
 
 
 # ---------------------------------------------------------------------------
