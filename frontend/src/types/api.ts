@@ -42,6 +42,10 @@ export interface SessionDTO {
   class_names: string[];
   /** Method that produced the current glyph masks. */
   binarization_method: BinarizationMethod;
+  /** How many training glyphs came from a built-in preset. */
+  preset_training_count: number;
+  /** How many training glyphs came from an uploaded file. */
+  uploaded_training_count: number;
 }
 
 export type ErrorCode =

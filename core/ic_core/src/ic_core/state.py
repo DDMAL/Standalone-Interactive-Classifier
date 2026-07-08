@@ -154,6 +154,18 @@ class Session:
     # method toggle reflects the active choice; updated by :meth:`rebinarize`.
     binarization_method: str = "global"
 
+    # Provenance of the training pool, tracked by glyph id so the export
+    # screen can offer "preset training set" and "uploaded training set" as
+    # independent toggles. ``training_glyphs`` itself stays a single combined
+    # list (that's what the classifier trains on); these sets just record
+    # which of those glyphs came from a built-in preset vs the user's own
+    # uploads. Ids survive rename (``replace`` keeps them) and the
+    # export-time cleanup, so partitioning the live ``training_glyphs`` by
+    # membership stays correct. Empty for sessions created without training
+    # data. Populated by the API layer; not used by any core algorithm.
+    preset_training_ids: set[str] = field(default_factory=set)
+    uploaded_training_ids: set[str] = field(default_factory=set)
+
     # ------------------------------------------------------------------
     # Convenience accessors
     # ------------------------------------------------------------------
