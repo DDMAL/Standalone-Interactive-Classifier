@@ -193,7 +193,7 @@ export function SplitDialog({
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     if (isEditableTarget(e.target)) return;
     e.preventDefault();
-    void handleSubmit();
+    void handleSplitAndReclassify();
   }
 
   function buildRegions(): [number, number, number, number][] {

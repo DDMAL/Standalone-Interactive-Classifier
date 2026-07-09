@@ -26,6 +26,9 @@ export function GlyphTile({ glyph, selected }: GlyphTileProps) {
     <button
       type="button"
       ref={setRef}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") e.preventDefault();
+      }}
       onClick={(e) => {
         if (e.shiftKey || e.metaKey) toggleGlyph(glyph.id);
         else focusGlyph(glyph.id);

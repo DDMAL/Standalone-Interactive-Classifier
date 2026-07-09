@@ -6,7 +6,7 @@ import { useUpdateGlyphs } from "@/hooks/useUpdateGlyphs";
 import { isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
 import { isModalOpen, useUiStore } from "@/store/uiStore";
 import { CATEGORY_ORDER, type GlyphCategory, type GlyphDTO } from "@/types/api";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 interface MultiEditPanelProps {
   sessionId: string;
@@ -29,41 +29,31 @@ export function MultiEditPanel({
   const pushUndo = useUiStore((s) => s.pushUndo);
   const updateGlyphs = useUpdateGlyphs(sessionId);
 
-  const {
-    neumeGlyphs,
-    neumeIds,
-    neumeCount,
-    nonNeumeCount,
-    dominant,
-    hasMultipleClasses,
-  } = useMemo(() => {
-    const neumes = selectedGlyphs.filter((g) => g.category === "Neumes");
-    const counts = new Map<string, number>();
-    for (const g of neumes) {
-      const key = g.class_name.trim();
-      if (!key) continue;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    let best = "";
-    let bestN = 0;
-    for (const [k, n] of counts) {
-      if (n > bestN) {
-        best = k;
-        bestN = n;
+  const { neumeGlyphs, neumeIds, neumeCount, nonNeumeCount, dominant } =
+    useMemo(() => {
+      const neumes = selectedGlyphs.filter((g) => g.category === "Neumes");
+      const counts = new Map<string, number>();
+      for (const g of neumes) {
+        const key = g.class_name.trim();
+        if (!key) continue;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
       }
-    }
-    const uniqueNamedClasses = [...counts.keys()].filter(
-      (k) => k !== "UNCLASSIFIED",
-    ).length;
-    return {
-      neumeGlyphs: neumes,
-      neumeIds: neumes.map((g) => g.id),
-      neumeCount: neumes.length,
-      nonNeumeCount: selectedGlyphs.length - neumes.length,
-      dominant: best,
-      hasMultipleClasses: uniqueNamedClasses > 1,
-    };
-  }, [selectedGlyphs]);
+      let best = "";
+      let bestN = 0;
+      for (const [k, n] of counts) {
+        if (n > bestN) {
+          best = k;
+          bestN = n;
+        }
+      }
+      return {
+        neumeGlyphs: neumes,
+        neumeIds: neumes.map((g) => g.id),
+        neumeCount: neumes.length,
+        nonNeumeCount: selectedGlyphs.length - neumes.length,
+        dominant: best,
+      };
+    }, [selectedGlyphs]);
 
   const [className, setClassName] = useState(dominant);
   const [groupOpen, setGroupOpen] = useState(false);
@@ -81,8 +71,6 @@ export function MultiEditPanel({
 
   const totalCount = selectedGlyphs.length;
   const pending = updateGlyphs.isPending;
-
-  const applyRef = useRef<() => Promise<void>>(() => Promise.resolve());
 
   async function applyToMany(override?: string) {
     const name = (override ?? className).trim();
@@ -102,12 +90,6 @@ export function MultiEditPanel({
       snapshots: snapshot,
     });
   }
-  applyRef.current = () => applyToMany();
-
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    void applyToMany();
-  }
 
   // Move every selected glyph to another MOTHRA category. The backend resets
   // each label on the move, so we skip reclassify and keep the selection — a
@@ -125,16 +107,17 @@ export function MultiEditPanel({
     softDeleteGlyphs(selectedGlyphs.map((g) => g.id));
   }
 
-  // Enter-from-anywhere mirrors SingleEditor's approach: window-level
-  // listener gated by isEditableTarget so the autocomplete keeps its own
-  // Enter handling.
+  // Enter-from-anywhere opens the BatchConfirmDialog (the primary action).
+  // Gated by isEditableTarget so the autocomplete keeps its own Enter handling.
+  const batchOpenRef = useRef(setBatchOpen);
+  batchOpenRef.current = setBatchOpen;
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Enter") return;
       if (isModalOpen()) return;
       if (isEditableTarget(e.target)) return;
       e.preventDefault();
-      void applyRef.current();
+      batchOpenRef.current(true);
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -201,7 +184,13 @@ export function MultiEditPanel({
         {neumeCount} Neumes, {nonNeumeCount} non-Neumes
       </p>
 
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          setBatchOpen(true);
+        }}
+        className="space-y-3"
+      >
         <div ref={inputRef}>
           <span className="mb-1 block text-xs font-medium text-slate-700">
             Class name
@@ -210,7 +199,7 @@ export function MultiEditPanel({
             value={className}
             onChange={setClassName}
             options={classNames}
-            onApply={(v) => void applyToMany(v)}
+            onApply={() => setBatchOpen(true)}
           />
         </div>
         {nonNeumeCount > 0 && (
@@ -231,9 +220,10 @@ export function MultiEditPanel({
           </p>
         )}
         <Button
-          type="submit"
-          variant={hasMultipleClasses ? "secondary" : "primary"}
+          type="button"
+          variant="secondary"
           disabled={pending || !className.trim() || neumeIds.length === 0}
+          onClick={() => void applyToMany(className)}
           className="w-full"
         >
           {pending
@@ -241,10 +231,9 @@ export function MultiEditPanel({
             : `Apply to ${neumeCount} Neume${neumeCount === 1 ? "" : "s"}`}
         </Button>
         <Button
-          type="button"
-          variant={hasMultipleClasses ? "primary" : "secondary"}
+          type="submit"
+          variant="primary"
           disabled={pending || neumeIds.length === 0}
-          onClick={() => setBatchOpen(true)}
           className="w-full"
         >
           Apply each in own class…
