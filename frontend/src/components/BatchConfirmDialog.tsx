@@ -3,11 +3,17 @@ import { GlyphImage } from "@/components/GlyphImage";
 import { Button } from "@/components/ui/Button";
 import { useModalGuard } from "@/hooks/useModalGuard";
 import { useUpdateGlyphsPerGlyph } from "@/hooks/useUpdateGlyphs";
+import { isEditableTarget } from "@/lib/keymap";
 import { type UndoEntry, useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
 import * as Dialog from "@radix-ui/react-dialog";
 import { clsx } from "clsx";
-import { useEffect, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 interface BatchConfirmDialogProps {
   open: boolean;
@@ -128,6 +134,17 @@ export function BatchConfirmDialog({
     }
   }
 
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+
+  function handleKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Enter") return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    if (isEditableTarget(e.target)) return;
+    if (pending) return;
+    e.preventDefault();
+    void handleConfirm();
+  }
+
   const pending = updatePerGlyph.isPending;
   const glyphImageMode = useUiStore((s) => s.glyphImageMode);
   const setGlyphImageMode = useUiStore((s) => s.setGlyphImageMode);
@@ -143,7 +160,10 @@ export function BatchConfirmDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-900/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[92vw] max-w-3xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-5 shadow-lg focus:outline-none">
+        <Dialog.Content
+          onKeyDown={handleKeyDown}
+          className="fixed left-1/2 top-1/2 z-50 w-[92vw] max-w-3xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-5 shadow-lg focus:outline-none"
+        >
           <div className="flex items-start justify-between gap-4">
             <div>
               <Dialog.Title className="text-base font-semibold text-slate-800">
@@ -224,6 +244,10 @@ export function BatchConfirmDialog({
                             value={glyphCls}
                             onChange={(v) => setAssignment(glyph.id, v)}
                             options={classNames}
+                            onApply={(v) => {
+                              setAssignment(glyph.id, v);
+                              confirmButtonRef.current?.focus();
+                            }}
                           />
                         </div>
                       );
@@ -259,7 +283,11 @@ export function BatchConfirmDialog({
                 Cancel
               </Button>
             </Dialog.Close>
-            <Button onClick={() => void handleConfirm()} disabled={pending}>
+            <Button
+              ref={confirmButtonRef}
+              onClick={() => void handleConfirm()}
+              disabled={pending}
+            >
               {pending
                 ? "Confirming…"
                 : `Confirm ${glyphs.length} neume${glyphs.length === 1 ? "" : "s"}`}
