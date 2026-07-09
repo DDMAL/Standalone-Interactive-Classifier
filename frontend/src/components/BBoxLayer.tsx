@@ -18,12 +18,12 @@ function classFor(
     "cursor-pointer transition-colors",
     isManual
       ? selected
-        ? "fill-green-500/30 stroke-green-600"
+        ? "fill-green-500/40 stroke-green-700"
         : hovered
           ? "fill-green-400/20 stroke-green-500"
           : "fill-green-500/10 stroke-green-500"
       : selected
-        ? "fill-blue-500/25 stroke-blue-500"
+        ? "fill-violet-500/35 stroke-violet-600"
         : hovered
           ? "fill-amber-300/20 stroke-amber-500"
           : "fill-transparent stroke-slate-400/70 hover:stroke-amber-500",
@@ -74,7 +74,7 @@ function BBoxLayerImpl({ glyphs, selectedIds, hoverId }: BBoxLayerProps) {
               strokeDasharray="3 3"
               className={
                 selected
-                  ? "fill-blue-500/15 stroke-blue-500"
+                  ? "fill-violet-500/20 stroke-violet-600"
                   : "fill-amber-300/15 stroke-amber-500"
               }
             />
