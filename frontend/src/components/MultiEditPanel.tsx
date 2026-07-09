@@ -111,11 +111,14 @@ export function MultiEditPanel({
   // Gated by isEditableTarget so the autocomplete keeps its own Enter handling.
   const batchOpenRef = useRef(setBatchOpen);
   batchOpenRef.current = setBatchOpen;
+  const canBatchRef = useRef(false);
+  canBatchRef.current = !pending && neumeIds.length > 0;
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Enter") return;
       if (isModalOpen()) return;
       if (isEditableTarget(e.target)) return;
+      if (!canBatchRef.current) return;
       e.preventDefault();
       batchOpenRef.current(true);
     }

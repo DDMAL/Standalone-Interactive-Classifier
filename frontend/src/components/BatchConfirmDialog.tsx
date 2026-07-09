@@ -140,6 +140,7 @@ export function BatchConfirmDialog({
     if (e.key !== "Enter") return;
     if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
     if (isEditableTarget(e.target)) return;
+    if (pending) return;
     e.preventDefault();
     void handleConfirm();
   }
