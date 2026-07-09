@@ -1,5 +1,6 @@
 import { getStaging } from "@/api/sessions";
 import { Button } from "@/components/ui/Button";
+import { useAutoExport } from "@/hooks/useAutoExport";
 import {
   useCreateSession,
   useCreateSessionFromStaging,
@@ -27,6 +28,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const [vocabulary, setVocabulary] = useState("");
   const create = useCreateSession();
   const createFromStaging = useCreateSessionFromStaging();
+  const autoExport = useAutoExport();
   const presets = useTrainingPresets();
   const vocabularies = useVocabularies();
   const vocabClasses = useVocabularyClasses(vocabulary);
@@ -73,9 +75,44 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     });
   }
 
-  const submitDisabled =
-    active.isPending ||
-    (stagedId ? !staging.data : !pageImage || !annotations);
+  // One-click shortcut: create the session, run a classify round, and download
+  // the page as GameraXML — no session view. Shares the same inputs as start.
+  function handleAutoExport() {
+    const training = trainingFiles.length > 0 ? trainingFiles : undefined;
+    const presetNames =
+      selectedPresets.length > 0 ? selectedPresets : undefined;
+    if (stagedId) {
+      autoExport.mutate({
+        kind: "staging",
+        args: {
+          stagingId: stagedId,
+          trainingFiles: training,
+          trainingPresets: presetNames,
+          vocabulary: vocabulary || undefined,
+        },
+      });
+      return;
+    }
+    if (!pageImage || !annotations) return;
+    autoExport.mutate({
+      kind: "upload",
+      args: {
+        pageImage,
+        annotations,
+        annotationsFormat: format,
+        trainingFiles: training,
+        trainingPresets: presetNames,
+        vocabulary: vocabulary || undefined,
+      },
+    });
+  }
+
+  const anyPending = active.isPending || autoExport.isPending;
+  const inputsMissing = stagedId ? !staging.data : !pageImage || !annotations;
+  const submitDisabled = anyPending || inputsMissing;
+  // Auto-export always runs a classify round, which needs a non-empty training
+  // pool — so grey it out until the user picks a preset or uploads a set.
+  const autoExportDisabled = submitDisabled || totalTrainingSets === 0;
 
   return (
     <div className="flex h-full items-center justify-center bg-slate-50">
@@ -271,10 +308,34 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
             {(active.error as Error).message}
           </p>
         )}
+        {autoExport.isError && (
+          <p className="text-sm text-red-600">
+            {(autoExport.error as Error).message}
+          </p>
+        )}
+        {autoExport.isSuccess && (
+          <p className="text-sm text-green-600">Exported {autoExport.data}.</p>
+        )}
 
-        <Button type="submit" disabled={submitDisabled} className="w-full">
-          {active.isPending ? "Uploading…" : "Start session"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleAutoExport}
+            disabled={autoExportDisabled}
+            className="flex-1"
+            title={
+              totalTrainingSets === 0
+                ? "Add a preset or upload a training set to enable auto-export"
+                : "Create the session, run one classification round, and download the page as GameraXML"
+            }
+          >
+            {autoExport.isPending ? "Auto-exporting…" : "Auto-export"}
+          </Button>
+          <Button type="submit" disabled={submitDisabled} className="flex-1">
+            {active.isPending ? "Uploading…" : "Start session"}
+          </Button>
+        </div>
       </form>
     </div>
   );
