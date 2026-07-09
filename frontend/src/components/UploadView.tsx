@@ -318,9 +318,6 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
         )}
 
         <div className="flex gap-2">
-          <Button type="submit" disabled={submitDisabled} className="flex-1">
-            {active.isPending ? "Uploading…" : "Start session"}
-          </Button>
           <Button
             type="button"
             variant="secondary"
@@ -334,6 +331,9 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
             }
           >
             {autoExport.isPending ? "Auto-exporting…" : "Auto-export"}
+          </Button>
+          <Button type="submit" disabled={submitDisabled} className="flex-1">
+            {active.isPending ? "Uploading…" : "Start session"}
           </Button>
         </div>
       </form>
