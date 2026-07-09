@@ -14,7 +14,7 @@ export function useSelectionSync(): void {
     // registered before we look it up.
     const handle = requestAnimationFrame(() => {
       const el = getTileEl(primary);
-      el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      el?.scrollIntoView({ block: "start", behavior: "smooth" });
     });
     return () => cancelAnimationFrame(handle);
   }, [primary]);
