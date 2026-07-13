@@ -442,6 +442,64 @@ def test_save_is_a_noop_returning_current_state(client):
     assert before == after
 
 
+# ---------------------------------------------------------------------------
+# Session resume (lookup by owning project + page)
+# ---------------------------------------------------------------------------
+
+
+def _stage(client, *, project_id=None, image_id=None) -> str:
+    """Stage a page + bboxes (optionally keyed to a project/image) → staging id."""
+    data = {"annotations_format": "json"}
+    if project_id is not None:
+        data["project_id"] = str(project_id)
+    if image_id is not None:
+        data["image_id"] = image_id
+    response = client.post(
+        "/staging",
+        files={
+            "page_image": ("page.png", PAGE_BYTES, "image/png"),
+            "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+        },
+        data=data,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["staging_id"]
+
+
+def test_lookup_resumes_a_keyed_staged_session(client):
+    staging_id = _stage(client, project_id=7, image_id="img-abc")
+    created = client.post("/sessions/from-staging", data={"staging_id": staging_id})
+    assert created.status_code == 201, created.text
+    sid = created.json()["id"]
+
+    found = client.get(
+        "/sessions/lookup", params={"project_id": 7, "image_id": "img-abc"}
+    )
+    assert found.status_code == 200
+    assert found.json()["session_id"] == sid
+
+
+def test_lookup_404_for_unknown_page(client):
+    found = client.get(
+        "/sessions/lookup", params={"project_id": 999, "image_id": "nope"}
+    )
+    assert found.status_code == 404
+
+
+def test_lookup_skips_completed_sessions(client):
+    staging_id = _stage(client, project_id=8, image_id="img-done")
+    sid = client.post(
+        "/sessions/from-staging", data={"staging_id": staging_id}
+    ).json()["id"]
+    # A completed session is terminal (EXPORT) → not offered for resume.
+    done = client.post(f"/sessions/{sid}/complete", params={"page": True})
+    assert done.status_code == 200, done.text
+    found = client.get(
+        "/sessions/lookup", params={"project_id": 8, "image_id": "img-done"}
+    )
+    assert found.status_code == 404
+
+
 def test_complete_returns_xml_and_transitions_to_export(client):
     sid = _create_session(client)
     # Need at least one labelled glyph for export to be meaningful.
