@@ -500,6 +500,61 @@ def test_lookup_skips_completed_sessions(client):
     assert found.status_code == 404
 
 
+# ---------------------------------------------------------------------------
+# Session listing (standalone "resume a saved session")
+# ---------------------------------------------------------------------------
+
+
+def test_list_sessions_empty_by_default(client):
+    response = client.get("/sessions")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_sessions_returns_created_sessions(client):
+    sid1 = _create_session(client)
+    sid2 = _create_session(client)
+
+    response = client.get("/sessions")
+    assert response.status_code == 200
+    body = response.json()
+    ids = {row["id"] for row in body}
+    assert ids == {sid1, sid2}
+
+    row = next(r for r in body if r["id"] == sid1)
+    # Summary carries the metadata a resume list needs — and no glyph masks.
+    assert row["state"] == "classifying"
+    assert row["n_glyphs"] > 0
+    assert "glyphs" not in row
+    # IC's own upload path is unkeyed; the in-memory store has no timestamp.
+    assert row["project_id"] is None
+    assert row["image_id"] is None
+    assert row["updated_at"] is None
+
+
+def test_list_sessions_drops_deleted_session(client):
+    sid = _create_session(client)
+    assert client.delete(f"/sessions/{sid}").status_code == 204
+    response = client.get("/sessions")
+    assert response.status_code == 200
+    assert all(row["id"] != sid for row in response.json())
+
+
+def test_list_sessions_includes_completed_sessions(client):
+    sid = _create_session(client)
+    g = client.get(f"/sessions/{sid}").json()["glyphs"][0]
+    client.post(
+        f"/sessions/{sid}/glyphs/{g['id']}",
+        json={"class_name": "neume.A", "id_state_manual": True},
+    )
+    assert client.post(f"/sessions/{sid}/complete?page=true").status_code == 200
+
+    # Unlike /sessions/lookup, the list surfaces completed sessions (state
+    # exposed) so the user can still reopen a finished page read-only.
+    row = next(r for r in client.get("/sessions").json() if r["id"] == sid)
+    assert row["state"] == "export"
+
+
 def test_complete_returns_xml_and_transitions_to_export(client):
     sid = _create_session(client)
     # Need at least one labelled glyph for export to be meaningful.
