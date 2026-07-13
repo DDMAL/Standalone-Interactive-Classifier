@@ -30,7 +30,9 @@ function formatWhen(iso: string | null): string {
 export function SessionResumeList() {
   const setSession = useUiStore((s) => s.setSession);
   const { data, isLoading, isError } = useSessionList();
-  const [expanded, setExpanded] = useState(true);
+  // Collapsed by default so the create form is front-and-centre; the user
+  // expands the rail when they want to resume a saved session.
+  const [expanded, setExpanded] = useState(false);
 
   if (isLoading || isError) return null;
   const sessions = data ?? [];
