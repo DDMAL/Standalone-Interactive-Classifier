@@ -17,11 +17,12 @@ comfortably — a 1000-glyph session is on the order of a few MB.
 """
 from __future__ import annotations
 
+import os
 import threading
 from contextlib import contextmanager
 from typing import Iterator, Protocol
 
-from ic_core.state import Session
+from ic_core.state import ClassifierState, Session
 
 
 class SessionStore(Protocol):
@@ -30,12 +31,27 @@ class SessionStore(Protocol):
     Keeping this as a structural protocol (rather than an ABC) means
     the API code can depend on a tiny surface and tests can use a
     plain dict if they want.
+
+    ``create`` optionally takes the ``(project_id, image_id)`` an
+    embedding host (mothra) owns; a persistent backend records them so
+    it can :meth:`lookup` and *resume* the session when the user returns
+    to that page. Backends that don't persist simply ignore them and
+    return ``None`` from ``lookup``.
     """
 
-    def create(self, session: Session) -> None: ...
+    def create(
+        self,
+        session: Session,
+        *,
+        project_id: int | None = None,
+        image_id: str | None = None,
+    ) -> None: ...
     def get(self, session_id: str) -> Session: ...
     def session(self, session_id: str): ...  # context manager
     def delete(self, session_id: str) -> None: ...
+    def lookup(
+        self, project_id: int | None, image_id: str | None
+    ) -> str | None: ...
     def __contains__(self, session_id: str) -> bool: ...
     def __iter__(self) -> Iterator[str]: ...
 
@@ -56,14 +72,25 @@ class InMemorySessionStore:
         self._lock = threading.Lock()
         self._sessions: dict[str, Session] = {}
         self._locks: dict[str, threading.Lock] = {}
+        # (project_id, image_id) -> session id, so lookup/resume works within
+        # a single process run even without a persistent backend.
+        self._by_key: dict[tuple[int, str], str] = {}
 
-    def create(self, session: Session) -> None:
+    def create(
+        self,
+        session: Session,
+        *,
+        project_id: int | None = None,
+        image_id: str | None = None,
+    ) -> None:
         """Insert ``session``. Raises :class:`KeyError` on id collision."""
         with self._lock:
             if session.id in self._sessions:
                 raise KeyError(f"Session id collision: {session.id!r}")
             self._sessions[session.id] = session
             self._locks[session.id] = threading.Lock()
+            if project_id is not None and image_id is not None:
+                self._by_key[(project_id, image_id)] = session.id
 
     def get(self, session_id: str) -> Session:
         """Return the session or raise :class:`KeyError`.
@@ -114,6 +141,27 @@ class InMemorySessionStore:
             except KeyError:
                 raise KeyError(f"Unknown session id: {session_id!r}") from None
             self._locks.pop(session_id, None)
+            for key, sid in list(self._by_key.items()):
+                if sid == session_id:
+                    del self._by_key[key]
+
+    def lookup(
+        self, project_id: int | None, image_id: str | None
+    ) -> str | None:
+        """Return the resumable session id for ``(project_id, image_id)``, if
+        one exists in this process. In-memory only — lost on restart. A
+        completed (``EXPORT``, terminal) session is treated as not resumable,
+        matching the persistent store."""
+        if project_id is None or image_id is None:
+            return None
+        with self._lock:
+            sid = self._by_key.get((project_id, image_id))
+            if sid is None:
+                return None
+            session = self._sessions.get(sid)
+            if session is None or session.state == ClassifierState.EXPORT:
+                return None
+            return sid
 
     def __contains__(self, session_id: str) -> bool:
         with self._lock:
@@ -130,7 +178,39 @@ class InMemorySessionStore:
             return len(self._sessions)
 
 
+def build_default_store() -> SessionStore:
+    """Pick the store backend from the environment.
+
+    When ``IC_DATABASE_URL`` (or, failing that, ``DATABASE_URL`` — shared
+    with the mothra backend) is set, sessions are persisted to Postgres so
+    they survive a restart and can be resumed per project + page. Otherwise
+    the process-local in-memory store is used, preserving the original
+    single-user / local-tool behaviour with no external dependency.
+
+    The Postgres store connects lazily (first DB access), so constructing
+    it here is cheap and never blocks import on the network. If importing
+    the backend fails (e.g. psycopg2 missing), we fall back to in-memory
+    and warn rather than refusing to boot.
+    """
+    dsn = os.environ.get("IC_DATABASE_URL") or os.environ.get("DATABASE_URL")
+    if dsn:
+        try:
+            from ic_api.db_store import PersistentSessionStore
+
+            return PersistentSessionStore(dsn)
+        except Exception as exc:  # pragma: no cover - defensive
+            import sys
+
+            print(
+                "[ic_api.store] DATABASE_URL is set but the Postgres store "
+                f"could not be initialised ({exc}); falling back to the "
+                "in-memory store — sessions will NOT persist across restarts.",
+                file=sys.stderr,
+            )
+    return InMemorySessionStore()
+
+
 #: Default app-wide store. The FastAPI app reaches this through a
 #: dependency override-friendly factory in :mod:`ic_api.main`, so
 #: tests can substitute their own.
-default_store = InMemorySessionStore()
+default_store: SessionStore = build_default_store()
