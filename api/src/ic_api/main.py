@@ -62,6 +62,7 @@ from ic_api.schemas import (
     RebinarizeRequest,
     RenameClassRequest,
     SessionDTO,
+    SessionSummaryDTO,
     SplitRequest,
     UpdateGlyphRequest,
     glyph_to_dto,
@@ -854,6 +855,35 @@ async def create_session_from_staging(
         project_id=staged.project_id,
         image_id=staged.image_id,
     )
+
+
+@app.get("/sessions", response_model=list[SessionSummaryDTO])
+def list_sessions(store: Store) -> list[SessionSummaryDTO]:
+    """List stored sessions as lightweight summaries, most-recent first.
+
+    Powers the standalone frontend's "resume a saved session" list: the
+    embedding-host (mothra) resume path goes through
+    :func:`lookup_session` keyed by project + page, but IC's own upload
+    screen has no such key, so it enumerates everything here and lets the
+    user pick. Summaries omit glyph masks and the page image; the client
+    fetches the full session via :func:`get_session` on open.
+
+    Against the in-memory store this reflects only sessions created since
+    the last restart; against the persistent store it spans restarts and
+    carries an ``updated_at`` timestamp.
+    """
+    return [
+        SessionSummaryDTO(
+            id=s.id,
+            state=s.state,
+            source_name=s.source_name,
+            n_glyphs=s.n_glyphs,
+            updated_at=s.updated_at,
+            project_id=s.project_id,
+            image_id=s.image_id,
+        )
+        for s in store.list_sessions()
+    ]
 
 
 # Declared before GET /sessions/{session_id} so "lookup" isn't captured as a

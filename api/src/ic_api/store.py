@@ -20,9 +20,30 @@ from __future__ import annotations
 import os
 import threading
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Iterator, Protocol
 
 from ic_core.state import ClassifierState, Session
+
+
+@dataclass(frozen=True)
+class SessionSummary:
+    """Lightweight metadata for one stored session.
+
+    Enough to render a "resume a saved session" list without hydrating the
+    whole session (glyph masks, page bytes) — returned by
+    :meth:`SessionStore.list_sessions`. ``updated_at`` is an ISO-8601 string
+    from the persistent store, or ``None`` for the in-memory store, which
+    keeps no modification timestamp.
+    """
+
+    id: str
+    state: str  # ClassifierState value
+    source_name: str
+    n_glyphs: int
+    updated_at: str | None = None
+    project_id: int | None = None
+    image_id: str | None = None
 
 
 class SessionStore(Protocol):
@@ -52,6 +73,7 @@ class SessionStore(Protocol):
     def lookup(
         self, project_id: int | None, image_id: str | None
     ) -> str | None: ...
+    def list_sessions(self) -> list[SessionSummary]: ...
     def __contains__(self, session_id: str) -> bool: ...
     def __iter__(self) -> Iterator[str]: ...
 
@@ -162,6 +184,30 @@ class InMemorySessionStore:
             if session is None or session.state == ClassifierState.EXPORT:
                 return None
             return sid
+
+    def list_sessions(self) -> list[SessionSummary]:
+        """Summaries of every session in this process, most-recent first.
+
+        In-memory only — no persistence, so this reflects sessions created
+        since the last restart and carries no ``updated_at`` timestamp.
+        Insertion order approximates recency, so it's reversed.
+        """
+        with self._lock:
+            key_by_id = {sid: key for key, sid in self._by_key.items()}
+            summaries = [
+                SessionSummary(
+                    id=s.id,
+                    state=s.state.value,
+                    source_name=s.source_name,
+                    n_glyphs=len(s.glyphs),
+                    updated_at=None,
+                    project_id=key_by_id.get(s.id, (None, None))[0],
+                    image_id=key_by_id.get(s.id, (None, None))[1],
+                )
+                for s in self._sessions.values()
+            ]
+        summaries.reverse()
+        return summaries
 
     def __contains__(self, session_id: str) -> bool:
         with self._lock:

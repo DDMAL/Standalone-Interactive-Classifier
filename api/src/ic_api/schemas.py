@@ -52,6 +52,35 @@ class GlyphDTO(BaseModel):
     image_b64: str = Field(..., description="Base64 PNG, ASCII.")
 
 
+class SessionSummaryDTO(BaseModel):
+    """Lightweight session metadata for the resume list (GET /sessions).
+
+    Deliberately omits glyphs, training glyphs, and the page image so the
+    list stays cheap to build and small on the wire — the frontend hydrates
+    the full :class:`SessionDTO` only once the user opens a session.
+    """
+
+    id: str
+    state: ClassifierState
+    source_name: str = Field(
+        "", description="Human-facing label (the uploaded bbox filename stem)."
+    )
+    n_glyphs: int = Field(..., description="Working-set glyph count.")
+    updated_at: str | None = Field(
+        None,
+        description=(
+            "ISO-8601 last-modified time; null on the in-memory store, "
+            "which keeps no timestamp."
+        ),
+    )
+    project_id: int | None = Field(
+        None, description="Owning mothra project id, if the session is keyed."
+    )
+    image_id: str | None = Field(
+        None, description="Owning mothra image id, if the session is keyed."
+    )
+
+
 class SessionDTO(BaseModel):
     """JSON shape of an entire session."""
 

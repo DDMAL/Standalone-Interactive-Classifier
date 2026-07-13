@@ -40,6 +40,7 @@ import psycopg2
 from psycopg2 import pool as _pg_pool
 from psycopg2.extras import Json
 
+from ic_api.store import SessionSummary
 from ic_core.glyph import Glyph
 from ic_core.image import array_to_rle, rle_to_array
 from ic_core.state import ClassifierState, Session
@@ -269,6 +270,35 @@ class PersistentSessionStore:
         if row is None or row[1] == ClassifierState.EXPORT.value:
             return None
         return row[0]
+
+    def list_sessions(self) -> list[SessionSummary]:
+        """Summaries of every persisted session, most-recently-updated first.
+
+        Reads only the cheap metadata columns — the glyph count comes from
+        ``jsonb_array_length`` server-side, so no glyph blobs cross the wire.
+        Completed (``EXPORT``) sessions are included; the frontend surfaces
+        the ``state`` so the user can tell finished pages apart.
+        """
+        with self._conn() as (con, cur):
+            cur.execute(
+                "SELECT id, state, source_name, "
+                "jsonb_array_length(glyphs) AS n_glyphs, "
+                "updated_at, project_id, image_id "
+                "FROM ic_sessions ORDER BY updated_at DESC NULLS LAST"
+            )
+            rows = cur.fetchall()
+        return [
+            SessionSummary(
+                id=r[0],
+                state=r[1],
+                source_name=r[2] or "",
+                n_glyphs=r[3] or 0,
+                updated_at=r[4].isoformat() if r[4] is not None else None,
+                project_id=r[5],
+                image_id=r[6],
+            )
+            for r in rows
+        ]
 
     def __contains__(self, session_id: str) -> bool:
         with self._registry_lock:
