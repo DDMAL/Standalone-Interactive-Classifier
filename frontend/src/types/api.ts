@@ -48,6 +48,22 @@ export interface SessionDTO {
   uploaded_training_count: number;
 }
 
+/**
+ * Lightweight session metadata for the "resume a saved session" list
+ * (GET /sessions). Omits glyphs and the page image — the full {@link SessionDTO}
+ * is fetched only when a session is opened.
+ */
+export interface SessionSummary {
+  id: string;
+  state: ClassifierState;
+  source_name: string;
+  n_glyphs: number;
+  /** ISO-8601 last-modified time; null on the in-memory store. */
+  updated_at: string | null;
+  project_id: number | null;
+  image_id: string | null;
+}
+
 export type ErrorCode =
   | "not_found"
   | "state_conflict"

@@ -5,6 +5,7 @@ import type {
   GlyphCategory,
   GlyphDTO,
   SessionDTO,
+  SessionSummary,
 } from "@/types/api";
 
 export interface CreateSessionArgs {
@@ -93,6 +94,9 @@ export const listVocabularies = () => http.get<string[]>("/vocabularies");
 /** Fetch the distinct class names of a vocabulary CSV for preview. */
 export const getVocabularyClasses = (name: string) =>
   http.get<string[]>(`/vocabularies/${encodeURIComponent(name)}/classes`);
+
+/** List stored sessions as lightweight summaries, most-recent first. */
+export const listSessions = () => http.get<SessionSummary[]>("/sessions");
 
 export const getSession = (id: string) =>
   http.get<SessionDTO>(`/sessions/${id}`);

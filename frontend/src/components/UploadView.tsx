@@ -1,4 +1,5 @@
 import { getStaging } from "@/api/sessions";
+import { SessionResumeList } from "@/components/SessionResumeList";
 import { Button } from "@/components/ui/Button";
 import { useAutoExport } from "@/hooks/useAutoExport";
 import {
@@ -115,7 +116,9 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const autoExportDisabled = submitDisabled || totalTrainingSets === 0;
 
   return (
-    <div className="flex h-full items-center justify-center bg-slate-50">
+    <div className="flex h-full flex-col items-center justify-center gap-4 bg-slate-50">
+      {/* Standalone-only: mothra resumes via a deep-link, not this list. */}
+      {!stagedId && <SessionResumeList />}
       <form
         onSubmit={handleSubmit}
         className="w-[28rem] space-y-4 rounded-lg border border-slate-200 bg-white p-6 shadow-sm"
