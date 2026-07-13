@@ -1,3 +1,6 @@
+import { useState } from "react";
+
+import { ChevronLeftIcon, ChevronRightIcon } from "@/components/ui/icons";
 import { useSessionList } from "@/hooks/useSessionList";
 import { useUiStore } from "@/store/uiStore";
 import type { ClassifierState } from "@/types/api";
@@ -16,26 +19,64 @@ function formatWhen(iso: string | null): string {
 }
 
 /**
- * "Resume a saved session" list for standalone IC. Enumerates stored sessions
- * (GET /sessions) and, on click, opens one via the same {@link setSession} path
- * the mothra deep-link uses — the page image is served by the API since this
- * frontend didn't upload it. Renders nothing while loading, on error, or when
- * there are no saved sessions, so first-time users just see the upload form.
+ * Expandable "resume a saved session" sidebar for standalone IC, docked to the
+ * left of the create-session window. Enumerates stored sessions (GET /sessions)
+ * and, on click, opens one via the same {@link setSession} path the mothra
+ * deep-link uses — the page image is served by the API since this frontend
+ * didn't upload it. Collapses to a slim rail to give the form room. Renders
+ * nothing while loading, on error, or when there are no saved sessions, so
+ * first-time users just see the upload form.
  */
 export function SessionResumeList() {
   const setSession = useUiStore((s) => s.setSession);
   const { data, isLoading, isError } = useSessionList();
+  const [expanded, setExpanded] = useState(true);
 
   if (isLoading || isError) return null;
   const sessions = data ?? [];
   if (sessions.length === 0) return null;
 
+  if (!expanded) {
+    return (
+      <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-3 border-r border-slate-200 bg-white py-3">
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          title="Show saved sessions"
+          aria-label="Show saved sessions"
+          aria-expanded={false}
+          className="rounded p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+        >
+          <ChevronRightIcon />
+        </button>
+        <span
+          className="select-none text-xs font-medium text-slate-500"
+          style={{ writingMode: "vertical-rl" }}
+        >
+          Saved sessions ({sessions.length})
+        </span>
+      </aside>
+    );
+  }
+
   return (
-    <div className="w-[28rem] rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-      <h2 className="mb-3 text-sm font-semibold text-slate-800">
-        Resume a saved session
-      </h2>
-      <ul className="max-h-64 space-y-1 overflow-y-auto">
+    <aside className="flex h-full w-80 shrink-0 flex-col border-r border-slate-200 bg-white">
+      <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+        <h2 className="text-sm font-semibold text-slate-800">
+          Resume a saved session
+        </h2>
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          title="Collapse"
+          aria-label="Collapse saved sessions"
+          aria-expanded={true}
+          className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+        >
+          <ChevronLeftIcon />
+        </button>
+      </div>
+      <ul className="flex-1 space-y-1 overflow-y-auto p-3">
         {sessions.map((s) => {
           const when = formatWhen(s.updated_at);
           return (
@@ -62,6 +103,6 @@ export function SessionResumeList() {
           );
         })}
       </ul>
-    </div>
+    </aside>
   );
 }
