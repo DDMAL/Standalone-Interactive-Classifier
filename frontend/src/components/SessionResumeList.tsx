@@ -4,14 +4,7 @@ import { useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/ui/icons";
 import { useSessionList } from "@/hooks/useSessionList";
 import { useUiStore } from "@/store/uiStore";
-import type { ClassifierState } from "@/types/api";
-
-// Human labels for the lifecycle state shown as a badge on each row.
-const STATE_LABEL: Record<ClassifierState, string> = {
-  import: "Importing",
-  classifying: "In progress",
-  export: "Completed",
-};
+import type { SessionSummary } from "@/types/api";
 
 function formatWhen(iso: string | null): string {
   if (!iso) return "";
@@ -27,6 +20,11 @@ function formatWhen(iso: string | null): string {
  * didn't upload it. Collapses to a slim rail to give the form room. Renders
  * nothing while loading, on error, or when there are no saved sessions, so
  * first-time users just see the upload form.
+ *
+ * Sessions are grouped into two nested lists — "In progress" and "Completed" —
+ * so a finished page can't be mistaken for a resumable one. Persisted sessions
+ * are always `classifying` or `export` (creation ingests before saving), so
+ * anything not completed belongs in the in-progress bucket.
  */
 export function SessionResumeList() {
   const setSession = useUiStore((s) => s.setSession);
@@ -38,6 +36,9 @@ export function SessionResumeList() {
   if (isLoading || isError) return null;
   const sessions = data ?? [];
   if (sessions.length === 0) return null;
+
+  const inProgress = sessions.filter((s) => s.state !== "export");
+  const completed = sessions.filter((s) => s.state === "export");
 
   if (!expanded) {
     return (
@@ -79,52 +80,74 @@ export function SessionResumeList() {
           <ChevronLeftIcon />
         </button>
       </div>
-      <ul className="flex-1 space-y-1 overflow-y-auto p-3">
+      <div className="flex-1 space-y-5 overflow-y-auto p-3">
+        <SessionGroup
+          title="In progress"
+          sessions={inProgress}
+          onOpen={(id) => setSession(id, `/sessions/${id}/page`)}
+        />
+        <SessionGroup title="Completed" sessions={completed} />
+      </div>
+    </aside>
+  );
+}
+
+interface SessionGroupProps {
+  title: string;
+  sessions: SessionSummary[];
+  /** Omitted for read-only groups (e.g. completed sessions), which render
+   * their rows disabled. */
+  onOpen?: (id: string) => void;
+}
+
+/**
+ * One titled, nested list of session rows. Renders nothing when its bucket is
+ * empty so a section header never sits above zero rows. Rows are clickable only
+ * when {@link onOpen} is supplied — a completed session is terminal/read-only,
+ * so opening it would just 409 on the first mutating action.
+ */
+function SessionGroup({ title, sessions, onOpen }: SessionGroupProps) {
+  if (sessions.length === 0) return null;
+  const disabled = onOpen === undefined;
+  return (
+    <section>
+      <h3 className="px-1 pb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        {title} ({sessions.length})
+      </h3>
+      <ul className="space-y-1">
         {sessions.map((s) => {
           const when = formatWhen(s.updated_at);
-          // EXPORT is terminal/read-only in the core state machine, so a
-          // completed session can't be resumed — opening it would only 409 on
-          // the first mutating action. Show the row (with its "Completed"
-          // badge) but make it non-interactive.
-          const done = s.state === "export";
           return (
             <li key={s.id}>
               <button
                 type="button"
-                disabled={done}
-                onClick={
-                  done
-                    ? undefined
-                    : () => setSession(s.id, `/sessions/${s.id}/page`)
-                }
+                disabled={disabled}
+                onClick={disabled ? undefined : () => onOpen(s.id)}
                 title={
-                  done
+                  disabled
                     ? "This session is completed and can't be resumed"
                     : undefined
                 }
-                aria-disabled={done}
+                aria-disabled={disabled}
                 className={clsx(
-                  "flex w-full items-center justify-between gap-3 rounded border border-slate-200 px-3 py-2 text-left",
-                  done ? "cursor-not-allowed opacity-60" : "hover:bg-slate-50",
+                  "flex w-full flex-col gap-0.5 rounded border border-slate-200 px-3 py-2 text-left",
+                  disabled
+                    ? "cursor-not-allowed opacity-60"
+                    : "hover:bg-slate-50",
                 )}
               >
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium text-slate-700">
-                    {s.source_name || s.id}
-                  </span>
-                  <span className="block text-xs text-slate-400">
-                    {s.n_glyphs} glyph{s.n_glyphs === 1 ? "" : "s"}
-                    {when && ` · ${when}`}
-                  </span>
+                <span className="truncate text-sm font-medium text-slate-700">
+                  {s.source_name || s.id}
                 </span>
-                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
-                  {STATE_LABEL[s.state]}
+                <span className="text-xs text-slate-400">
+                  {s.n_glyphs} glyph{s.n_glyphs === 1 ? "" : "s"}
+                  {when && ` · ${when}`}
                 </span>
               </button>
             </li>
           );
         })}
       </ul>
-    </aside>
+    </section>
   );
 }

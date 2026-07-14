@@ -158,9 +158,6 @@ export const deleteClass = (id: string, name: string) =>
     `/sessions/${id}/classes/${encodeURIComponent(name)}`,
   );
 
-export const saveSession = (id: string) =>
-  http.post<SessionDTO>(`/sessions/${id}/save`);
-
 /**
  * Which sections to fold into the exported GameraXML. Mirrors the boolean
  * flags on POST /sessions/{id}/complete; at least one must be true.
