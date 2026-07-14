@@ -297,8 +297,17 @@ class Session:
         neumes = [g for g in self.glyphs if g.category == CATEGORY_NEUMES]
         others = [g for g in self.glyphs if g.category != CATEGORY_NEUMES]
 
+        # The external training DB is filtered the same way: a "complete"
+        # export re-imported as training data carries Text/Staves glyphs, and
+        # feeding those to the neume kNN lets a real neume land nearest a
+        # "text"/"staff" exemplar and inherit that label. Only neume
+        # exemplars may train the neume classifier.
+        neume_training = [
+            g for g in self.training_glyphs if g.category == CATEGORY_NEUMES
+        ]
+
         if neumes:
-            new_neumes, _ = run_correction_stage(neumes, self.training_glyphs, k=k)
+            new_neumes, _ = run_correction_stage(neumes, neume_training, k=k)
             # Ascending-confidence ordering is algorithm semantic #3, so the
             # frontend's review queue starts at the least-certain neume.
             neumes = sort_by_confidence_ascending(new_neumes)
