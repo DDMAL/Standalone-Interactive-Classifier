@@ -1,7 +1,7 @@
 import { ClassTreePanel } from "@/components/ClassTreePanel";
-import { EditPanel } from "@/components/EditPanel";
 import { GlyphGrid } from "@/components/GlyphGrid";
 import { PageImagePane } from "@/components/PageImagePane";
+import { RightDock } from "@/components/RightDock";
 import { Toolbar } from "@/components/Toolbar";
 import { PageImageProvider } from "@/hooks/usePageImage";
 import { useSelectionSync } from "@/hooks/useSelectionSync";
@@ -158,7 +158,6 @@ export function SessionView({ sessionId }: { sessionId: string }) {
   }
 
   const selectionSize = selectedGlyphIds.size;
-  const showEditPanel = selectionSize >= 1;
 
   return (
     <PageImageProvider>
@@ -176,18 +175,13 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           <ClassTreePanel sessionId={sessionId} session={session} />
           <PageImagePane glyphs={session.glyphs} zoomPan={zoomPan} />
           <GlyphGrid glyphs={sortedGlyphs} />
-          {showEditPanel && (
-            <EditPanel
-              key={
-                selectionSize === 1 ? (primaryGlyphId ?? "primary") : "multi"
-              }
-              sessionId={sessionId}
-              primaryGlyph={primaryGlyph}
-              selectionSize={selectionSize}
-              selectedGlyphs={selectedGlyphs}
-              classNames={session.class_names}
-            />
-          )}
+          <RightDock
+            sessionId={sessionId}
+            session={session}
+            primaryGlyph={primaryGlyph}
+            selectionSize={selectionSize}
+            selectedGlyphs={selectedGlyphs}
+          />
         </div>
       </div>
     </PageImageProvider>
