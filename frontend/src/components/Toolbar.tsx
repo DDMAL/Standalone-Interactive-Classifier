@@ -1,11 +1,9 @@
 import type { ExportSelection } from "@/api/sessions";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
 import { AlertCircleIcon } from "@/components/ui/icons";
 import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
 import { useRebinarize } from "@/hooks/useRebinarize";
-import { useSave } from "@/hooks/useSave";
 import { useUndoApply } from "@/hooks/useUpdateGlyphs";
 import { type GlyphImageMode, useUiStore } from "@/store/uiStore";
 import type { BinarizationMethod } from "@/types/api";
@@ -51,7 +49,6 @@ export function Toolbar({
   uploadedTrainingCount,
   binarizationMethod,
 }: ToolbarProps) {
-  const save = useSave(sessionId);
   const complete = useComplete(sessionId);
   const classify = useClassify(sessionId);
   const rebinarize = useRebinarize(sessionId);
@@ -62,12 +59,6 @@ export function Toolbar({
   const setKnnK = useUiStore((s) => s.setKnnK);
   const glyphImageMode = useUiStore((s) => s.glyphImageMode);
   const setGlyphImageMode = useUiStore((s) => s.setGlyphImageMode);
-
-  const [newSessionConfirmOpen, setNewSessionConfirmOpen] = useState(false);
-
-  function handleNewSession() {
-    setNewSessionConfirmOpen(true);
-  }
 
   // A k value is only meaningful when the training set has at least k
   // examples — kNN needs k neighbours to vote on. Higher k values become
@@ -106,9 +97,14 @@ export function Toolbar({
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
       <div className="flex items-baseline gap-3">
-        <span className="font-semibold text-slate-800">
+        <button
+          type="button"
+          onClick={() => clearSession()}
+          title="Return to the main page"
+          className="font-semibold text-slate-800 transition-colors hover:text-blue-600"
+        >
           Interactive Classifier
-        </span>
+        </button>
         <span className="text-sm text-slate-500">{glyphCount} glyphs</span>
       </div>
       <div className="flex items-center gap-2">
@@ -228,26 +224,8 @@ export function Toolbar({
         >
           {undoApply.isPending ? "Undoing…" : "Undo"}
         </Button>
-        <Button variant="ghost" onClick={handleNewSession}>
+        <Button variant="ghost" onClick={() => clearSession()}>
           New session
-        </Button>
-        <ConfirmDialog
-          open={newSessionConfirmOpen}
-          onOpenChange={setNewSessionConfirmOpen}
-          title="Start a new session?"
-          description="Opening a new session will exit the edit page. Any unsaved progress will be lost."
-          confirmLabel="Open new session"
-          onConfirm={() => {
-            setNewSessionConfirmOpen(false);
-            clearSession();
-          }}
-        />
-        <Button
-          variant="secondary"
-          onClick={() => save.mutate()}
-          disabled={save.isPending}
-        >
-          {save.isPending ? "Saving…" : "Save"}
         </Button>
         <ExportMenu
           pending={complete.isPending}
