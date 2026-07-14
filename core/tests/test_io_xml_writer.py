@@ -91,6 +91,31 @@ def test_classified_id_name_ignores_category():
     assert root.find(".//id").get("name") == "A"
 
 
+def test_text_staff_id_names_round_trip_back_to_category(tmp_path: Path):
+    """The reader reverses the writer's Text/Staves encoding.
+
+    A "complete" export carries UNCLASSIFIED Text/Staves glyphs as
+    ``<id name="text"/"staff">``. Re-importing must restore them to their
+    category with a class_name of UNCLASSIFIED — not a real ``"text"`` /
+    ``"staff"`` label — so they stay out of the neume training pool. A
+    genuine neume label round-trips verbatim at the Neumes category.
+    """
+    text = _make_glyph(class_name=UNCLASSIFIED, category=CATEGORY_TEXT)
+    staff = _make_glyph(class_name=UNCLASSIFIED, category=CATEGORY_STAVES)
+    neume = _make_glyph(class_name="neume.virga", id_state_manual=True,
+                        confidence=1.0, category=CATEGORY_NEUMES)
+
+    out_path = tmp_path / "complete.xml"
+    write_glyphs([text, staff, neume], out_path)
+    loaded = load_glyphs(out_path)
+
+    assert [(g.category, g.class_name) for g in loaded] == [
+        (CATEGORY_TEXT, UNCLASSIFIED),
+        (CATEGORY_STAVES, UNCLASSIFIED),
+        (CATEGORY_NEUMES, "neume.virga"),
+    ]
+
+
 def test_geometry_attributes_round_trip(tmp_path: Path):
     src = _make_glyph(
         class_name="A",
