@@ -1,3 +1,4 @@
+import clsx from "clsx";
 import { useState } from "react";
 
 import { ChevronLeftIcon, ChevronRightIcon } from "@/components/ui/icons";
@@ -81,12 +82,31 @@ export function SessionResumeList() {
       <ul className="flex-1 space-y-1 overflow-y-auto p-3">
         {sessions.map((s) => {
           const when = formatWhen(s.updated_at);
+          // EXPORT is terminal/read-only in the core state machine, so a
+          // completed session can't be resumed — opening it would only 409 on
+          // the first mutating action. Show the row (with its "Completed"
+          // badge) but make it non-interactive.
+          const done = s.state === "export";
           return (
             <li key={s.id}>
               <button
                 type="button"
-                onClick={() => setSession(s.id, `/sessions/${s.id}/page`)}
-                className="flex w-full items-center justify-between gap-3 rounded border border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
+                disabled={done}
+                onClick={
+                  done
+                    ? undefined
+                    : () => setSession(s.id, `/sessions/${s.id}/page`)
+                }
+                title={
+                  done
+                    ? "This session is completed and can't be resumed"
+                    : undefined
+                }
+                aria-disabled={done}
+                className={clsx(
+                  "flex w-full items-center justify-between gap-3 rounded border border-slate-200 px-3 py-2 text-left",
+                  done ? "cursor-not-allowed opacity-60" : "hover:bg-slate-50",
+                )}
               >
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium text-slate-700">
