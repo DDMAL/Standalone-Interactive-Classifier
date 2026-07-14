@@ -62,12 +62,13 @@ from ic_api.schemas import (
     RebinarizeRequest,
     RenameClassRequest,
     SessionDTO,
+    SessionSummaryDTO,
     SplitRequest,
     UpdateGlyphRequest,
     glyph_to_dto,
     session_to_dto,
 )
-from ic_api.store import InMemorySessionStore, default_store
+from ic_api.store import SessionStore, default_store
 from ic_core.ingest import (
     AnnotationFormat,
     BinarizationMethod,
@@ -122,16 +123,18 @@ app.add_middleware(
 )
 
 
-def get_store() -> InMemorySessionStore:
+def get_store() -> SessionStore:
     """Dependency-injection point for the session store.
 
-    The default returns the module-level :data:`ic_api.store.default_store`;
-    tests override this with a fresh store via ``app.dependency_overrides``.
+    The default returns the module-level :data:`ic_api.store.default_store`
+    — an in-memory or Postgres-backed store depending on the environment
+    (see :func:`ic_api.store.build_default_store`). Tests override this with
+    a fresh store via ``app.dependency_overrides``.
     """
     return default_store
 
 
-Store = Annotated[InMemorySessionStore, Depends(get_store)]
+Store = Annotated[SessionStore, Depends(get_store)]
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +375,7 @@ async def _training_glyphs_by_source(
 
 
 def _finalize_session(
-    store: InMemorySessionStore,
+    store: SessionStore,
     *,
     page_bytes: bytes,
     page_media_type: str | None,
@@ -383,6 +386,8 @@ def _finalize_session(
     parsed_names: list[str] | None,
     preset_glyphs: list,
     uploaded_glyphs: list,
+    project_id: int | None = None,
+    image_id: str | None = None,
 ) -> SessionDTO:
     """Ingest a page + bboxes into a stored session and return its DTO.
 
@@ -426,7 +431,9 @@ def _finalize_session(
     # the first classify round so the frontend lands already-classified.
     if training_glyphs:
         session.classify()
-    store.create(session)
+    # project_id/image_id (mothra's owning page) let a persistent store key
+    # the session for resume; None for IC's own upload path.
+    store.create(session, project_id=project_id, image_id=image_id)
     return session_to_dto(session)
 
 
@@ -453,6 +460,10 @@ class _Staged:
         "page_name",
         "annotations_bytes",
         "annotations_format",
+        # The mothra project + image this page belongs to, carried through
+        # to the created session so a persistent store can key it for resume.
+        "project_id",
+        "image_id",
     )
 
     def __init__(
@@ -462,12 +473,16 @@ class _Staged:
         page_name: str,
         annotations_bytes: bytes,
         annotations_format: AnnotationFormat,
+        project_id: int | None = None,
+        image_id: str | None = None,
     ) -> None:
         self.page_bytes = page_bytes
         self.page_media_type = page_media_type
         self.page_name = page_name
         self.annotations_bytes = annotations_bytes
         self.annotations_format = annotations_format
+        self.project_id = project_id
+        self.image_id = image_id
 
 
 _staging: dict[str, _Staged] = {}
@@ -610,7 +625,7 @@ async def create_session(
     #   an endpoint with ``UploadFile`` as a JSON body, which then
     #   makes every multipart field look 'missing'. The JSON-string
     #   shape is a workaround for that bug.
-    store: InMemorySessionStore = Depends(get_store),
+    store: SessionStore = Depends(get_store),
     class_names: Annotated[
         str | None,
         Form(description="Optional JSON-encoded list[str] of class names."),
@@ -700,6 +715,14 @@ async def stage_page(
     annotations_format: Annotated[
         AnnotationFormat, Form(description="'json' or 'yolo'.")
     ],
+    project_id: Annotated[
+        int | None,
+        Form(description="Owning mothra project id (for session resume)."),
+    ] = None,
+    image_id: Annotated[
+        str | None,
+        Form(description="Owning mothra image id (for session resume)."),
+    ] = None,
 ):
     """Stage a page + bboxes for a later from-staging session creation.
 
@@ -707,6 +730,10 @@ async def stage_page(
     bboxes but wants the user to complete IC's own create-session screen
     (training data + vocabulary). Returns a single-use ``staging_id`` the
     SPA references via ``/?staged=<id>``.
+
+    ``project_id`` / ``image_id`` identify the mothra page this staging
+    belongs to; they ride through to the created session so a persistent
+    store can key it and resume it when the user returns to the page.
     """
     page_bytes = await page_image.read()
     annotations_bytes = await annotations.read()
@@ -717,6 +744,8 @@ async def stage_page(
         page_name=page_image.filename or "page",
         annotations_bytes=annotations_bytes,
         annotations_format=annotations_format,
+        project_id=project_id,
+        image_id=image_id,
     )
     with _staging_lock:
         _staging[staging_id] = staged
@@ -771,7 +800,7 @@ async def create_session_from_staging(
     staging_id: Annotated[str, Form(description="Id returned by POST /staging.")],
     # See create_session for why Depends(get_store) is used inline (not the
     # Store alias) and why class_names is a JSON string.
-    store: InMemorySessionStore = Depends(get_store),
+    store: SessionStore = Depends(get_store),
     binarization_method: Annotated[
         BinarizationMethod,
         Form(description="'global', 'otsu', or 'sauvola'; see POST /sessions."),
@@ -823,7 +852,61 @@ async def create_session_from_staging(
         parsed_names=parsed_names,
         preset_glyphs=preset_glyphs,
         uploaded_glyphs=uploaded_glyphs,
+        project_id=staged.project_id,
+        image_id=staged.image_id,
     )
+
+
+@app.get("/sessions", response_model=list[SessionSummaryDTO])
+def list_sessions(store: Store) -> list[SessionSummaryDTO]:
+    """List stored sessions as lightweight summaries, most-recent first.
+
+    Powers the standalone frontend's "resume a saved session" list: the
+    embedding-host (mothra) resume path goes through
+    :func:`lookup_session` keyed by project + page, but IC's own upload
+    screen has no such key, so it enumerates everything here and lets the
+    user pick. Summaries omit glyph masks and the page image; the client
+    fetches the full session via :func:`get_session` on open.
+
+    Against the in-memory store this reflects only sessions created since
+    the last restart; against the persistent store it spans restarts and
+    carries an ``updated_at`` timestamp.
+    """
+    return [
+        SessionSummaryDTO(
+            id=s.id,
+            state=s.state,
+            source_name=s.source_name,
+            n_glyphs=s.n_glyphs,
+            updated_at=s.updated_at,
+            project_id=s.project_id,
+            image_id=s.image_id,
+        )
+        for s in store.list_sessions()
+    ]
+
+
+# Declared before GET /sessions/{session_id} so "lookup" isn't captured as a
+# session id by the path parameter route.
+@app.get("/sessions/lookup")
+def lookup_session(project_id: int, image_id: str, store: Store):
+    """Return the resumable session id for a mothra project + page, if any.
+
+    The embedding host calls this before staging a page: a hit means the
+    user has a saved (still-editable) session for that page to resume; a
+    404 means there's nothing to resume and the host should stage fresh.
+    Only meaningful against a persistent store — the in-memory store only
+    knows sessions created in the current process.
+    """
+    session_id = store.lookup(project_id, image_id)
+    if session_id is None:
+        return JSONResponse(
+            status_code=404,
+            content=ErrorResponse(
+                detail="No resumable session for this page.", code="not_found"
+            ).model_dump(),
+        )
+    return {"session_id": session_id}
 
 
 @app.get("/sessions/{session_id}", response_model=SessionDTO)
@@ -1044,11 +1127,13 @@ def delete_class(session_id: str, class_name: str, store: Store) -> SessionDTO:
 
 @app.post("/sessions/{session_id}/save", response_model=SessionDTO)
 def save_session(session_id: str, store: Store) -> SessionDTO:
-    """No-op for the in-memory store; returns the current state.
+    """Persist the current session state and return it.
 
-    Exposed so the frontend can call it on a 'save' button without
-    branching on the storage backend. Once :mod:`ic_api.store` is
-    replaced with a SQLite/Postgres implementation this will flush.
+    With the persistent (Postgres) store this flushes the session on the
+    :meth:`session` context exit — the same write-through that already
+    happens after every mutating endpoint, so 'Save' is an explicit
+    checkpoint rather than the only persistence point. With the in-memory
+    store it's a no-op that simply echoes the current state.
     """
     with store.session(session_id) as session:
         return session_to_dto(session)

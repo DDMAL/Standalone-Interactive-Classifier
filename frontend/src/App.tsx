@@ -22,6 +22,16 @@ export default function App() {
   useEffect(() => {
     if (deepLinkSessionId && !useUiStore.getState().sessionId) {
       setSession(deepLinkSessionId, `/sessions/${deepLinkSessionId}/page`);
+      // Resuming a saved session skips the create-session screen (and thus
+      // useCreateSession's notify), so tell the embedding host directly —
+      // otherwise the host would wait forever for "ic:session-created"
+      // before enabling its encode/complete action.
+      if (window.parent !== window) {
+        window.parent.postMessage(
+          { type: "ic:session-created", sessionId: deepLinkSessionId },
+          "*",
+        );
+      }
     }
   }, [setSession]);
 
