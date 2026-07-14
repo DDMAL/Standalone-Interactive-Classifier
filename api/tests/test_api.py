@@ -555,6 +555,25 @@ def test_list_sessions_includes_completed_sessions(client):
     assert row["state"] == "export"
 
 
+def test_clear_sessions_removes_all(client):
+    sid1 = _create_session(client)
+    sid2 = _create_session(client)
+
+    response = client.delete("/sessions")
+    assert response.status_code == 200
+    assert response.json() == {"deleted": 2}
+
+    assert client.get("/sessions").json() == []
+    assert client.get(f"/sessions/{sid1}").status_code == 404
+    assert client.get(f"/sessions/{sid2}").status_code == 404
+
+
+def test_clear_sessions_empty_store_is_a_noop(client):
+    response = client.delete("/sessions")
+    assert response.status_code == 200
+    assert response.json() == {"deleted": 0}
+
+
 def test_complete_returns_xml_and_transitions_to_export(client):
     sid = _create_session(client)
     # Need at least one labelled glyph for export to be meaningful.

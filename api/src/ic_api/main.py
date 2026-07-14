@@ -886,6 +886,19 @@ def list_sessions(store: Store) -> list[SessionSummaryDTO]:
     ]
 
 
+@app.delete("/sessions")
+def clear_sessions(store: Store) -> dict:
+    """Discard *every* stored session and free its memory.
+
+    Backs the resume list's "clear all" action. Wipes the whole store — the
+    in-memory registry, or every row of ``ic_sessions`` in the persistent
+    backend — and returns how many sessions were removed. There is no undo;
+    the client confirms before calling this. Distinct from
+    :func:`delete_session`, which drops one session by id.
+    """
+    return {"deleted": store.clear()}
+
+
 # Declared before GET /sessions/{session_id} so "lookup" isn't captured as a
 # session id by the path parameter route.
 @app.get("/sessions/lookup")

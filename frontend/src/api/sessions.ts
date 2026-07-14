@@ -103,6 +103,10 @@ export const getSession = (id: string) =>
 
 export const deleteSession = (id: string) => http.delete(`/sessions/${id}`);
 
+/** Discard every stored session; resolves to the number removed. */
+export const clearSessions = () =>
+  http.deleteFor<{ deleted: number }>("/sessions");
+
 export const classify = (id: string, k = 3) =>
   http.post<SessionDTO>(`/sessions/${id}/classify`, { k });
 

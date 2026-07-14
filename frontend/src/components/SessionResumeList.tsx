@@ -7,7 +7,7 @@ import {
   ChevronRightIcon,
   TrashIcon,
 } from "@/components/ui/icons";
-import { useDeleteSession } from "@/hooks/useDeleteSession";
+import { useClearSessions, useDeleteSession } from "@/hooks/useDeleteSession";
 import { useSessionList } from "@/hooks/useSessionList";
 import { useUiStore } from "@/store/uiStore";
 import type { SessionSummary } from "@/types/api";
@@ -36,11 +36,14 @@ export function SessionResumeList() {
   const setSession = useUiStore((s) => s.setSession);
   const { data, isLoading, isError } = useSessionList();
   const deleteSessionMut = useDeleteSession();
+  const clearSessionsMut = useClearSessions();
   // Collapsed by default so the create form is front-and-centre; the user
   // expands the rail when they want to resume a saved session.
   const [expanded, setExpanded] = useState(false);
   // The session awaiting delete confirmation, or null when the prompt is shut.
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
+  // Whether the "clear all" confirmation prompt is open.
+  const [clearOpen, setClearOpen] = useState(false);
 
   if (isLoading || isError) return null;
   const sessions = data ?? [];
@@ -53,6 +56,12 @@ export function SessionResumeList() {
     if (!deleteTarget) return;
     deleteSessionMut.mutate(deleteTarget.id, {
       onSettled: () => setDeleteTarget(null),
+    });
+  }
+
+  function handleConfirmClear() {
+    clearSessionsMut.mutate(undefined, {
+      onSettled: () => setClearOpen(false),
     });
   }
 
@@ -85,16 +94,27 @@ export function SessionResumeList() {
         <h2 className="text-sm font-semibold text-slate-800">
           Resume a saved session
         </h2>
-        <button
-          type="button"
-          onClick={() => setExpanded(false)}
-          title="Collapse"
-          aria-label="Collapse saved sessions"
-          aria-expanded={true}
-          className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-        >
-          <ChevronLeftIcon />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setClearOpen(true)}
+            title="Delete all saved sessions"
+            aria-label="Delete all saved sessions"
+            className="rounded px-1.5 py-0.5 text-xs font-medium text-slate-500 hover:bg-red-50 hover:text-red-600"
+          >
+            Clear all
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpanded(false)}
+            title="Collapse"
+            aria-label="Collapse saved sessions"
+            aria-expanded={true}
+            className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <ChevronLeftIcon />
+          </button>
+        </div>
       </div>
       <div className="flex-1 space-y-5 overflow-y-auto p-3">
         <SessionGroup
@@ -125,6 +145,17 @@ export function SessionResumeList() {
         destructive
         pending={deleteSessionMut.isPending}
         onConfirm={handleConfirmDelete}
+      />
+
+      <ConfirmDialog
+        open={clearOpen}
+        onOpenChange={setClearOpen}
+        title={`Delete all ${sessions.length} saved session${sessions.length === 1 ? "" : "s"}?`}
+        description="This permanently removes every saved session and all of their glyphs. This cannot be undone."
+        confirmLabel="Delete all"
+        destructive
+        pending={clearSessionsMut.isPending}
+        onConfirm={handleConfirmClear}
       />
     </aside>
   );
