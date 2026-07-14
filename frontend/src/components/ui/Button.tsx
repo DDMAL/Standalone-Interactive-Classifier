@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import type { ButtonHTMLAttributes } from "react";
+import { type ButtonHTMLAttributes, forwardRef } from "react";
 
 type Variant = "primary" | "secondary" | "ghost";
 
@@ -14,20 +14,19 @@ const styles: Record<Variant, string> = {
   ghost: "bg-transparent text-slate-700 hover:bg-slate-100 disabled:opacity-50",
 };
 
-export function Button({
-  variant = "primary",
-  className,
-  ...props
-}: ButtonProps) {
-  return (
-    <button
-      type="button"
-      className={clsx(
-        "rounded px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed",
-        styles[variant],
-        className,
-      )}
-      {...props}
-    />
-  );
-}
+export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+  function Button({ variant = "primary", className, ...props }, ref) {
+    return (
+      <button
+        ref={ref}
+        type="button"
+        className={clsx(
+          "rounded px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed",
+          styles[variant],
+          className,
+        )}
+        {...props}
+      />
+    );
+  },
+);

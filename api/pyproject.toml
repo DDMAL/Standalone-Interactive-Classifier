@@ -14,6 +14,10 @@ dependencies = [
     # Required by FastAPI's UploadFile/Form parsing for the
     # multipart POST /sessions endpoint.
     "python-multipart>=0.0.20",
+    # Optional at runtime: only imported when DATABASE_URL is set, to back
+    # the PersistentSessionStore. Without it IC falls back to the in-memory
+    # store and sessions do not survive a restart.
+    "psycopg2-binary>=2.9",
     "ic-core",
 ]
 

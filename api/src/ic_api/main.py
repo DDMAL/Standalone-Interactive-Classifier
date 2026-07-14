@@ -62,18 +62,20 @@ from ic_api.schemas import (
     RebinarizeRequest,
     RenameClassRequest,
     SessionDTO,
+    SessionSummaryDTO,
     SplitRequest,
     UpdateGlyphRequest,
     glyph_to_dto,
     session_to_dto,
 )
-from ic_api.store import InMemorySessionStore, default_store
+from ic_api.store import SessionStore, default_store
 from ic_core.ingest import (
     AnnotationFormat,
     BinarizationMethod,
     binarize_page,
     ingest_page,
 )
+from ic_core.glyph import CATEGORY_NEUMES
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
 from ic_core.state import Session, StateTransitionError
 
@@ -121,27 +123,70 @@ app.add_middleware(
 )
 
 
-def get_store() -> InMemorySessionStore:
+def get_store() -> SessionStore:
     """Dependency-injection point for the session store.
 
-    The default returns the module-level :data:`ic_api.store.default_store`;
-    tests override this with a fresh store via ``app.dependency_overrides``.
+    The default returns the module-level :data:`ic_api.store.default_store`
+    — an in-memory or Postgres-backed store depending on the environment
+    (see :func:`ic_api.store.build_default_store`). Tests override this with
+    a fresh store via ``app.dependency_overrides``.
     """
     return default_store
 
 
-Store = Annotated[InMemorySessionStore, Depends(get_store)]
+Store = Annotated[SessionStore, Depends(get_store)]
 
 
 # ---------------------------------------------------------------------------
-# Training sets
+# Built-in training-set presets
 # ---------------------------------------------------------------------------
 #
-# Training sets are GameraXML databases uploaded by the client as the
-# ``training_files`` part of ``POST /sessions`` (see :func:`create_session`).
-# Their glyphs seed the session's training pool and a classify round runs
-# server-side before the response. The API never opens a server-side
-# training file chosen by the client.
+# Pre-built GameraXML training databases live under ``core/data/presets``
+# (e.g. ``Hufnagel.xml``, ``Square.xml``). The frontend offers them as
+# checkboxes on the upload screen; the glyphs of every picked preset are
+# concatenated into the session's training pool — alongside any uploaded
+# training sets — so the first classify round applies that vocabulary
+# directly.
+#
+# The directory is resolved relative to the repo root and may be overridden
+# via ``IC_PRESETS_DIR``. As with vocabularies, the API only ever opens
+# files it has itself enumerated here — a client-supplied name is validated
+# against that listing before any disk access, so path traversal
+# (``../secrets.xml``) cannot escape the directory.
+
+
+def presets_dir() -> Path:
+    """Directory holding the built-in GameraXML training-set presets."""
+    override = os.environ.get("IC_PRESETS_DIR")
+    if override:
+        return Path(override)
+    # main.py → ic_api → src → api → <repo root>
+    repo_root = Path(__file__).resolve().parents[3]
+    return repo_root / "core" / "data" / "presets"
+
+
+def list_presets() -> list[str]:
+    """Return the sorted filenames of every ``.xml`` preset in :func:`presets_dir`."""
+    root = presets_dir()
+    if not root.is_dir():
+        return []
+    return sorted(p.name for p in root.glob("*.xml") if p.is_file())
+
+
+def resolve_preset(name: str) -> Path:
+    """Map a client-supplied preset filename to a safe on-disk path.
+
+    Raises:
+        ValueError: If ``name`` is not one of the files enumerated by
+            :func:`list_presets` (guards against path traversal and
+            typos alike).
+    """
+    if name not in list_presets():
+        available = ", ".join(list_presets()) or "(none)"
+        raise ValueError(
+            f"Unknown training preset {name!r}. Available: {available}"
+        )
+    return presets_dir() / name
 
 
 # ---------------------------------------------------------------------------
@@ -264,15 +309,15 @@ def _resolve_class_names(
     return parsed_names
 
 
-async def _parse_training_files(training_files) -> list | None:
+async def _parse_training_files(training_files) -> list:
     """Concatenate glyphs from uploaded GameraXML (.xml) training sets.
 
-    Returns ``None`` when no files were given. Raises ``ValueError`` (→ 400)
-    on a non-``.xml`` name or invalid XML, before any page work so a bad
-    file fails fast.
+    Returns an empty list when no files were given. Raises ``ValueError``
+    (→ 400) on a non-``.xml`` name or invalid XML, before any page work so
+    a bad file fails fast.
     """
     if not training_files:
-        return None
+        return []
     training_glyphs: list = []
     for tf in training_files:
         name = tf.filename or ""
@@ -285,8 +330,52 @@ async def _parse_training_files(training_files) -> list | None:
     return training_glyphs
 
 
+def _parse_training_presets(training_presets: str | None) -> list:
+    """Concatenate glyphs from built-in training-set presets.
+
+    ``training_presets`` is a JSON-encoded ``list[str]`` of preset filenames
+    (see the multipart workaround note on :func:`create_session`). Each name
+    is validated against :func:`list_presets` before any disk access, so a
+    bad name fails fast (→ 400). Returns an empty list when none were given.
+    """
+    if not training_presets:
+        return []
+    try:
+        names = json.loads(training_presets)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"training_presets is not valid JSON: {e}") from e
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        raise ValueError("training_presets must be a JSON list of strings.")
+    preset_glyphs: list = []
+    for name in names:
+        path = resolve_preset(name)
+        try:
+            preset_glyphs.extend(load_glyphs_bytes(path.read_bytes()))
+        except OSError as e:
+             raise ValueError(f"Could not read preset {name!r}: {e}") from e
+        except etree.XMLSyntaxError as e:
+            raise ValueError(f"Preset {name!r} is not valid XML: {e}") from e
+    return preset_glyphs
+
+
+async def _training_glyphs_by_source(
+    training_files, training_presets
+) -> tuple[list, list]:
+    """Load preset + uploaded training glyphs, kept separate by source.
+
+    Returns ``(preset_glyphs, uploaded_glyphs)`` — each an independent list
+    (either may be empty). :func:`_finalize_session` concatenates them for
+    the classifier but records which is which (by glyph id) so the export
+    screen can toggle the two pools independently.
+    """
+    return (
+        _parse_training_presets(training_presets),
+        await _parse_training_files(training_files),
+    )
+
+
 def _finalize_session(
-    store: InMemorySessionStore,
+    store: SessionStore,
     *,
     page_bytes: bytes,
     page_media_type: str | None,
@@ -295,17 +384,26 @@ def _finalize_session(
     annotations_format: AnnotationFormat,
     binarization_method: BinarizationMethod,
     parsed_names: list[str] | None,
-    training_glyphs: list | None,
+    preset_glyphs: list,
+    uploaded_glyphs: list,
+    project_id: int | None = None,
+    image_id: str | None = None,
 ) -> SessionDTO:
     """Ingest a page + bboxes into a stored session and return its DTO.
 
     Shared by :func:`create_session` (direct upload) and
     :func:`create_session_from_staging` (mothra-staged page + bboxes).
+
+    ``preset_glyphs`` and ``uploaded_glyphs`` are the two training-set
+    sources; they are concatenated (presets first) into the session's
+    training pool, and their glyph ids are recorded so the export screen can
+    later toggle the two pools independently.
     """
     glyphs = ingest_page(
         page_bytes, annotations_bytes,
         format=annotations_format, method=binarization_method,
     )
+    training_glyphs = [*preset_glyphs, *uploaded_glyphs]
     # Keep the full-page mask so manual grouping can recover ink that falls
     # in the gap between child glyph bboxes (never copied into any crop).
     # It must use the SAME method as the glyphs, or it disagrees with them.
@@ -318,6 +416,8 @@ def _finalize_session(
         page_mask=page_mask,
         source_name=_source_stem(source_filename),
     )
+    session.preset_training_ids = {g.id for g in preset_glyphs}
+    session.uploaded_training_ids = {g.id for g in uploaded_glyphs}
     # Retain the original page bytes so GET /sessions/{id}/page can serve
     # them back to a frontend that did not perform the upload itself.
     session.page_bytes = page_bytes
@@ -331,7 +431,9 @@ def _finalize_session(
     # the first classify round so the frontend lands already-classified.
     if training_glyphs:
         session.classify()
-    store.create(session)
+    # project_id/image_id (mothra's owning page) let a persistent store key
+    # the session for resume; None for IC's own upload path.
+    store.create(session, project_id=project_id, image_id=image_id)
     return session_to_dto(session)
 
 
@@ -358,6 +460,10 @@ class _Staged:
         "page_name",
         "annotations_bytes",
         "annotations_format",
+        # The mothra project + image this page belongs to, carried through
+        # to the created session so a persistent store can key it for resume.
+        "project_id",
+        "image_id",
     )
 
     def __init__(
@@ -367,12 +473,16 @@ class _Staged:
         page_name: str,
         annotations_bytes: bytes,
         annotations_format: AnnotationFormat,
+        project_id: int | None = None,
+        image_id: str | None = None,
     ) -> None:
         self.page_bytes = page_bytes
         self.page_media_type = page_media_type
         self.page_name = page_name
         self.annotations_bytes = annotations_bytes
         self.annotations_format = annotations_format
+        self.project_id = project_id
+        self.image_id = image_id
 
 
 _staging: dict[str, _Staged] = {}
@@ -449,6 +559,18 @@ async def _value_error_handler(_request, exc: ValueError) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
+@app.get("/training-presets", response_model=list[str])
+def get_training_presets() -> list[str]:
+    """List the built-in training-set preset filenames available for selection.
+
+    These are the GameraXML (.xml) files under ``core/data/presets``. The
+    frontend renders them as checkboxes on the upload screen; the chosen
+    filenames are passed back as the ``training_presets`` field of
+    :func:`create_session` and concatenated into the training pool.
+    """
+    return list_presets()
+
+
 @app.get("/vocabularies", response_model=list[str])
 def get_vocabularies() -> list[str]:
     """List the vocabulary CSV filenames available for selection.
@@ -503,7 +625,7 @@ async def create_session(
     #   an endpoint with ``UploadFile`` as a JSON body, which then
     #   makes every multipart field look 'missing'. The JSON-string
     #   shape is a workaround for that bug.
-    store: InMemorySessionStore = Depends(get_store),
+    store: SessionStore = Depends(get_store),
     class_names: Annotated[
         str | None,
         Form(description="Optional JSON-encoded list[str] of class names."),
@@ -517,6 +639,18 @@ async def create_session(
                 "training pool and a classify round runs automatically so the "
                 "working set is labelled with that training vocabulary before "
                 "the session is returned."
+            ),
+        ),
+    ] = None,
+    training_presets: Annotated[
+        str | None,
+        Form(
+            description=(
+                "Optional JSON-encoded list[str] of built-in preset filenames "
+                "under core/data/presets (see GET /training-presets). Their "
+                "glyphs are concatenated into the training pool ahead of any "
+                "uploaded training_files. Encoded as a JSON string for the "
+                "same multipart reason as class_names."
             ),
         ),
     ] = None,
@@ -545,13 +679,16 @@ async def create_session(
     (once they have at least one manual or training glyph) or start
     labelling glyphs via :func:`update_glyph`.
 
-    When ``training_files`` carry uploaded GameraXML training sets, the
-    glyphs from every file are concatenated into the training pool and a
-    classify round runs before the response is sent, so the returned
-    session is already labelled with that training vocabulary.
+    When ``training_presets`` and/or ``training_files`` carry GameraXML
+    training sets, the glyphs from every source are concatenated into the
+    training pool (presets first, then uploads) and a classify round runs
+    before the response is sent, so the returned session is already
+    labelled with that training vocabulary.
     """
     parsed_names = _resolve_class_names(class_names, vocabulary)
-    training_glyphs = await _parse_training_files(training_files)
+    preset_glyphs, uploaded_glyphs = await _training_glyphs_by_source(
+        training_files, training_presets
+    )
 
     page_bytes = await page_image.read()
     annotations_bytes = await annotations.read()
@@ -564,7 +701,8 @@ async def create_session(
         annotations_format=annotations_format,
         binarization_method=binarization_method,
         parsed_names=parsed_names,
-        training_glyphs=training_glyphs,
+        preset_glyphs=preset_glyphs,
+        uploaded_glyphs=uploaded_glyphs,
     )
 
 
@@ -577,6 +715,14 @@ async def stage_page(
     annotations_format: Annotated[
         AnnotationFormat, Form(description="'json' or 'yolo'.")
     ],
+    project_id: Annotated[
+        int | None,
+        Form(description="Owning mothra project id (for session resume)."),
+    ] = None,
+    image_id: Annotated[
+        str | None,
+        Form(description="Owning mothra image id (for session resume)."),
+    ] = None,
 ):
     """Stage a page + bboxes for a later from-staging session creation.
 
@@ -584,6 +730,10 @@ async def stage_page(
     bboxes but wants the user to complete IC's own create-session screen
     (training data + vocabulary). Returns a single-use ``staging_id`` the
     SPA references via ``/?staged=<id>``.
+
+    ``project_id`` / ``image_id`` identify the mothra page this staging
+    belongs to; they ride through to the created session so a persistent
+    store can key it and resume it when the user returns to the page.
     """
     page_bytes = await page_image.read()
     annotations_bytes = await annotations.read()
@@ -594,6 +744,8 @@ async def stage_page(
         page_name=page_image.filename or "page",
         annotations_bytes=annotations_bytes,
         annotations_format=annotations_format,
+        project_id=project_id,
+        image_id=image_id,
     )
     with _staging_lock:
         _staging[staging_id] = staged
@@ -648,7 +800,7 @@ async def create_session_from_staging(
     staging_id: Annotated[str, Form(description="Id returned by POST /staging.")],
     # See create_session for why Depends(get_store) is used inline (not the
     # Store alias) and why class_names is a JSON string.
-    store: InMemorySessionStore = Depends(get_store),
+    store: SessionStore = Depends(get_store),
     binarization_method: Annotated[
         BinarizationMethod,
         Form(description="'global', 'otsu', or 'sauvola'; see POST /sessions."),
@@ -659,6 +811,16 @@ async def create_session_from_staging(
     training_files: Annotated[
         list[UploadFile] | None,
         File(description="Optional GameraXML (.xml) training-set uploads."),
+    ] = None,
+    training_presets: Annotated[
+        str | None,
+        Form(
+            description=(
+                "Optional JSON-encoded list[str] of built-in preset filenames "
+                "under core/data/presets (see GET /training-presets); "
+                "concatenated into the training pool ahead of training_files."
+            ),
+        ),
     ] = None,
     vocabulary: Annotated[
         str | None, Form(description="Optional vocabulary CSV filename.")
@@ -676,7 +838,9 @@ async def create_session_from_staging(
         # Maps to 404 via _key_error_handler.
         raise KeyError(f"Unknown staging id: {staging_id!r}")
     parsed_names = _resolve_class_names(class_names, vocabulary)
-    training_glyphs = await _parse_training_files(training_files)
+    preset_glyphs, uploaded_glyphs = await _training_glyphs_by_source(
+        training_files, training_presets
+    )
     return _finalize_session(
         store,
         page_bytes=staged.page_bytes,
@@ -686,8 +850,63 @@ async def create_session_from_staging(
         annotations_format=staged.annotations_format,
         binarization_method=binarization_method,
         parsed_names=parsed_names,
-        training_glyphs=training_glyphs,
+        preset_glyphs=preset_glyphs,
+        uploaded_glyphs=uploaded_glyphs,
+        project_id=staged.project_id,
+        image_id=staged.image_id,
     )
+
+
+@app.get("/sessions", response_model=list[SessionSummaryDTO])
+def list_sessions(store: Store) -> list[SessionSummaryDTO]:
+    """List stored sessions as lightweight summaries, most-recent first.
+
+    Powers the standalone frontend's "resume a saved session" list: the
+    embedding-host (mothra) resume path goes through
+    :func:`lookup_session` keyed by project + page, but IC's own upload
+    screen has no such key, so it enumerates everything here and lets the
+    user pick. Summaries omit glyph masks and the page image; the client
+    fetches the full session via :func:`get_session` on open.
+
+    Against the in-memory store this reflects only sessions created since
+    the last restart; against the persistent store it spans restarts and
+    carries an ``updated_at`` timestamp.
+    """
+    return [
+        SessionSummaryDTO(
+            id=s.id,
+            state=s.state,
+            source_name=s.source_name,
+            n_glyphs=s.n_glyphs,
+            updated_at=s.updated_at,
+            project_id=s.project_id,
+            image_id=s.image_id,
+        )
+        for s in store.list_sessions()
+    ]
+
+
+# Declared before GET /sessions/{session_id} so "lookup" isn't captured as a
+# session id by the path parameter route.
+@app.get("/sessions/lookup")
+def lookup_session(project_id: int, image_id: str, store: Store):
+    """Return the resumable session id for a mothra project + page, if any.
+
+    The embedding host calls this before staging a page: a hit means the
+    user has a saved (still-editable) session for that page to resume; a
+    404 means there's nothing to resume and the host should stage fresh.
+    Only meaningful against a persistent store — the in-memory store only
+    knows sessions created in the current process.
+    """
+    session_id = store.lookup(project_id, image_id)
+    if session_id is None:
+        return JSONResponse(
+            status_code=404,
+            content=ErrorResponse(
+                detail="No resumable session for this page.", code="not_found"
+            ).model_dump(),
+        )
+    return {"session_id": session_id}
 
 
 @app.get("/sessions/{session_id}", response_model=SessionDTO)
@@ -908,11 +1127,13 @@ def delete_class(session_id: str, class_name: str, store: Store) -> SessionDTO:
 
 @app.post("/sessions/{session_id}/save", response_model=SessionDTO)
 def save_session(session_id: str, store: Store) -> SessionDTO:
-    """No-op for the in-memory store; returns the current state.
+    """Persist the current session state and return it.
 
-    Exposed so the frontend can call it on a 'save' button without
-    branching on the storage backend. Once :mod:`ic_api.store` is
-    replaced with a SQLite/Postgres implementation this will flush.
+    With the persistent (Postgres) store this flushes the session on the
+    :meth:`session` context exit — the same write-through that already
+    happens after every mutating endpoint, so 'Save' is an explicit
+    checkpoint rather than the only persistence point. With the in-memory
+    store it's a no-op that simply echoes the current state.
     """
     with store.session(session_id) as session:
         return session_to_dto(session)
@@ -922,7 +1143,10 @@ def save_session(session_id: str, store: Store) -> SessionDTO:
 def complete_session(
     session_id: str,
     store: Store,
-    include_training: bool = False,
+    page: bool = False,
+    manual_neumes: bool = False,
+    preset_training: bool = False,
+    uploaded_training: bool = False,
 ) -> Response:
     """Finalise the session and stream back the GameraXML export.
 
@@ -930,29 +1154,80 @@ def complete_session(
     should treat the returned XML as the canonical artefact for
     downstream MEI pipelines.
 
-    By default only this page's working glyphs are exported. When
-    ``include_training`` is set the working glyphs are concatenated
-    with the session's training set into a single GameraXML document,
-    so the page can be folded back into the training database.
+    The caller picks which sections to fold into a single GameraXML
+    document via independent boolean flags (the export screen's
+    checkboxes):
+
+    * ``page`` — every working glyph on the annotated page.
+    * ``manual_neumes`` — only the working neumes the user labelled by
+      hand (a subset of ``page``).
+    * ``preset_training`` — the training glyphs that came from a
+      built-in preset.
+    * ``uploaded_training`` — the training glyphs the user uploaded.
+
+    Sections are concatenated in that order and de-duplicated by glyph
+    id (so selecting both ``page`` and ``manual_neumes`` never emits a
+    glyph twice). At least one flag must be set, else 400.
 
     Response body is ``application/xml``, not JSON, because the XML
     *is* the deliverable. The session remains in the store so the
     caller can ``DELETE`` it explicitly once they've saved the file.
     """
+    if not (page or manual_neumes or preset_training or uploaded_training):
+        raise ValueError(
+            "Select at least one section to include in the export."
+        )
     with store.session(session_id) as session:
         session.complete()
-        glyphs = (
-            [*session.glyphs, *session.training_glyphs]
-            if include_training
-            else session.glyphs
-        )
-        payload = dumps_glyphs(glyphs)
-        suffix = "-with-training" if include_training else ""
+        selected: list = []
+        seen: set[str] = set()
+
+        def add(glyphs) -> None:
+            for g in glyphs:
+                if g.id not in seen:
+                    seen.add(g.id)
+                    selected.append(g)
+
+        if page:
+            add(session.glyphs)
+        if manual_neumes:
+            add(
+                g
+                for g in session.glyphs
+                if g.category == CATEGORY_NEUMES and g.id_state_manual
+            )
+        if preset_training:
+            add(
+                g
+                for g in session.training_glyphs
+                if g.id in session.preset_training_ids
+            )
+        if uploaded_training:
+            add(
+                g
+                for g in session.training_glyphs
+                if g.id in session.uploaded_training_ids
+            )
+        payload = dumps_glyphs(selected)
+        # Tag the filename with the chosen sections so a user exporting
+        # several variants from one session gets self-describing files.
+        tags = [
+            name
+            for flag, name in (
+                (page, "page"),
+                (manual_neumes, "manual-neumes"),
+                (preset_training, "preset"),
+                (uploaded_training, "uploaded"),
+            )
+            if flag
+        ]
         # Prefer the original bbox document's name so a user exporting
         # several pages gets self-describing files; fall back to the
         # opaque session id when no usable source name was captured.
         stem = session.source_name or session.id
-        filename = f'attachment; filename="ic-session-{stem}{suffix}.xml"'
+        filename = (
+            f'attachment; filename="ic-session-{stem}-{"-".join(tags)}.xml"'
+        )
     return Response(
         content=payload,
         media_type="application/xml",

@@ -44,7 +44,7 @@ from lxml import etree
 
 from ic_core.classifier import UNCLASSIFIED
 from ic_core.features import FEATURE_VERSION, LOGICAL_FEATURES, get_features
-from ic_core.glyph import CATEGORY_STAVES, CATEGORY_TEXT, Glyph
+from ic_core.glyph import CATEGORY_NEUMES, CATEGORY_STAVES, CATEGORY_TEXT, Glyph
 
 # ---------------------------------------------------------------------------
 # Schema constants
@@ -94,9 +94,20 @@ def _glyphs_from_tree(tree) -> list[Glyph]:
         ids = g.find("ids")
         id_el = ids.find("id")
         rle = (g.findtext("data") or "").strip()
+        # Reverse the writer's category encoding: an ``<id name="text">`` /
+        # ``<id name="staff">`` is not a real class label — it is how
+        # :func:`_id_name` renders an UNCLASSIFIED Text / Staves glyph. Map
+        # it back to (category, UNCLASSIFIED) so the glyph re-enters memory
+        # in the category it left and stays out of the neume kNN. Without
+        # this, a re-imported export would carry ``class_name="text"`` at the
+        # default ``Neumes`` category, poisoning the training pool so real
+        # neumes get labelled "text"/"staff".
+        raw_name = id_el.get("name")
+        category = _ID_NAME_TO_CATEGORY.get(raw_name, CATEGORY_NEUMES)
+        class_name = raw_name if category == CATEGORY_NEUMES else UNCLASSIFIED
         glyphs.append(
             Glyph.new(
-                class_name=id_el.get("name"),
+                class_name=class_name,
                 image_rle=rle,
                 ncols=int(g.get("ncols")),
                 nrows=int(g.get("nrows")),
@@ -104,6 +115,7 @@ def _glyphs_from_tree(tree) -> list[Glyph]:
                 uly=int(g.get("uly")),
                 id_state_manual=ids.get("state") == "MANUAL",
                 confidence=float(id_el.get("confidence")),
+                category=category,
                 is_training=False,
             )
         )
@@ -227,6 +239,13 @@ def _append_features(parent: etree._Element, glyph: Glyph) -> None:
 _UNCLASSIFIED_ID_NAMES: dict[str, str] = {
     CATEGORY_TEXT: "text",
     CATEGORY_STAVES: "staff",
+}
+
+#: Inverse of :data:`_UNCLASSIFIED_ID_NAMES`, consulted by the reader
+#: (:func:`_glyphs_from_tree`). Keeps the import/export encoding of the
+#: Text / Staves categories symmetric from a single source of truth.
+_ID_NAME_TO_CATEGORY: dict[str, str] = {
+    name: category for category, name in _UNCLASSIFIED_ID_NAMES.items()
 }
 
 

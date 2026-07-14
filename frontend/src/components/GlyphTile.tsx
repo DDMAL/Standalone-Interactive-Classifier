@@ -26,6 +26,9 @@ export function GlyphTile({ glyph, selected }: GlyphTileProps) {
     <button
       type="button"
       ref={setRef}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") e.preventDefault();
+      }}
       onClick={(e) => {
         if (e.shiftKey || e.metaKey) toggleGlyph(glyph.id);
         else focusGlyph(glyph.id);
@@ -36,12 +39,12 @@ export function GlyphTile({ glyph, selected }: GlyphTileProps) {
         "flex h-full w-full flex-col items-center gap-1 rounded border p-1 text-center transition-colors",
         glyph.id_state_manual
           ? selected
-            ? "border-green-600 bg-green-100 ring-2 ring-green-300"
+            ? "border-green-700 bg-green-200 ring-2 ring-green-400"
             : hovered
               ? "border-green-500 bg-green-100"
               : "border-green-400 bg-green-50 hover:border-green-500"
           : selected
-            ? "border-blue-500 bg-blue-50"
+            ? "border-violet-600 bg-violet-200 ring-2 ring-violet-400"
             : hovered
               ? "border-amber-400 bg-amber-50"
               : "border-slate-200 bg-white hover:border-slate-400",

@@ -5,6 +5,7 @@ import type {
   GlyphCategory,
   GlyphDTO,
   SessionDTO,
+  SessionSummary,
 } from "@/types/api";
 
 export interface CreateSessionArgs {
@@ -14,6 +15,8 @@ export interface CreateSessionArgs {
   classNames?: string[];
   /** Uploaded GameraXML (.xml) training-set files; glyphs are concatenated. */
   trainingFiles?: File[];
+  /** Built-in preset filenames (see {@link listTrainingPresets}); concatenated ahead of uploads. */
+  trainingPresets?: string[];
   /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
   vocabulary?: string;
 }
@@ -28,6 +31,9 @@ export function createSession(args: CreateSessionArgs): Promise<SessionDTO> {
   }
   for (const file of args.trainingFiles ?? []) {
     form.append("training_files", file);
+  }
+  if (args.trainingPresets && args.trainingPresets.length > 0) {
+    form.append("training_presets", JSON.stringify(args.trainingPresets));
   }
   if (args.vocabulary) {
     form.append("vocabulary", args.vocabulary);
@@ -51,6 +57,8 @@ export interface CreateSessionFromStagingArgs {
   classNames?: string[];
   /** Uploaded GameraXML (.xml) training-set files; glyphs are concatenated. */
   trainingFiles?: File[];
+  /** Built-in preset filenames (see {@link listTrainingPresets}); concatenated ahead of uploads. */
+  trainingPresets?: string[];
   /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
   vocabulary?: string;
 }
@@ -67,11 +75,18 @@ export function createSessionFromStaging(
   for (const file of args.trainingFiles ?? []) {
     form.append("training_files", file);
   }
+  if (args.trainingPresets && args.trainingPresets.length > 0) {
+    form.append("training_presets", JSON.stringify(args.trainingPresets));
+  }
   if (args.vocabulary) {
     form.append("vocabulary", args.vocabulary);
   }
   return http.postForm<SessionDTO>("/sessions/from-staging", form);
 }
+
+/** List the built-in training-set preset filenames under core/data/presets. */
+export const listTrainingPresets = () =>
+  http.get<string[]>("/training-presets");
 
 /** List the vocabulary CSV filenames under core/data/train. */
 export const listVocabularies = () => http.get<string[]>("/vocabularies");
@@ -79,6 +94,9 @@ export const listVocabularies = () => http.get<string[]>("/vocabularies");
 /** Fetch the distinct class names of a vocabulary CSV for preview. */
 export const getVocabularyClasses = (name: string) =>
   http.get<string[]>(`/vocabularies/${encodeURIComponent(name)}/classes`);
+
+/** List stored sessions as lightweight summaries, most-recent first. */
+export const listSessions = () => http.get<SessionSummary[]>("/sessions");
 
 export const getSession = (id: string) =>
   http.get<SessionDTO>(`/sessions/${id}`);
@@ -143,7 +161,26 @@ export const deleteClass = (id: string, name: string) =>
 export const saveSession = (id: string) =>
   http.post<SessionDTO>(`/sessions/${id}/save`);
 
-export const completeSession = (id: string, includeTraining = false) =>
-  postForBlob(
-    `/sessions/${id}/complete${includeTraining ? "?include_training=true" : ""}`,
-  );
+/**
+ * Which sections to fold into the exported GameraXML. Mirrors the boolean
+ * flags on POST /sessions/{id}/complete; at least one must be true.
+ */
+export interface ExportSelection {
+  /** Every working glyph on the annotated page. */
+  page?: boolean;
+  /** Only the working neumes the user labelled by hand. */
+  manualNeumes?: boolean;
+  /** Training glyphs that came from a built-in preset. */
+  presetTraining?: boolean;
+  /** Training glyphs the user uploaded. */
+  uploadedTraining?: boolean;
+}
+
+export const completeSession = (id: string, selection: ExportSelection) => {
+  const params = new URLSearchParams();
+  if (selection.page) params.set("page", "true");
+  if (selection.manualNeumes) params.set("manual_neumes", "true");
+  if (selection.presetTraining) params.set("preset_training", "true");
+  if (selection.uploadedTraining) params.set("uploaded_training", "true");
+  return postForBlob(`/sessions/${id}/complete?${params.toString()}`);
+};

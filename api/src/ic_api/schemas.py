@@ -52,6 +52,35 @@ class GlyphDTO(BaseModel):
     image_b64: str = Field(..., description="Base64 PNG, ASCII.")
 
 
+class SessionSummaryDTO(BaseModel):
+    """Lightweight session metadata for the resume list (GET /sessions).
+
+    Deliberately omits glyphs, training glyphs, and the page image so the
+    list stays cheap to build and small on the wire — the frontend hydrates
+    the full :class:`SessionDTO` only once the user opens a session.
+    """
+
+    id: str
+    state: ClassifierState
+    source_name: str = Field(
+        "", description="Human-facing label (the uploaded bbox filename stem)."
+    )
+    n_glyphs: int = Field(..., description="Working-set glyph count.")
+    updated_at: str | None = Field(
+        None,
+        description=(
+            "ISO-8601 last-modified time; null on the in-memory store, "
+            "which keeps no timestamp."
+        ),
+    )
+    project_id: int | None = Field(
+        None, description="Owning mothra project id, if the session is keyed."
+    )
+    image_id: str | None = Field(
+        None, description="Owning mothra image id, if the session is keyed."
+    )
+
+
 class SessionDTO(BaseModel):
     """JSON shape of an entire session."""
 
@@ -64,6 +93,14 @@ class SessionDTO(BaseModel):
     )
     binarization_method: BinarizationMethod = Field(
         ..., description="Method that produced the current glyph masks."
+    )
+    preset_training_count: int = Field(
+        ...,
+        description="How many training glyphs came from a built-in preset.",
+    )
+    uploaded_training_count: int = Field(
+        ...,
+        description="How many training glyphs came from an uploaded file.",
     )
 
 
@@ -163,6 +200,16 @@ def session_to_dto(session: Session) -> SessionDTO:
         training_glyphs=[glyph_to_dto(g) for g in session.training_glyphs],
         class_names=sorted(session.class_names),
         binarization_method=session.binarization_method,
+        preset_training_count=sum(
+            1
+            for g in session.training_glyphs
+            if g.id in session.preset_training_ids
+        ),
+        uploaded_training_count=sum(
+            1
+            for g in session.training_glyphs
+            if g.id in session.uploaded_training_ids
+        ),
     )
 
 

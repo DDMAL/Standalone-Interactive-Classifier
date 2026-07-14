@@ -1,3 +1,5 @@
+import type { ExportSelection } from "@/api/sessions";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
 import { AlertCircleIcon } from "@/components/ui/icons";
 import { useClassify } from "@/hooks/useClassify";
@@ -14,6 +16,12 @@ interface ToolbarProps {
   sessionId: string;
   glyphCount: number;
   trainingSize: number;
+  /** Working neumes the user has labelled by hand (export option). */
+  manualNeumeCount: number;
+  /** Training glyphs sourced from a built-in preset (export option). */
+  presetTrainingCount: number;
+  /** Training glyphs sourced from an uploaded file (export option). */
+  uploadedTrainingCount: number;
   binarizationMethod: BinarizationMethod;
 }
 
@@ -38,6 +46,9 @@ export function Toolbar({
   sessionId,
   glyphCount,
   trainingSize,
+  manualNeumeCount,
+  presetTrainingCount,
+  uploadedTrainingCount,
   binarizationMethod,
 }: ToolbarProps) {
   const save = useSave(sessionId);
@@ -51,6 +62,12 @@ export function Toolbar({
   const setKnnK = useUiStore((s) => s.setKnnK);
   const glyphImageMode = useUiStore((s) => s.glyphImageMode);
   const setGlyphImageMode = useUiStore((s) => s.setGlyphImageMode);
+
+  const [newSessionConfirmOpen, setNewSessionConfirmOpen] = useState(false);
+
+  function handleNewSession() {
+    setNewSessionConfirmOpen(true);
+  }
 
   // A k value is only meaningful when the training set has at least k
   // examples — kNN needs k neighbours to vote on. Higher k values become
@@ -211,9 +228,20 @@ export function Toolbar({
         >
           {undoApply.isPending ? "Undoing…" : "Undo"}
         </Button>
-        <Button variant="ghost" onClick={clearSession}>
+        <Button variant="ghost" onClick={handleNewSession}>
           New session
         </Button>
+        <ConfirmDialog
+          open={newSessionConfirmOpen}
+          onOpenChange={setNewSessionConfirmOpen}
+          title="Start a new session?"
+          description="Opening a new session will exit the edit page. Any unsaved progress will be lost."
+          confirmLabel="Open new session"
+          onConfirm={() => {
+            setNewSessionConfirmOpen(false);
+            clearSession();
+          }}
+        />
         <Button
           variant="secondary"
           onClick={() => save.mutate()}
@@ -223,8 +251,11 @@ export function Toolbar({
         </Button>
         <ExportMenu
           pending={complete.isPending}
-          trainingSize={trainingSize}
-          onExport={(includeTraining) => complete.mutate(includeTraining)}
+          pageCount={glyphCount}
+          manualNeumeCount={manualNeumeCount}
+          presetTrainingCount={presetTrainingCount}
+          uploadedTrainingCount={uploadedTrainingCount}
+          onExport={(selection) => complete.mutate(selection)}
         />
       </div>
     </header>
@@ -261,18 +292,41 @@ function SmallTrainingWarning() {
 
 interface ExportMenuProps {
   pending: boolean;
-  trainingSize: number;
-  onExport: (includeTraining: boolean) => void;
+  pageCount: number;
+  manualNeumeCount: number;
+  presetTrainingCount: number;
+  uploadedTrainingCount: number;
+  onExport: (selection: ExportSelection) => void;
 }
 
+// The four sections the export can fold into one GameraXML. `key` matches the
+// ExportSelection field; `count` gates availability — a section with nothing
+// in it is disabled (and force-unchecked).
+type ExportOptionKey = keyof ExportSelection;
+
 /**
- * Split-style export control: clicking the caret reveals a choice between
- * exporting just this page and exporting this page folded into the whole
- * training set. The menu closes on outside click or Escape.
+ * Checkbox export menu: the caret reveals one checkbox per exportable section
+ * (whole page, manual neumes, uploaded training, preset training). The user
+ * ticks any combination and hits Export; the selected sections are
+ * concatenated into a single GameraXML. Closes on outside click or Escape.
  */
-function ExportMenu({ pending, trainingSize, onExport }: ExportMenuProps) {
+function ExportMenu({
+  pending,
+  pageCount,
+  manualNeumeCount,
+  presetTrainingCount,
+  uploadedTrainingCount,
+  onExport,
+}: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  // Default to the common case: the whole annotated page.
+  const [selection, setSelection] = useState<Record<ExportOptionKey, boolean>>({
+    page: true,
+    manualNeumes: false,
+    presetTraining: false,
+    uploadedTraining: false,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -292,9 +346,55 @@ function ExportMenu({ pending, trainingSize, onExport }: ExportMenuProps) {
     };
   }, [open]);
 
-  const choose = (includeTraining: boolean) => {
+  const options: {
+    key: ExportOptionKey;
+    label: string;
+    count: number;
+    unit: string;
+  }[] = [
+    {
+      key: "page",
+      label: "Whole annotated page",
+      count: pageCount,
+      unit: "glyphs",
+    },
+    {
+      key: "manualNeumes",
+      label: "Manual neumes (this page)",
+      count: manualNeumeCount,
+      unit: "hand-labelled neumes",
+    },
+    {
+      key: "uploadedTraining",
+      label: "Uploaded training set",
+      count: uploadedTrainingCount,
+      unit: "uploaded glyphs",
+    },
+    {
+      key: "presetTraining",
+      label: "Preset training set",
+      count: presetTrainingCount,
+      unit: "preset glyphs",
+    },
+  ];
+
+  const toggle = (key: ExportOptionKey) =>
+    setSelection((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  // A section is only selectable if it has content; ignore ticks that survive
+  // on a now-empty section so we never post an empty-section flag.
+  const effective: ExportSelection = {
+    page: selection.page && pageCount > 0,
+    manualNeumes: selection.manualNeumes && manualNeumeCount > 0,
+    presetTraining: selection.presetTraining && presetTrainingCount > 0,
+    uploadedTraining: selection.uploadedTraining && uploadedTrainingCount > 0,
+  };
+  const anySelected = Object.values(effective).some(Boolean);
+
+  const handleExport = () => {
+    if (!anySelected) return;
     setOpen(false);
-    onExport(includeTraining);
+    onExport(effective);
   };
 
   return (
@@ -303,34 +403,55 @@ function ExportMenu({ pending, trainingSize, onExport }: ExportMenuProps) {
         {pending ? "Exporting…" : "Complete & Export ▾"}
       </Button>
       {open && (
-        <div className="absolute right-0 z-10 mt-1 w-72 overflow-hidden rounded border border-slate-200 bg-white shadow-lg">
-          <button
-            type="button"
-            onClick={() => choose(false)}
-            className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100"
-          >
-            <span className="font-medium">Export this page</span>
-            <span className="block text-xs text-slate-500">
-              GameraXML for the current page only
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => choose(true)}
-            disabled={trainingSize === 0}
-            title={
-              trainingSize === 0
-                ? "No training set loaded for this session"
-                : undefined
-            }
-            className="block w-full border-t border-slate-100 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-          >
-            <span className="font-medium">Export this page + training set</span>
-            <span className="block text-xs text-slate-500">
-              One GameraXML combining this page with all{" "}
-              {trainingSize.toLocaleString()} training glyphs
-            </span>
-          </button>
+        <div className="absolute right-0 z-10 mt-1 w-80 overflow-hidden rounded border border-slate-200 bg-white shadow-lg">
+          <div className="border-b border-slate-100 px-3 py-2 text-xs font-medium text-slate-500">
+            Include in export
+          </div>
+          <div className="p-1">
+            {options.map(({ key, label, count, unit }) => {
+              const disabled = count === 0;
+              return (
+                <label
+                  key={key}
+                  className={clsx(
+                    "flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate-100",
+                    disabled &&
+                      "cursor-not-allowed opacity-50 hover:bg-transparent",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={effective[key]}
+                    disabled={disabled}
+                    onChange={() => toggle(key)}
+                  />
+                  <span>
+                    <span className="font-medium text-slate-700">{label}</span>
+                    <span className="block text-xs text-slate-500">
+                      {disabled
+                        ? `No ${unit}`
+                        : `${count.toLocaleString()} ${unit}`}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="border-t border-slate-100 p-2">
+            <Button
+              className="w-full"
+              onClick={handleExport}
+              disabled={!anySelected}
+              title={
+                anySelected
+                  ? undefined
+                  : "Select at least one section to export"
+              }
+            >
+              Export selected
+            </Button>
+          </div>
         </div>
       )}
     </div>

@@ -154,6 +154,18 @@ class Session:
     # method toggle reflects the active choice; updated by :meth:`rebinarize`.
     binarization_method: str = "global"
 
+    # Provenance of the training pool, tracked by glyph id so the export
+    # screen can offer "preset training set" and "uploaded training set" as
+    # independent toggles. ``training_glyphs`` itself stays a single combined
+    # list (that's what the classifier trains on); these sets just record
+    # which of those glyphs came from a built-in preset vs the user's own
+    # uploads. Ids survive rename (``replace`` keeps them) and the
+    # export-time cleanup, so partitioning the live ``training_glyphs`` by
+    # membership stays correct. Empty for sessions created without training
+    # data. Populated by the API layer; not used by any core algorithm.
+    preset_training_ids: set[str] = field(default_factory=set)
+    uploaded_training_ids: set[str] = field(default_factory=set)
+
     # ------------------------------------------------------------------
     # Convenience accessors
     # ------------------------------------------------------------------
@@ -285,8 +297,17 @@ class Session:
         neumes = [g for g in self.glyphs if g.category == CATEGORY_NEUMES]
         others = [g for g in self.glyphs if g.category != CATEGORY_NEUMES]
 
+        # The external training DB is filtered the same way: a "complete"
+        # export re-imported as training data carries Text/Staves glyphs, and
+        # feeding those to the neume kNN lets a real neume land nearest a
+        # "text"/"staff" exemplar and inherit that label. Only neume
+        # exemplars may train the neume classifier.
+        neume_training = [
+            g for g in self.training_glyphs if g.category == CATEGORY_NEUMES
+        ]
+
         if neumes:
-            new_neumes, _ = run_correction_stage(neumes, self.training_glyphs, k=k)
+            new_neumes, _ = run_correction_stage(neumes, neume_training, k=k)
             # Ascending-confidence ordering is algorithm semantic #3, so the
             # frontend's review queue starts at the least-certain neume.
             neumes = sort_by_confidence_ascending(new_neumes)

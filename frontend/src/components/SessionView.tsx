@@ -41,6 +41,17 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     return session.glyphs.filter((g) => selectedGlyphIds.has(g.id));
   }, [session, selectedGlyphIds]);
 
+  // Hand-labelled neumes on this page — one of the export options.
+  const manualNeumeCount = useMemo(
+    () =>
+      session
+        ? session.glyphs.filter(
+            (g) => g.category === "Neumes" && g.id_state_manual,
+          ).length
+        : 0,
+    [session],
+  );
+
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       // A modal dialog (Split/Group) owns the keyboard while open; Radix
@@ -156,6 +167,9 @@ export function SessionView({ sessionId }: { sessionId: string }) {
           sessionId={sessionId}
           glyphCount={session.glyphs.length}
           trainingSize={trainingPoolSize(session)}
+          manualNeumeCount={manualNeumeCount}
+          presetTrainingCount={session.preset_training_count}
+          uploadedTrainingCount={session.uploaded_training_count}
           binarizationMethod={session.binarization_method}
         />
         <div className="flex min-h-0 flex-1">
