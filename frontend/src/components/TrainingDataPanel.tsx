@@ -1,10 +1,12 @@
 import { Button } from "@/components/ui/Button";
+import { useDeleteTrainingGlyph } from "@/hooks/useDeleteTrainingGlyph";
 import { glyphDataUri } from "@/lib/format";
 import type { GlyphDTO } from "@/types/api";
 import { clsx } from "clsx";
 import { useMemo, useState } from "react";
 
 interface TrainingDataPanelProps {
+  sessionId: string;
   glyphs: GlyphDTO[];
   onCollapse: () => void;
 }
@@ -33,16 +35,22 @@ function groupByClass(glyphs: GlyphDTO[]): ClassGroup[] {
  * ~2400 glyphs, so sections start collapsed and only mount their tiles when
  * opened, keeping the DOM light.
  *
+ * Each tile carries a delete affordance: removing a training glyph shrinks the
+ * kNN pool. The delete does not reclassify the working set; the user re-runs
+ * classify from the toolbar when they want the effect applied.
+ *
  * Tiles render the glyph's stored binarized mask directly rather than going
  * through {@link GlyphImage}: a training glyph's bbox indexes into its own
  * source page, which this frontend never loaded, so the "original" crop mode
  * would draw from the wrong image.
  */
 export function TrainingDataPanel({
+  sessionId,
   glyphs,
   onCollapse,
 }: TrainingDataPanelProps) {
   const groups = useMemo(() => groupByClass(glyphs), [glyphs]);
+  const deleteGlyph = useDeleteTrainingGlyph(sessionId);
 
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-slate-200 bg-white">
@@ -66,6 +74,12 @@ export function TrainingDataPanel({
         </Button>
       </div>
 
+      {deleteGlyph.isError && (
+        <p className="border-b border-red-100 bg-red-50 px-4 py-2 text-xs text-red-700">
+          Couldn’t delete that glyph: {deleteGlyph.error.message}
+        </p>
+      )}
+
       <div className="min-h-0 flex-1 overflow-auto p-2">
         {glyphs.length === 0 ? (
           <p className="p-4 text-sm text-slate-400">
@@ -78,6 +92,8 @@ export function TrainingDataPanel({
               key={group.className}
               className={group.className}
               glyphs={group.glyphs}
+              onDelete={deleteGlyph.mutate}
+              deleting={deleteGlyph.isPending}
             />
           ))
         )}
@@ -86,7 +102,18 @@ export function TrainingDataPanel({
   );
 }
 
-function TrainingClassSection({ className, glyphs }: ClassGroup) {
+interface TrainingClassSectionProps extends ClassGroup {
+  onDelete: (glyphId: string) => void;
+  /** A delete is in flight; disable the per-tile buttons to avoid races. */
+  deleting: boolean;
+}
+
+function TrainingClassSection({
+  className,
+  glyphs,
+  onDelete,
+  deleting,
+}: TrainingClassSectionProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -125,13 +152,23 @@ function TrainingClassSection({ className, glyphs }: ClassGroup) {
             <div
               key={glyph.id}
               title={className}
-              className="flex items-center justify-center overflow-hidden rounded border border-slate-200 bg-white p-1"
+              className="group relative flex items-center justify-center overflow-hidden rounded border border-slate-200 bg-white p-1"
             >
               <img
                 src={glyphDataUri(glyph)}
                 alt={className}
                 className="h-full w-full object-contain"
               />
+              <button
+                type="button"
+                onClick={() => onDelete(glyph.id)}
+                disabled={deleting}
+                title="Delete this training glyph"
+                aria-label={`Delete training glyph ${className}`}
+                className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded-full bg-white/90 text-[10px] leading-none text-red-600 shadow ring-1 ring-red-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 group-hover:flex"
+              >
+                ✕
+              </button>
             </div>
           ))}
         </div>

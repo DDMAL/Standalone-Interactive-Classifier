@@ -191,6 +191,63 @@ def test_delete_glyph_removes_from_working_set(client):
 
 
 # ---------------------------------------------------------------------------
+# Training-glyph delete
+# ---------------------------------------------------------------------------
+
+# A small (99-glyph) GameraXML training set uploaded so the created session
+# has a non-empty training pool to delete from.
+TRAIN_XML = (
+    Path(__file__).resolve().parents[2]
+    / "core"
+    / "tests"
+    / "fixtures"
+    / "Hufnagel-example_training_data.xml"
+)
+TRAIN_XML_BYTES = TRAIN_XML.read_bytes()
+
+
+def _create_session_with_training(client: TestClient) -> str:
+    """Create a session seeded with an uploaded training set; return its id."""
+    files = {
+        "page_image": ("page.png", PAGE_BYTES, "image/png"),
+        "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+        "training_files": ("train.xml", TRAIN_XML_BYTES, "application/xml"),
+    }
+    response = client.post(
+        "/sessions", files=files, data={"annotations_format": "json"}
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["id"]
+
+
+def test_delete_training_glyph_removes_from_pool(client):
+    sid = _create_session_with_training(client)
+    sess = client.get(f"/sessions/{sid}").json()
+    training = sess["training_glyphs"]
+    assert len(training) >= 2, "uploaded training set should load glyphs"
+    n_before = len(training)
+    uploaded_before = sess["uploaded_training_count"]
+    gid = training[0]["id"]
+
+    response = client.delete(f"/sessions/{sid}/training-glyphs/{gid}")
+    assert response.status_code == 200, response.text
+    after = response.json()
+    assert len(after["training_glyphs"]) == n_before - 1
+    assert gid not in {g["id"] for g in after["training_glyphs"]}
+    # Provenance count follows the pool down, so the export screen stays honest.
+    assert after["uploaded_training_count"] == uploaded_before - 1
+    # The working set is untouched — only the training pool shrinks.
+    assert len(after["glyphs"]) == len(sess["glyphs"])
+
+
+def test_delete_training_glyph_unknown_id_returns_404(client):
+    sid = _create_session_with_training(client)
+    response = client.delete(f"/sessions/{sid}/training-glyphs/nope")
+    assert response.status_code == 404
+    assert response.json()["code"] == "not_found"
+
+
+# ---------------------------------------------------------------------------
 # Classification
 # ---------------------------------------------------------------------------
 

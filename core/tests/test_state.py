@@ -372,6 +372,46 @@ def test_delete_glyph_unknown_id_raises():
 
 
 # ---------------------------------------------------------------------------
+# delete_training_glyph
+# ---------------------------------------------------------------------------
+
+
+def test_delete_training_glyph_removes_from_pool_and_provenance():
+    keep = _make_glyph(np.ones((2, 2)), class_name="A", id_state_manual=True)
+    drop = _make_glyph(np.ones((3, 3)), class_name="B", id_state_manual=True)
+    s = Session()
+    s.ingest([_make_glyph(np.ones((2, 2)))], training_glyphs=[keep, drop])
+    # Provenance sets are populated by the API layer; simulate that here.
+    s.preset_training_ids = {keep.id}
+    s.uploaded_training_ids = {drop.id}
+
+    s.delete_training_glyph(drop.id)
+
+    assert [g.id for g in s.training_glyphs] == [keep.id]
+    # The working set is untouched — only the training pool shrinks.
+    assert len(s.glyphs) == 1
+    # The dropped id is gone from provenance; the surviving one is kept.
+    assert s.uploaded_training_ids == set()
+    assert s.preset_training_ids == {keep.id}
+
+
+def test_delete_training_glyph_unknown_id_raises():
+    s = Session()
+    s.ingest(
+        [_make_glyph(np.ones((2, 2)))],
+        training_glyphs=[_make_glyph(np.ones((2, 2)), class_name="A")],
+    )
+    with pytest.raises(KeyError):
+        s.delete_training_glyph("nope")
+
+
+def test_delete_training_glyph_requires_classifying_state():
+    s = Session()  # still in IMPORT — no ingest yet
+    with pytest.raises(StateTransitionError):
+        s.delete_training_glyph("anything")
+
+
+# ---------------------------------------------------------------------------
 # rename_class / delete_class
 # ---------------------------------------------------------------------------
 

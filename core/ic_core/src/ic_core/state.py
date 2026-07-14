@@ -577,6 +577,32 @@ class Session:
         idx, _ = self._find_index(glyph_id)
         del self.glyphs[idx]
 
+    def delete_training_glyph(self, glyph_id: str) -> None:
+        """Remove a single glyph from the external training pool.
+
+        The training pool feeds kNN but is otherwise independent of the
+        working set, so this just drops the glyph from
+        :attr:`training_glyphs` and its provenance sets
+        (:attr:`preset_training_ids` / :attr:`uploaded_training_ids`), so
+        the export-screen counts stay accurate.
+
+        Like :meth:`delete_glyph`, it does **not** re-run classification —
+        the working set keeps its current labels until the caller triggers
+        a fresh classify round against the now-smaller pool.
+
+        Raises:
+            StateTransitionError: If called outside ``CLASSIFYING``.
+            KeyError: If no training glyph with that id exists.
+        """
+        self._require_state(ClassifierState.CLASSIFYING)
+        for i, g in enumerate(self.training_glyphs):
+            if g.id == glyph_id:
+                del self.training_glyphs[i]
+                self.preset_training_ids.discard(glyph_id)
+                self.uploaded_training_ids.discard(glyph_id)
+                return
+        raise KeyError(f"No training glyph with id {glyph_id!r}")
+
     def rename_class(self, old_name: str, new_name: str) -> None:
         """Rename a class across glyphs, training set, and imported names.
 

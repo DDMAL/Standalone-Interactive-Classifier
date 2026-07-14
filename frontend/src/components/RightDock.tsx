@@ -37,6 +37,7 @@ export function RightDock({
   if (expanded) {
     return (
       <TrainingDataPanel
+        sessionId={sessionId}
         glyphs={session.training_glyphs}
         onCollapse={collapseTrainingPanel}
       />
