@@ -163,6 +163,10 @@ class PersistentSessionStore:
             cur = con.cursor()
             try:
                 yield con, cur
+                con.commit()  # end transaction even for read-only operations
+            except Exception:
+                con.rollback()
+                raise
             finally:
                 cur.close()
         finally:

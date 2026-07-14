@@ -112,7 +112,12 @@ class InMemorySessionStore:
             self._sessions[session.id] = session
             self._locks[session.id] = threading.Lock()
             if project_id is not None and image_id is not None:
-                self._by_key[(project_id, image_id)] = session.id
+                key = (project_id, image_id)
+                old_id = self._by_key.get(key)
+                if old_id is not None:
+                    self._sessions.pop(old_id, None)
+                    self._locks.pop(old_id, None)
+                self._by_key[key] = session.id
 
     def get(self, session_id: str) -> Session:
         """Return the session or raise :class:`KeyError`.
