@@ -22,6 +22,7 @@ dependencies = [
 ssl = [
     "scikit-learn>=1.3",
     "torch>=2.0",
+    "torchvision>=0.15",
     "transformers>=4.30",
     "peft>=0.10",
 ]
