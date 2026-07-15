@@ -70,6 +70,7 @@ class SessionStore(Protocol):
     def get(self, session_id: str) -> Session: ...
     def session(self, session_id: str): ...  # context manager
     def delete(self, session_id: str) -> None: ...
+    def clear(self) -> int: ...
     def lookup(
         self, project_id: int | None, image_id: str | None
     ) -> str | None: ...
@@ -171,6 +172,19 @@ class InMemorySessionStore:
             for key, sid in list(self._by_key.items()):
                 if sid == session_id:
                     del self._by_key[key]
+
+    def clear(self) -> int:
+        """Drop every session; return how many were removed.
+
+        In-flight operations holding a per-session lock complete on an
+        orphaned session (same reasoning as :meth:`delete`) — harmless.
+        """
+        with self._lock:
+            n = len(self._sessions)
+            self._sessions.clear()
+            self._locks.clear()
+            self._by_key.clear()
+        return n
 
     def lookup(
         self, project_id: int | None, image_id: str | None

@@ -255,6 +255,22 @@ class PersistentSessionStore:
         if not in_cache and not deleted:
             raise KeyError(f"Unknown session id: {session_id!r}")
 
+    def clear(self) -> int:
+        """Drop every session from cache and DB; return the rows removed.
+
+        The row count comes from the DB ``DELETE`` (authoritative — every
+        created session is write-through inserted), so it stays accurate even
+        if the hot cache holds only a subset of persisted sessions.
+        """
+        with self._registry_lock:
+            self._cache.clear()
+            self._locks.clear()
+        with self._conn() as (con, cur):
+            cur.execute("DELETE FROM ic_sessions")
+            deleted = cur.rowcount
+            con.commit()
+        return deleted
+
     def lookup(self, project_id: int | None, image_id: str | None) -> str | None:
         """Return the resumable session id for a page, or ``None``.
 
