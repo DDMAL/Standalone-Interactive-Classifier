@@ -88,7 +88,7 @@ from ic_core.glyph import (
     CATEGORY_TEXT,
     Glyph,
 )
-from ic_core.image import array_to_rle
+from ic_core.image import array_to_rle, grayscale_array_to_png_base64
 
 #: MOTHRA ``classId`` → IC category. The detector tags each bbox 1/2/3;
 #: we carry that through so the UI can group Text/Neumes/Staves. An
@@ -226,6 +226,7 @@ def ingest_page(
     threshold: int = DEFAULT_THRESHOLD,
     window_size: int = SAUVOLA_WINDOW_SIZE,
     k: float = SAUVOLA_K,
+    store_real_crop: bool = False,
 ) -> list[Glyph]:
     """Crop a page into glyphs using a bbox annotation document.
 
@@ -243,6 +244,13 @@ def ingest_page(
         threshold: Foreground/background cutoff for ``method="global"``.
         window_size: Sauvola window edge in pixels.
         k: Sauvola std-dev weight.
+        store_real_crop: When ``True``, also slice the raw greyscale
+            page (before binarisation) per glyph and store it on
+            ``Glyph.image_gray_b64``. Defaults to ``False`` -- existing
+            callers see byte-identical output unless they opt in. Only
+            needed if you intend to use the optional SSL classifier
+            backend (:mod:`ic_core.ssl_classifier`), which requires
+            real pixel data the binary RLE mask cannot provide.
 
     Returns:
         One :class:`Glyph` per bounding box, in the order the
@@ -252,7 +260,10 @@ def ingest_page(
         ValueError: If ``format`` is not one of ``"json"`` /
             ``"yolo"``.
     """
-    bin_kwargs = dict(method=method, threshold=threshold, window_size=window_size, k=k)
+    bin_kwargs = dict(
+        method=method, threshold=threshold, window_size=window_size, k=k,
+        store_real_crop=store_real_crop,
+    )
     if format == "json":
         return ingest_page_json(page_image, annotations, **bin_kwargs)
     if format == "yolo":
@@ -270,6 +281,7 @@ def ingest_page_json(
     threshold: int = DEFAULT_THRESHOLD,
     window_size: int = SAUVOLA_WINDOW_SIZE,
     k: float = SAUVOLA_K,
+    store_real_crop: bool = False,
 ) -> list[Glyph]:
     """Crop using a MOTHRA JSON annotation document.
 
@@ -306,8 +318,9 @@ def ingest_page_json(
     # resulting mask. Opening the page per glyph would be wasteful, and
     # binarising per crop would break Sauvola (its window must see the
     # real page, not a crop's mirror-padded edge).
+    grey_page = _load_page(page_image)
     mask = binarize_array(
-        _load_page(page_image),
+        grey_page,
         method=method,
         threshold=threshold,
         window_size=window_size,
@@ -323,6 +336,7 @@ def ingest_page_json(
             height=int(round(a["bbox"][3])),
             glyph_id=_normalise_uuid(a["id"]),
             category=_MOTHRA_CLASS_TO_CATEGORY.get(a.get("classId"), CATEGORY_NEUMES),
+            grey_page=grey_page if store_real_crop else None,
         )
         for a in annotations
     ]
@@ -336,6 +350,7 @@ def ingest_page_yolo(
     threshold: int = DEFAULT_THRESHOLD,
     window_size: int = SAUVOLA_WINDOW_SIZE,
     k: float = SAUVOLA_K,
+    store_real_crop: bool = False,
 ) -> list[Glyph]:
     """Crop using a YOLO ``.txt`` annotation document.
 
@@ -348,13 +363,15 @@ def ingest_page_yolo(
         threshold: Cutoff for ``method="global"``.
         window_size: Sauvola window edge in pixels.
         k: Sauvola std-dev weight.
+        store_real_crop: See :func:`ingest_page`.
 
     Returns:
         One :class:`Glyph` per non-empty, non-comment line.
     """
     # Whole-page binarise once (see ingest_page_json for why), then slice.
+    grey_page = _load_page(page_image)
     mask = binarize_array(
-        _load_page(page_image),
+        grey_page,
         method=method,
         threshold=threshold,
         window_size=window_size,
@@ -373,6 +390,7 @@ def ingest_page_yolo(
                 height=height,
                 glyph_id=None,  # fresh UUID — YOLO has none to inherit
                 category=_MOTHRA_CLASS_TO_CATEGORY.get(int(_class)+1, CATEGORY_NEUMES),
+                grey_page=grey_page if store_real_crop else None,
             )
         )
     return glyphs
@@ -427,6 +445,7 @@ def _crop_to_glyph(
     height: int,
     glyph_id: str | None,
     category: str = CATEGORY_NEUMES,
+    grey_page: np.ndarray | None = None,
 ) -> Glyph:
     """Slice ``page_mask[uly:uly+h, ulx:ulx+w]`` and wrap it as a Glyph.
 
@@ -440,6 +459,10 @@ def _crop_to_glyph(
     that runs a pixel past the edge stays as a glyph (the upstream
     detector occasionally rounds outward), but its actual footprint
     is whatever fell inside the page.
+
+    ``grey_page``, if given, is sliced with the same clamped bbox and
+    stored on the glyph as ``image_gray_b64`` -- see ``ingest_page``'s
+    ``store_real_crop`` argument.
     """
     img_h, img_w = page_mask.shape
 
@@ -462,6 +485,14 @@ def _crop_to_glyph(
         mask = page_mask[y0:y1, x0:x1]
         nrows, ncols = mask.shape
 
+    image_gray_b64 = None
+    if grey_page is not None:
+        if x1 <= x0 or y1 <= y0:
+            grey_crop = np.full((1, 1), 255, dtype=np.uint8)
+        else:
+            grey_crop = grey_page[y0:y1, x0:x1]
+        image_gray_b64 = grayscale_array_to_png_base64(grey_crop)
+
     return Glyph.new(
         id=glyph_id,
         class_name=UNCLASSIFIED,
@@ -474,6 +505,7 @@ def _crop_to_glyph(
         confidence=0.0,
         category=category,
         is_training=False,
+        image_gray_b64=image_gray_b64,
     )
 
 

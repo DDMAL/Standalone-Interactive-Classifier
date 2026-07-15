@@ -46,3 +46,24 @@ def array_to_png_base64(arr: np.ndarray) -> str:
     buf = BytesIO()
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def grayscale_array_to_png_base64(arr: np.ndarray) -> str:
+    """Encode an 8-bit greyscale (0-255) array as a base64 PNG.
+
+    Unlike :func:`array_to_png_base64`, this does *not* treat the input
+    as a boolean foreground mask -- it preserves real pixel intensities
+    (texture, shading), which the SSL feature-extraction backend needs
+    and the binary RLE mask cannot provide.
+    """
+    img = PILImage.fromarray(arr.astype(np.uint8), mode="L")
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def png_base64_to_array(data: str) -> np.ndarray:
+    """Inverse of :func:`grayscale_array_to_png_base64`."""
+    raw = base64.b64decode(data)
+    with PILImage.open(BytesIO(raw)) as img:
+        return np.asarray(img.convert("L"))
