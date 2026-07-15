@@ -402,6 +402,7 @@ def _finalize_session(
     glyphs = ingest_page(
         page_bytes, annotations_bytes,
         format=annotations_format, method=binarization_method,
+        store_real_crop=True,
     )
     training_glyphs = [*preset_glyphs, *uploaded_glyphs]
     # Keep the full-page mask so manual grouping can recover ink that falls
@@ -969,7 +970,7 @@ def delete_session(session_id: str, store: Store) -> Response:
 def classify(session_id: str, body: ClassifyRequest, store: Store) -> SessionDTO:
     """Re-train and re-classify every non-manual glyph in one round."""
     with store.session(session_id) as session:
-        session.classify(k=body.k)
+        session.classify(k=body.k, backend=body.backend)
         return session_to_dto(session)
 
 
@@ -998,6 +999,7 @@ def rebinarize(
             session.annotations_bytes,
             format=session.annotations_format,
             method=body.method,
+            store_real_crop=True,
         )
         page_mask = binarize_page(session.page_bytes, method=body.method)
         session.rebinarize(glyphs, page_mask=page_mask, method=body.method)

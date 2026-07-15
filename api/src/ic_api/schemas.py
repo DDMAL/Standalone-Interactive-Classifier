@@ -112,7 +112,16 @@ class SessionDTO(BaseModel):
 class ClassifyRequest(BaseModel):
     """POST /sessions/{id}/classify body."""
 
-    k: int = Field(default=3, ge=1, description="Neighbour count; default 3.")
+    k: int = Field(default=3, ge=1, description="Neighbour count; default 3. Ignored when backend='ssl_fusion'.")
+    backend: Literal["knn", "ssl_fusion"] = Field(
+        default="knn",
+        description=(
+            "'knn' (default): handcrafted-feature k-nearest-neighbours "
+            "classifier. 'ssl_fusion': optional SSL+handcrafted fused "
+            "logistic-regression classifier; requires the server to have "
+            "the ssl extra installed and IC_SSL_CHECKPOINT configured."
+        ),
+    )
 
 
 class RebinarizeRequest(BaseModel):

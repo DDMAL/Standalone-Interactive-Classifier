@@ -191,3 +191,28 @@ class SSLFusionClassifier:
             raise RuntimeError(
                 "SSLFusionClassifier is not trained; call .fit() first"
             )
+
+
+def default_ssl_classifier_factory() -> SSLFusionClassifier:
+    """Build an :class:`SSLFusionClassifier` using the cross-validated
+    hyperparameters and a checkpoint path read from the
+    ``IC_SSL_CHECKPOINT`` environment variable.
+
+    This is the one place a deployment's fine-tuned checkpoint path is
+    configured, so callers (e.g. ``ic_core.state.Session.classify``)
+    don't need to know anything about the filesystem layout -- they
+    just pick the ``ssl_fusion`` backend and this resolves it.
+
+    Raises:
+        RuntimeError: If ``IC_SSL_CHECKPOINT`` is not set.
+    """
+    import os
+
+    checkpoint = os.environ.get("IC_SSL_CHECKPOINT")
+    if not checkpoint:
+        raise RuntimeError(
+            "The ssl_fusion classifier backend requires the IC_SSL_CHECKPOINT "
+            "environment variable to point at a fine-tuned DINO SimCLR "
+            "checkpoint directory."
+        )
+    return SSLFusionClassifier(checkpoint=checkpoint)
