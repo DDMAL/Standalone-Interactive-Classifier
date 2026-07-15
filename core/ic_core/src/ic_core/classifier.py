@@ -58,7 +58,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Callable, Iterable, Sequence
 
 import numpy as np
 
@@ -497,7 +497,8 @@ def run_correction_stage(
     training_glyphs: Sequence[Glyph] | None = None,
     *,
     k: int = DEFAULT_K,
-) -> tuple[list[Glyph], InteractiveClassifier]:
+    classifier_factory: Callable[[], object] | None = None,
+) -> tuple[list[Glyph], object]:
     """End-to-end equivalent of the legacy ``run_correction_stage``.
 
     Trains a fresh classifier on ``manual(glyphs) ∪ training_glyphs``
@@ -511,7 +512,16 @@ def run_correction_stage(
     Args:
         glyphs: The current working set.
         training_glyphs: Optional external training database.
-        k: Neighbour count (defaults to 1 for parity).
+        k: Neighbour count (defaults to 1 for parity). Ignored if
+            ``classifier_factory`` is given.
+        classifier_factory: Optional zero-argument callable returning
+            an unfitted classifier object exposing ``.fit()``,
+            ``.predict_many()``. When omitted (the default), behaviour
+            is byte-identical to before this parameter existed:
+            ``InteractiveClassifier(k=k)`` is used. Pass e.g.
+            ``lambda: SSLFusionClassifier(checkpoint=...)`` (see
+            ``ic_core.ssl_classifier``) to opt into the alternative
+            SSL+HC fused backend for this call only.
 
     Returns:
         A 2-tuple of ``(new_glyphs, classifier)`` where
@@ -523,7 +533,7 @@ def run_correction_stage(
 
     Raises:
         ValueError: If the assembled training pool is empty —
-            propagated from :meth:`InteractiveClassifier.fit`.
+            propagated from the classifier's ``.fit()``.
     """
     # 1. Strip transient-prefix glyphs from the working set before
     #    anything else so `_group` / `_delete` markers do not enter
@@ -531,9 +541,13 @@ def run_correction_stage(
     #    output.
     cleaned = filter_parts(glyphs)
 
-    # 2. Assemble the training pool and fit.
+    # 2. Assemble the training pool and fit. Default path (no factory
+    #    given) is exactly the original two lines -- untouched.
     pool = collect_training_set(cleaned, training_glyphs)
-    classifier = InteractiveClassifier(k=k).fit(pool)
+    if classifier_factory is None:
+        classifier = InteractiveClassifier(k=k).fit(pool)
+    else:
+        classifier = classifier_factory().fit(pool)
 
     # 3. Split the cleaned working set into:
     #    - manual glyphs (passed through unchanged), and

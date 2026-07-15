@@ -15,6 +15,17 @@ dependencies = [
     "scipy>=1.17.1",
 ]
 
+[project.optional-dependencies]
+# Only needed for the optional SSL+HC fused classifier backend
+# (ic_core.ssl_extractor / ic_core.ssl_classifier). The default kNN
+# classification path has none of these as dependencies.
+ssl = [
+    "scikit-learn>=1.3",
+    "torch>=2.0",
+    "transformers>=4.30",
+    "peft>=0.10",
+]
+
 [project.scripts]
 ic-core = "ic_core:main"
 
