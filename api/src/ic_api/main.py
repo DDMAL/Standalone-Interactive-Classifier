@@ -1020,6 +1020,26 @@ def delete_glyph(session_id: str, glyph_id: str, store: Store) -> Response:
     return Response(status_code=204)
 
 
+@app.delete(
+    "/sessions/{session_id}/training-glyphs/{glyph_id}",
+    response_model=SessionDTO,
+)
+def delete_training_glyph(
+    session_id: str, glyph_id: str, store: Store
+) -> SessionDTO:
+    """Drop a single glyph from the session's external training pool.
+
+    Returns the updated session (rather than 204) so the frontend can
+    refresh the training-set count and the training-data panel from one
+    response without a follow-up fetch. Does not re-classify — the caller
+    re-runs classify explicitly if it wants the working set re-scored
+    against the smaller pool.
+    """
+    with store.session(session_id) as session:
+        session.delete_training_glyph(glyph_id)
+        return session_to_dto(session)
+
+
 # ---------------------------------------------------------------------------
 # Grouping
 # ---------------------------------------------------------------------------

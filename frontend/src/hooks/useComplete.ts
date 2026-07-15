@@ -16,6 +16,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
  *
  * Pass an {@link ExportSelection} to choose which sections (page, manual
  * neumes, preset/uploaded training) get folded into the exported XML.
+ *
+ * Completing moves the session into the terminal EXPORT state, which is
+ * read-only — no further classifying is possible. So once the download
+ * fires we clear the session and drop back to the main page rather than
+ * leaving the user on an edit view that can only 409.
  */
 export function useComplete(sessionId: string) {
   const queryClient = useQueryClient();
@@ -40,6 +45,9 @@ export function useComplete(sessionId: string) {
       }
       return completeSession(sessionId, selection);
     },
-    onSuccess: ({ blob, filename }) => downloadBlob(blob, filename),
+    onSuccess: ({ blob, filename }) => {
+      downloadBlob(blob, filename);
+      useUiStore.getState().clearSession();
+    },
   });
 }

@@ -131,6 +131,10 @@ export const updateGlyph = (
 export const deleteGlyph = (id: string, glyphId: string) =>
   http.delete(`/sessions/${id}/glyphs/${glyphId}`);
 
+/** Remove one glyph from the training pool; returns the updated session. */
+export const deleteTrainingGlyph = (id: string, glyphId: string) =>
+  http.deleteFor<SessionDTO>(`/sessions/${id}/training-glyphs/${glyphId}`);
+
 export interface ManualGroupArgs {
   glyph_ids: string[];
   class_name: string;
@@ -157,9 +161,6 @@ export const deleteClass = (id: string, name: string) =>
   http.deleteFor<SessionDTO>(
     `/sessions/${id}/classes/${encodeURIComponent(name)}`,
   );
-
-export const saveSession = (id: string) =>
-  http.post<SessionDTO>(`/sessions/${id}/save`);
 
 /**
  * Which sections to fold into the exported GameraXML. Mirrors the boolean
