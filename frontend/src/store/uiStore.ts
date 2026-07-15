@@ -51,6 +51,15 @@ interface UiState {
   classTreeCollapsed: boolean;
   setClassTreeCollapsed: (v: boolean) => void;
 
+  // Whether the right-hand training-data panel is expanded. It shares the
+  // slot with the EditPanel, so the two are mutually exclusive: expanding it
+  // clears the current selection (yielding the slot from the EditPanel), and
+  // selecting any glyph collapses it again. Page-specific; resets on
+  // setSession/clearSession.
+  trainingPanelExpanded: boolean;
+  expandTrainingPanel: () => void;
+  collapseTrainingPanel: () => void;
+
   // Neighbour count for the kNN classifier. User-selectable from the
   // toolbar; persists across session changes as a preference.
   knnK: number;
@@ -105,6 +114,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   pendingFocusGlyphId: null,
   deletedGlyphIds: new Set(),
   classTreeCollapsed: false,
+  trainingPanelExpanded: false,
   knnK: 3,
   glyphImageMode: "binarized",
   undoStack: [],
@@ -116,6 +126,18 @@ export const useUiStore = create<UiState>((set, get) => ({
     set((s) => ({ modalOpenCount: Math.max(0, s.modalOpenCount - 1) })),
 
   setClassTreeCollapsed: (v) => set({ classTreeCollapsed: v }),
+
+  // Expanding deselects: the training panel and EditPanel share one slot, so
+  // the current selection must clear for the panel to take it (satisfies
+  // "expanding while the EditPanel is active deselects the glyphs").
+  expandTrainingPanel: () =>
+    set({
+      trainingPanelExpanded: true,
+      selectedGlyphIds: new Set(),
+      primaryGlyphId: null,
+    }),
+
+  collapseTrainingPanel: () => set({ trainingPanelExpanded: false }),
 
   setKnnK: (k) => set({ knnK: k }),
 
@@ -147,6 +169,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       pendingFocusGlyphId: null,
       deletedGlyphIds: new Set(),
       classTreeCollapsed: false,
+      trainingPanelExpanded: false,
       undoStack: [],
     });
   },
@@ -164,15 +187,23 @@ export const useUiStore = create<UiState>((set, get) => ({
       pendingFocusGlyphId: null,
       deletedGlyphIds: new Set(),
       classTreeCollapsed: false,
+      trainingPanelExpanded: false,
       undoStack: [],
     });
   },
 
+  // Every selection entry point below also collapses the training panel when
+  // it produces a non-empty selection — "selecting a glyph collapses the
+  // training panel". A clear (null / empty) leaves the panel as-is.
   selectGlyph: (id) =>
     set(
       id === null
         ? { selectedGlyphIds: new Set(), primaryGlyphId: null }
-        : { selectedGlyphIds: new Set([id]), primaryGlyphId: id },
+        : {
+            selectedGlyphIds: new Set([id]),
+            primaryGlyphId: id,
+            trainingPanelExpanded: false,
+          },
     ),
 
   toggleGlyph: (id) => {
@@ -189,7 +220,11 @@ export const useUiStore = create<UiState>((set, get) => ({
       set({ selectedGlyphIds: next, primaryGlyphId: primary });
     } else {
       next.add(id);
-      set({ selectedGlyphIds: next, primaryGlyphId: id });
+      set({
+        selectedGlyphIds: next,
+        primaryGlyphId: id,
+        trainingPanelExpanded: false,
+      });
     }
   },
 
@@ -199,6 +234,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     set({
       selectedGlyphIds: next,
       primaryGlyphId: arr.length ? arr[arr.length - 1] : null,
+      ...(next.size > 0 ? { trainingPanelExpanded: false } : {}),
     });
   },
 
@@ -210,7 +246,11 @@ export const useUiStore = create<UiState>((set, get) => ({
       next.add(id);
       last = id;
     }
-    set({ selectedGlyphIds: next, primaryGlyphId: last });
+    set({
+      selectedGlyphIds: next,
+      primaryGlyphId: last,
+      ...(next.size > 0 ? { trainingPanelExpanded: false } : {}),
+    });
   },
 
   clearSelection: () =>
@@ -268,6 +308,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       selectedGlyphIds: new Set([id]),
       primaryGlyphId: id,
       pendingFocusGlyphId: id,
+      trainingPanelExpanded: false,
     }),
 
   consumeFocus: () => set({ pendingFocusGlyphId: null }),

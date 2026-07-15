@@ -131,6 +131,10 @@ export const updateGlyph = (
 export const deleteGlyph = (id: string, glyphId: string) =>
   http.delete(`/sessions/${id}/glyphs/${glyphId}`);
 
+/** Remove one glyph from the training pool; returns the updated session. */
+export const deleteTrainingGlyph = (id: string, glyphId: string) =>
+  http.deleteFor<SessionDTO>(`/sessions/${id}/training-glyphs/${glyphId}`);
+
 export interface ManualGroupArgs {
   glyph_ids: string[];
   class_name: string;
