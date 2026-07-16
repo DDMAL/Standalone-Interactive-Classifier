@@ -1192,6 +1192,71 @@ def test_export_manual_neumes_only_includes_hand_labelled_neumes(client):
 
 
 # ---------------------------------------------------------------------------
+# SSL embeddings export — POST /sessions/{id}/export-embeddings
+# ---------------------------------------------------------------------------
+
+
+def test_export_embeddings_requires_at_least_one_section(client, monkeypatch):
+    monkeypatch.setenv("IC_SSL_CHECKPOINT", "/fake/checkpoint")
+    sid = _create_session(client)
+    response = client.post(f"/sessions/{sid}/export-embeddings")
+    assert response.status_code == 400
+
+
+def test_export_embeddings_requires_checkpoint_configured(client, monkeypatch):
+    monkeypatch.delenv("IC_SSL_CHECKPOINT", raising=False)
+    sid = _create_session(client)
+    response = client.post(f"/sessions/{sid}/export-embeddings?page=true")
+    assert response.status_code == 400
+    assert "IC_SSL_CHECKPOINT" in response.json()["detail"]
+
+
+def test_export_embeddings_rejects_selection_with_no_usable_features(
+    client, monkeypatch, presets_dir
+):
+    """SamplePreset.xml has no companion .ssl_embeddings.npz and its glyphs
+    were never ingested with a real-pixel crop, so neither precomputed
+    embeddings nor a live extractor pass is possible for them."""
+    monkeypatch.setenv("IC_SSL_CHECKPOINT", "/fake/checkpoint")
+    files = {
+        "page_image": ("page.png", PAGE_BYTES, "image/png"),
+        "annotations": ("annotations.json", JSON_BYTES, "application/json"),
+    }
+    sid = client.post(
+        "/sessions",
+        files=files,
+        data={
+            "annotations_format": "json",
+            "training_presets": json.dumps(["SamplePreset.xml"]),
+        },
+    ).json()["id"]
+
+    response = client.post(f"/sessions/{sid}/export-embeddings?preset_training=true")
+    assert response.status_code == 400
+    assert "neither a" in response.json()["detail"]
+
+
+def test_export_embeddings_does_not_terminate_the_session(client, monkeypatch):
+    """Unlike /complete, this is read-only -- classify still works after."""
+    monkeypatch.delenv("IC_SSL_CHECKPOINT", raising=False)
+    sid = _create_session(client)
+    neumes = [
+        g
+        for g in client.get(f"/sessions/{sid}").json()["glyphs"]
+        if g["category"] == "Neumes"
+    ]
+    for g in neumes[:2]:
+        client.post(
+            f"/sessions/{sid}/glyphs/{g['id']}",
+            json={"class_name": "neume.A", "id_state_manual": True},
+        )
+
+    client.post(f"/sessions/{sid}/export-embeddings?page=true")  # 400, ignored
+    response = client.post(f"/sessions/{sid}/classify", json={"k": 1})
+    assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # Re-binarization — POST /sessions/{id}/binarization
 # ---------------------------------------------------------------------------
 

@@ -1314,6 +1314,72 @@ def save_session(session_id: str, store: Store) -> SessionDTO:
         return session_to_dto(session)
 
 
+def _export_selection_tags(
+    page: bool, manual_neumes: bool, preset_training: bool, uploaded_training: bool
+) -> list[str]:
+    """Filename tags for the export sections a caller picked -- shared
+    between the GameraXML and SSL-embeddings export endpoints so a pair
+    downloaded with the same flags gets matching, self-describing names.
+    """
+    return [
+        name
+        for flag, name in (
+            (page, "page"),
+            (manual_neumes, "manual-neumes"),
+            (preset_training, "preset"),
+            (uploaded_training, "uploaded"),
+        )
+        if flag
+    ]
+
+
+def _select_export_glyphs(
+    session,
+    page: bool,
+    manual_neumes: bool,
+    preset_training: bool,
+    uploaded_training: bool,
+) -> list:
+    """Concatenate the session's export sections, de-duplicated by glyph id.
+
+    Shared by :func:`complete_session` and :func:`export_session_embeddings`
+    so a companion ``.ssl_embeddings.npz`` downloaded with the same section
+    flags as a GameraXML export lines up with it row-for-row: both iterate
+    ``session.glyphs``/``session.training_glyphs`` in the same order, and
+    neither reorders or sorts.
+    """
+    selected: list = []
+    seen: set[str] = set()
+
+    def add(glyphs) -> None:
+        for g in glyphs:
+            if g.id not in seen:
+                seen.add(g.id)
+                selected.append(g)
+
+    if page:
+        add(session.glyphs)
+    if manual_neumes:
+        add(
+            g
+            for g in session.glyphs
+            if g.category == CATEGORY_NEUMES and g.id_state_manual
+        )
+    if preset_training:
+        add(
+            g
+            for g in session.training_glyphs
+            if g.id in session.preset_training_ids
+        )
+    if uploaded_training:
+        add(
+            g
+            for g in session.training_glyphs
+            if g.id in session.uploaded_training_ids
+        )
+    return selected
+
+
 @app.post("/sessions/{session_id}/complete")
 def complete_session(
     session_id: str,
@@ -1354,48 +1420,15 @@ def complete_session(
         )
     with store.session(session_id) as session:
         session.complete()
-        selected: list = []
-        seen: set[str] = set()
-
-        def add(glyphs) -> None:
-            for g in glyphs:
-                if g.id not in seen:
-                    seen.add(g.id)
-                    selected.append(g)
-
-        if page:
-            add(session.glyphs)
-        if manual_neumes:
-            add(
-                g
-                for g in session.glyphs
-                if g.category == CATEGORY_NEUMES and g.id_state_manual
-            )
-        if preset_training:
-            add(
-                g
-                for g in session.training_glyphs
-                if g.id in session.preset_training_ids
-            )
-        if uploaded_training:
-            add(
-                g
-                for g in session.training_glyphs
-                if g.id in session.uploaded_training_ids
-            )
+        selected = _select_export_glyphs(
+            session, page, manual_neumes, preset_training, uploaded_training
+        )
         payload = dumps_glyphs(selected)
         # Tag the filename with the chosen sections so a user exporting
         # several variants from one session gets self-describing files.
-        tags = [
-            name
-            for flag, name in (
-                (page, "page"),
-                (manual_neumes, "manual-neumes"),
-                (preset_training, "preset"),
-                (uploaded_training, "uploaded"),
-            )
-            if flag
-        ]
+        tags = _export_selection_tags(
+            page, manual_neumes, preset_training, uploaded_training
+        )
         # Prefer the original bbox document's name so a user exporting
         # several pages gets self-describing files; fall back to the
         # opaque session id when no usable source name was captured.
@@ -1406,6 +1439,70 @@ def complete_session(
     return Response(
         content=payload,
         media_type="application/xml",
+        headers={"Content-Disposition": filename},
+    )
+
+
+@app.post("/sessions/{session_id}/export-embeddings")
+def export_session_embeddings(
+    session_id: str,
+    store: Store,
+    page: bool = False,
+    manual_neumes: bool = False,
+    preset_training: bool = False,
+    uploaded_training: bool = False,
+) -> Response:
+    """Stream back a companion SSL embeddings (.npz) file for the selected
+    glyphs -- the 'ssl_fusion' backend's counterpart to :func:`complete_session`.
+
+    Uses the exact same section flags, in the same order, as
+    :func:`complete_session` (see :func:`_select_export_glyphs`), so
+    downloading both with matching flags produces a GameraXML file and a
+    ``.ssl_embeddings.npz`` that line up row-for-row -- re-uploading that
+    pair later (see POST /sessions' ``training_embeddings``) makes this
+    exact training set usable by ssl_fusion without a live crop or model
+    pass, the same escape hatch built-in presets get.
+
+    Unlike ``complete``, this does **not** transition the session to
+    ``EXPORT`` -- it's a read-only side channel, so it can be downloaded
+    independently of, before, or after completing the session.
+
+    Requires the server to have the ``ssl`` extra installed and
+    ``IC_SSL_CHECKPOINT`` configured, and every selected glyph to carry
+    either a precomputed ``ssl_embedding`` or a real-pixel crop
+    (``image_gray_b64``) -- else 400 with a message naming the gap (e.g.
+    "deselect the preset-training section, it has no embeddings").
+    """
+    if not (page or manual_neumes or preset_training or uploaded_training):
+        raise ValueError(
+            "Select at least one section to include in the export."
+        )
+    checkpoint = os.environ.get("IC_SSL_CHECKPOINT")
+    if not checkpoint:
+        raise ValueError(
+            "IC_SSL_CHECKPOINT is not configured on this server -- SSL "
+            "embeddings can't be extracted."
+        )
+    from ic_core.ssl_extractor import extract_ssl_embeddings
+
+    with store.session(session_id) as session:
+        selected = _select_export_glyphs(
+            session, page, manual_neumes, preset_training, uploaded_training
+        )
+        embeddings = extract_ssl_embeddings(selected, checkpoint)
+        buf = io.BytesIO()
+        np.savez_compressed(buf, embeddings=embeddings.astype(np.float32))
+        tags = _export_selection_tags(
+            page, manual_neumes, preset_training, uploaded_training
+        )
+        stem = session.source_name or session.id
+        filename = (
+            f'attachment; filename="ic-session-{stem}-{"-".join(tags)}'
+            '.ssl_embeddings.npz"'
+        )
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/octet-stream",
         headers={"Content-Disposition": filename},
     )
 
