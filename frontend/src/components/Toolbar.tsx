@@ -5,7 +5,11 @@ import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
 import { useRebinarize } from "@/hooks/useRebinarize";
 import { useUndoApply } from "@/hooks/useUpdateGlyphs";
-import { type GlyphImageMode, useUiStore } from "@/store/uiStore";
+import {
+  type ClassifierBackend,
+  type GlyphImageMode,
+  useUiStore,
+} from "@/store/uiStore";
 import type { BinarizationMethod } from "@/types/api";
 import { clsx } from "clsx";
 import { useEffect, useRef, useState } from "react";
@@ -40,6 +44,26 @@ const GLYPH_VIEWS: { value: GlyphImageMode; label: string }[] = [
   { value: "original", label: "Original" },
 ];
 
+const CLASSIFIER_BACKENDS: {
+  value: ClassifierBackend;
+  label: string;
+  title: string;
+}[] = [
+  {
+    value: "knn",
+    label: "HC + kNN",
+    title: "Default: handcrafted-feature k-nearest-neighbours classifier.",
+  },
+  {
+    value: "ssl_fusion",
+    label: "Pre-trained + LR",
+    title:
+      "Optional: self-supervised (SSL) features fused with handcrafted " +
+      "features, classified with logistic regression. Requires the server " +
+      "to have the ssl extra installed and a fine-tuned checkpoint configured.",
+  },
+];
+
 export function Toolbar({
   sessionId,
   glyphCount,
@@ -57,6 +81,8 @@ export function Toolbar({
   const knnK = useUiStore((s) => s.knnK);
   const undoStack = useUiStore((s) => s.undoStack);
   const setKnnK = useUiStore((s) => s.setKnnK);
+  const classifierBackend = useUiStore((s) => s.classifierBackend);
+  const setClassifierBackend = useUiStore((s) => s.setClassifierBackend);
   const glyphImageMode = useUiStore((s) => s.glyphImageMode);
   const setGlyphImageMode = useUiStore((s) => s.setGlyphImageMode);
 
@@ -79,11 +105,21 @@ export function Toolbar({
   // Changing k re-runs the classification stage with the new neighbour
   // count. No-op when the same k is clicked, while a classify is in flight,
   // or when the training set is too small for that k, to avoid
-  // redundant/concurrent/invalid rounds.
+  // redundant/concurrent/invalid rounds. Only meaningful for the "knn"
+  // backend; ssl_fusion ignores k.
   const handleKChange = (k: number) => {
     if (k === knnK || classify.isPending || !isKAvailable(k)) return;
     setKnnK(k);
-    classify.mutate(k);
+    classify.mutate({ k, backend: classifierBackend });
+  };
+
+  // Switching classifier backend re-runs classification immediately with
+  // the new backend, so the user sees results from their choice right away
+  // rather than only on the next manual reclassify.
+  const handleBackendChange = (backend: ClassifierBackend) => {
+    if (backend === classifierBackend || classify.isPending) return;
+    setClassifierBackend(backend);
+    classify.mutate({ k: knnK, backend });
   };
 
   // Switching the method re-binarises the page and rebuilds every glyph
@@ -160,12 +196,37 @@ export function Toolbar({
         </div>
         <div
           className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
+          title="Which classifier to use for auto-classification."
+        >
+          <span className="text-xs font-medium text-slate-600">Model</span>
+          <div className="flex overflow-hidden rounded border border-slate-300">
+            {CLASSIFIER_BACKENDS.map(({ value, label, title }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => handleBackendChange(value)}
+                disabled={classify.isPending}
+                title={title}
+                className={clsx(
+                  "px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                  value === classifierBackend
+                    ? "bg-blue-600 text-white"
+                    : "bg-white text-slate-700 hover:bg-slate-100",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div
+          className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
           title="Neighbour count for kNN classification"
         >
           <span className="text-xs font-medium text-slate-600">k</span>
           <div className="flex overflow-hidden rounded border border-slate-300">
             {K_CHOICES.map((k) => {
-              const available = isKAvailable(k);
+              const available = isKAvailable(k) && classifierBackend === "knn";
               return (
                 <button
                   key={k}
@@ -173,9 +234,11 @@ export function Toolbar({
                   onClick={() => handleKChange(k)}
                   disabled={classify.isPending || !available}
                   title={
-                    available
-                      ? undefined
-                      : `Needs at least ${k} training glyphs (have ${trainingSize})`
+                    classifierBackend !== "knn"
+                      ? "k only applies to the HC + kNN backend"
+                      : isKAvailable(k)
+                        ? undefined
+                        : `Needs at least ${k} training glyphs (have ${trainingSize})`
                   }
                   className={clsx(
                     "px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
@@ -191,14 +254,20 @@ export function Toolbar({
           </div>
           <button
             type="button"
-            onClick={() => classify.mutate(knnK)}
-            disabled={classify.isPending || !isKAvailable(knnK)}
+            onClick={() =>
+              classify.mutate({ k: knnK, backend: classifierBackend })
+            }
+            disabled={
+              classify.isPending ||
+              (classifierBackend === "knn" && !isKAvailable(knnK)) ||
+              trainingSize === 0
+            }
             title={
               trainingSize === 0
                 ? "No training glyphs yet — apply at least one label first"
-                : !isKAvailable(knnK)
+                : classifierBackend === "knn" && !isKAvailable(knnK)
                   ? `Needs at least ${knnK} training glyphs (have ${trainingSize})`
-                  : "Re-run kNN classification with the current k and training set"
+                  : `Re-run classification with the ${classifierBackend === "knn" ? "HC + kNN" : "Pre-trained + LR"} model`
             }
             className="px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 bg-blue-600 text-white hover:bg-blue-700 rounded"
           >
@@ -211,6 +280,15 @@ export function Toolbar({
             {trainingSize.toLocaleString()} training glyphs
           </span>
           {trainingSize < SMALL_TRAINING_THRESHOLD && <SmallTrainingWarning />}
+          {classify.isError && (
+            <span
+              className="flex items-center gap-1 text-xs text-red-600"
+              title={(classify.error as Error)?.message}
+            >
+              <AlertCircleIcon className="h-3.5 w-3.5" />
+              Classify failed
+            </span>
+          )}
         </div>
         <Button
           variant="secondary"

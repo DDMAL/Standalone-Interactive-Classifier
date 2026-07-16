@@ -73,7 +73,11 @@ export function useUpdateGlyphsPerGlyph(sessionId: string) {
         else failed.push({ glyphId: assignments[i].id, error: r.reason });
       });
       if (applied > 0) {
-        await classify(sessionId, useUiStore.getState().knnK);
+        await classify(
+          sessionId,
+          useUiStore.getState().knnK,
+          useUiStore.getState().classifierBackend,
+        );
       }
       queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
       return { applied, failed };
@@ -100,7 +104,11 @@ export function useUpdateGlyphs(sessionId: string) {
         else failed.push({ glyphId: glyphIds[i], error: r.reason });
       });
       if (reclassify && applied > 0) {
-        await classify(sessionId, useUiStore.getState().knnK);
+        await classify(
+          sessionId,
+          useUiStore.getState().knnK,
+          useUiStore.getState().classifierBackend,
+        );
       }
       queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
       return { applied, failed };

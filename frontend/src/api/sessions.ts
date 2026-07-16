@@ -1,4 +1,5 @@
 import { http, postForBlob } from "@/api/client";
+import type { ClassifierBackend } from "@/store/uiStore";
 import type {
   AnnotationFormat,
   BinarizationMethod,
@@ -107,8 +108,11 @@ export const deleteSession = (id: string) => http.delete(`/sessions/${id}`);
 export const clearSessions = () =>
   http.deleteFor<{ deleted: number }>("/sessions");
 
-export const classify = (id: string, k = 3) =>
-  http.post<SessionDTO>(`/sessions/${id}/classify`, { k });
+export const classify = (
+  id: string,
+  k = 3,
+  backend: ClassifierBackend = "knn",
+) => http.post<SessionDTO>(`/sessions/${id}/classify`, { k, backend });
 
 /**
  * Re-binarise the page with a different method and rebuild every glyph
