@@ -1,6 +1,7 @@
 import { getStaging } from "@/api/sessions";
 import { SessionResumeList } from "@/components/SessionResumeList";
 import { Button } from "@/components/ui/Button";
+import { CLASSIFIER_BACKENDS } from "@/constants/classifierBackends";
 import { useAutoExport } from "@/hooks/useAutoExport";
 import {
   useCreateSession,
@@ -8,8 +9,10 @@ import {
 } from "@/hooks/useCreateSession";
 import { useTrainingPresets } from "@/hooks/useTrainingPresets";
 import { useVocabularies, useVocabularyClasses } from "@/hooks/useVocabularies";
+import { useUiStore } from "@/store/uiStore";
 import type { AnnotationFormat } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
+import { clsx } from "clsx";
 import { type FormEvent, useState } from "react";
 
 interface UploadViewProps {
@@ -33,6 +36,27 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const presets = useTrainingPresets();
   const vocabularies = useVocabularies();
   const vocabClasses = useVocabularyClasses(vocabulary);
+  const classifierBackend = useUiStore((s) => s.classifierBackend);
+  const setClassifierBackend = useUiStore((s) => s.setClassifierBackend);
+
+  // ssl_fusion needs precomputed SSL embeddings, which only some presets
+  // ship and no uploaded GameraXML file ever carries (see
+  // ic_core.ssl_preset_embeddings) — so switching to it drops any
+  // now-unusable training data rather than leaving a silently-ignored
+  // selection sitting in the form.
+  function handleBackendChange(backend: "knn" | "ssl_fusion") {
+    if (backend === classifierBackend) return;
+    setClassifierBackend(backend);
+    if (backend === "ssl_fusion") {
+      const compatibleNames = new Set(
+        (presets.data ?? []).filter((p) => p.ssl_compatible).map((p) => p.name),
+      );
+      setSelectedPresets((prev) => prev.filter((n) => compatibleNames.has(n)));
+      setTrainingFiles([]);
+    }
+  }
+
+  const sslFusionSelected = classifierBackend === "ssl_fusion";
 
   function togglePreset(name: string, checked: boolean) {
     setSelectedPresets((prev) =>
@@ -46,7 +70,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     queryKey: ["staging", stagedId],
     queryFn: () => getStaging(stagedId as string),
     enabled: !!stagedId,
-    staleTime: Infinity,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 
   const active = stagedId ? createFromStaging : create;
@@ -200,6 +224,35 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
           )}
 
           <div className="space-y-2 text-sm">
+            <span className="block font-medium text-slate-700">Model</span>
+            <div className="flex overflow-hidden rounded border border-slate-300 w-fit">
+              {CLASSIFIER_BACKENDS.map(({ value, label, title }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => handleBackendChange(value)}
+                  title={title}
+                  className={clsx(
+                    "px-3 py-1 text-xs font-medium transition-colors",
+                    value === classifierBackend
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-slate-700 hover:bg-slate-100",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {sslFusionSelected && (
+              <span className="block text-xs font-normal text-slate-400">
+                Only presets with precomputed SSL embeddings can be used as
+                training data with this model — uploaded GameraXML files don't
+                qualify.
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-2 text-sm">
             <span className="block font-medium text-slate-700">
               Training data{" "}
               <span className="font-normal text-slate-400">(optional)</span>
@@ -221,21 +274,46 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                 </span>
               ) : (
                 <div className="space-y-1">
-                  {(presets.data ?? []).map((name) => (
-                    <label key={name} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedPresets.includes(name)}
-                        onChange={(e) => togglePreset(name, e.target.checked)}
-                      />
-                      <span className="text-slate-700">{name}</span>
-                    </label>
-                  ))}
+                  {(presets.data ?? []).map(({ name, ssl_compatible }) => {
+                    const disabled = sslFusionSelected && !ssl_compatible;
+                    return (
+                      <label
+                        key={name}
+                        className={clsx(
+                          "flex items-center gap-2",
+                          disabled && "cursor-not-allowed opacity-50",
+                        )}
+                        title={
+                          disabled
+                            ? "No precomputed SSL embeddings — can't be used with the Pre-trained + LR model."
+                            : undefined
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedPresets.includes(name)}
+                          disabled={disabled}
+                          onChange={(e) => togglePreset(name, e.target.checked)}
+                        />
+                        <span className="text-slate-700">{name}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            <label className="block">
+            <label
+              className={clsx(
+                "block",
+                sslFusionSelected && "cursor-not-allowed opacity-50",
+              )}
+              title={
+                sslFusionSelected
+                  ? "Uploaded GameraXML files never carry SSL embeddings — can't be used with the Pre-trained + LR model."
+                  : undefined
+              }
+            >
               <span className="mb-1 block text-xs font-medium text-slate-600">
                 Upload
               </span>
@@ -243,6 +321,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                 type="file"
                 accept=".xml"
                 multiple
+                disabled={sslFusionSelected}
                 onChange={(e) =>
                   setTrainingFiles(Array.from(e.target.files ?? []))
                 }

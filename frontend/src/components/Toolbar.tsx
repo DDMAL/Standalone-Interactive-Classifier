@@ -1,15 +1,12 @@
 import type { ExportSelection } from "@/api/sessions";
 import { Button } from "@/components/ui/Button";
 import { AlertCircleIcon } from "@/components/ui/icons";
+import { CLASSIFIER_BACKENDS } from "@/constants/classifierBackends";
 import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
 import { useRebinarize } from "@/hooks/useRebinarize";
 import { useUndoApply } from "@/hooks/useUpdateGlyphs";
-import {
-  type ClassifierBackend,
-  type GlyphImageMode,
-  useUiStore,
-} from "@/store/uiStore";
+import { type GlyphImageMode, useUiStore } from "@/store/uiStore";
 import type { BinarizationMethod } from "@/types/api";
 import { clsx } from "clsx";
 import { useEffect, useRef, useState } from "react";
@@ -44,26 +41,6 @@ const GLYPH_VIEWS: { value: GlyphImageMode; label: string }[] = [
   { value: "original", label: "Original" },
 ];
 
-const CLASSIFIER_BACKENDS: {
-  value: ClassifierBackend;
-  label: string;
-  title: string;
-}[] = [
-  {
-    value: "knn",
-    label: "HC + kNN",
-    title: "Default: handcrafted-feature k-nearest-neighbours classifier.",
-  },
-  {
-    value: "ssl_fusion",
-    label: "Pre-trained + LR",
-    title:
-      "Optional: self-supervised (SSL) features fused with handcrafted " +
-      "features, classified with logistic regression. Requires the server " +
-      "to have the ssl extra installed and a fine-tuned checkpoint configured.",
-  },
-];
-
 export function Toolbar({
   sessionId,
   glyphCount,
@@ -82,7 +59,6 @@ export function Toolbar({
   const undoStack = useUiStore((s) => s.undoStack);
   const setKnnK = useUiStore((s) => s.setKnnK);
   const classifierBackend = useUiStore((s) => s.classifierBackend);
-  const setClassifierBackend = useUiStore((s) => s.setClassifierBackend);
   const glyphImageMode = useUiStore((s) => s.glyphImageMode);
   const setGlyphImageMode = useUiStore((s) => s.setGlyphImageMode);
 
@@ -111,15 +87,6 @@ export function Toolbar({
     if (k === knnK || classify.isPending || !isKAvailable(k)) return;
     setKnnK(k);
     classify.mutate({ k, backend: classifierBackend });
-  };
-
-  // Switching classifier backend re-runs classification immediately with
-  // the new backend, so the user sees results from their choice right away
-  // rather than only on the next manual reclassify.
-  const handleBackendChange = (backend: ClassifierBackend) => {
-    if (backend === classifierBackend || classify.isPending) return;
-    setClassifierBackend(backend);
-    classify.mutate({ k: knnK, backend });
   };
 
   // Switching the method re-binarises the page and rebuilds every glyph
@@ -196,28 +163,19 @@ export function Toolbar({
         </div>
         <div
           className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
-          title="Which classifier to use for auto-classification."
+          title={
+            CLASSIFIER_BACKENDS.find((b) => b.value === classifierBackend)
+              ?.title ??
+            "Chosen on the upload screen before the session started."
+          }
         >
           <span className="text-xs font-medium text-slate-600">Model</span>
-          <div className="flex overflow-hidden rounded border border-slate-300">
-            {CLASSIFIER_BACKENDS.map(({ value, label, title }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => handleBackendChange(value)}
-                disabled={classify.isPending}
-                title={title}
-                className={clsx(
-                  "px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
-                  value === classifierBackend
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-slate-700 hover:bg-slate-100",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <span className="rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white">
+            {
+              CLASSIFIER_BACKENDS.find((b) => b.value === classifierBackend)
+                ?.label
+            }
+          </span>
         </div>
         <div
           className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"

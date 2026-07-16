@@ -7,6 +7,7 @@ import type {
   GlyphDTO,
   SessionDTO,
   SessionSummary,
+  TrainingPresetDTO,
 } from "@/types/api";
 
 export interface CreateSessionArgs {
@@ -87,7 +88,7 @@ export function createSessionFromStaging(
 
 /** List the built-in training-set preset filenames under core/data/presets. */
 export const listTrainingPresets = () =>
-  http.get<string[]>("/training-presets");
+  http.get<TrainingPresetDTO[]>("/training-presets");
 
 /** List the vocabulary CSV filenames under core/data/train. */
 export const listVocabularies = () => http.get<string[]>("/vocabularies");

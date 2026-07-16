@@ -7,6 +7,7 @@ import {
   createSessionFromStaging,
 } from "@/api/sessions";
 import { downloadBlob } from "@/lib/download";
+import { useUiStore } from "@/store/uiStore";
 import { useMutation } from "@tanstack/react-query";
 
 /**
@@ -32,7 +33,8 @@ export function useAutoExport() {
       // Session creation already runs a classify round when training data is
       // present, but do one explicit round here so auto-export owns the whole
       // classify-then-export sequence regardless of that ingest-time detail.
-      await classify(dto.id);
+      const { classifierBackend, knnK } = useUiStore.getState();
+      await classify(dto.id, knnK, classifierBackend);
       const { blob, filename } = await completeSession(dto.id, { page: true });
       downloadBlob(blob, filename);
       return filename;
