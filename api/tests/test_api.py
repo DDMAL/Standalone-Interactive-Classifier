@@ -1080,6 +1080,96 @@ def test_export_selects_preset_and_uploaded_training_independently(
     assert {g.class_name for g in uploaded} == {UPLOAD_LABEL}
 
 
+# ---------------------------------------------------------------------------
+# ssl_fusion escape hatch for uploaded (not just preset) training files
+# ---------------------------------------------------------------------------
+#
+# An uploaded GameraXML training file only ever carries a binary mask, same
+# as a preset -- so it needs one of these companions to be usable by the
+# ssl_fusion classify backend. Exercised directly against _parse_training_files
+# (rather than a full session + classify round) so these stay hermetic and
+# fast: attaching doesn't need sklearn/torch, only predicting does.
+
+
+def _upload_file(filename, data: bytes):
+    from io import BytesIO
+
+    from fastapi import UploadFile
+
+    return UploadFile(file=BytesIO(data), filename=filename)
+
+
+@pytest.mark.asyncio
+async def test_uploaded_training_file_gets_embeddings_attached_by_stem():
+    import numpy as np
+    from io import BytesIO
+
+    from ic_api.main import _parse_training_files
+    from ic_core.ingest import ingest_page
+    from ic_core.io_xml import dumps_glyphs
+
+    glyphs = ingest_page(PAGE_BYTES, JSON_BYTES, format="json")[:UPLOAD_GLYPH_COUNT]
+    xml_bytes = dumps_glyphs([g.classify_manual(UPLOAD_LABEL) for g in glyphs])
+
+    embeddings = np.random.rand(len(glyphs), 4).astype(np.float32)
+    buf = BytesIO()
+    np.savez_compressed(buf, embeddings=embeddings)
+
+    result = await _parse_training_files(
+        [_upload_file("foo.xml", xml_bytes)],
+        [_upload_file("foo.ssl_embeddings.npz", buf.getvalue())],
+        None,
+    )
+
+    assert len(result) == len(glyphs)
+    assert all(g.ssl_embedding is not None for g in result)
+    assert all(g.image_gray_b64 is None for g in result)
+
+
+@pytest.mark.asyncio
+async def test_uploaded_training_file_gets_real_crops_via_source_images():
+    from ic_api.main import _parse_training_files
+    from ic_core.ingest import ingest_page
+    from ic_core.io_xml import dumps_glyphs
+
+    glyphs = ingest_page(PAGE_BYTES, JSON_BYTES, format="json")[:UPLOAD_GLYPH_COUNT]
+    xml_bytes = dumps_glyphs([g.classify_manual(UPLOAD_LABEL) for g in glyphs])
+
+    result = await _parse_training_files(
+        [_upload_file("foo.xml", xml_bytes)],
+        None,
+        [_upload_file("page.png", PAGE_BYTES)],
+    )
+
+    assert len(result) == len(glyphs)
+    assert all(g.image_gray_b64 is not None for g in result)
+    assert all(g.ssl_embedding is None for g in result)
+
+
+@pytest.mark.asyncio
+async def test_uploaded_training_file_rejects_mismatched_embeddings_count():
+    import numpy as np
+    from io import BytesIO
+
+    from ic_api.main import _parse_training_files
+    from ic_core.ingest import ingest_page
+    from ic_core.io_xml import dumps_glyphs
+
+    glyphs = ingest_page(PAGE_BYTES, JSON_BYTES, format="json")[:UPLOAD_GLYPH_COUNT]
+    xml_bytes = dumps_glyphs([g.classify_manual(UPLOAD_LABEL) for g in glyphs])
+
+    wrong_embeddings = np.random.rand(len(glyphs) + 1, 4).astype(np.float32)
+    buf = BytesIO()
+    np.savez_compressed(buf, embeddings=wrong_embeddings)
+
+    with pytest.raises(ValueError, match="companion embeddings file"):
+        await _parse_training_files(
+            [_upload_file("foo.xml", xml_bytes)],
+            [_upload_file("foo.ssl_embeddings.npz", buf.getvalue())],
+            None,
+        )
+
+
 def test_export_manual_neumes_only_includes_hand_labelled_neumes(client):
     from ic_core.io_xml import load_glyphs_bytes
 

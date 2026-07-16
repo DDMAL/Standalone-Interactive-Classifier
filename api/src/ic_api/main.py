@@ -40,6 +40,7 @@ What's deliberately missing in v1
 from __future__ import annotations
 
 import csv
+import io
 import json
 import os
 import re
@@ -48,11 +49,13 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
+import numpy as np
 from fastapi import Depends, FastAPI, File, Form, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from lxml import etree
+from PIL import Image
 
 from ic_api.schemas import (
     ClassifyRequest,
@@ -82,6 +85,7 @@ from ic_core.ssl_preset_embeddings import (
     attach_ssl_embeddings,
     has_ssl_embeddings,
     load_ssl_embeddings,
+    match_glyphs_to_source_pages,
 )
 from ic_core.state import Session, StateTransitionError
 
@@ -315,24 +319,84 @@ def _resolve_class_names(
     return parsed_names
 
 
-async def _parse_training_files(training_files) -> list:
+async def _parse_training_files(
+    training_files, training_embeddings=None, training_images=None
+) -> list:
     """Concatenate glyphs from uploaded GameraXML (.xml) training sets.
 
     Returns an empty list when no files were given. Raises ``ValueError``
     (→ 400) on a non-``.xml`` name or invalid XML, before any page work so
     a bad file fails fast.
+
+    ``training_embeddings`` and ``training_images`` are the same escape
+    hatch presets get (see ``ic_core.ssl_preset_embeddings``), open to any
+    uploaded training set: an uploaded GameraXML file only ever carries a
+    binary mask, so it's unusable by the ``ssl_fusion`` backend unless one
+    of these is supplied alongside it.
+
+    * ``training_embeddings``: precomputed ``.ssl_embeddings.npz`` files,
+      matched to a ``training_files`` entry by filename stem (e.g.
+      ``foo.ssl_embeddings.npz`` or ``foo.npz`` pairs with ``foo.xml``).
+    * ``training_images``: the original source page image(s) the XML's
+      glyphs were cropped from. Pooled across every uploaded XML and
+      matched per-glyph by bounding box + mask agreement (see
+      :func:`ic_core.ssl_preset_embeddings.match_glyphs_to_source_pages`)
+      -- no filename convention needed, at the cost of a per-glyph
+      brute-force match against every provided image.
+
+    A file matched by embeddings takes priority over the image pool if
+    both happen to be provided for the same stem.
     """
     if not training_files:
         return []
+
+    embeddings_by_stem: dict[str, np.ndarray] = {}
+    for ef in training_embeddings or []:
+        stem = Path(ef.filename or "").name
+        if stem.endswith(".ssl_embeddings.npz"):
+            stem = stem[: -len(".ssl_embeddings.npz")]
+        else:
+            stem = Path(stem).stem
+        try:
+            with np.load(io.BytesIO(await ef.read())) as data:
+                embeddings_by_stem[stem] = data["embeddings"]
+        except (OSError, ValueError, KeyError) as e:
+            raise ValueError(
+                f"{ef.filename!r} is not a valid .ssl_embeddings.npz file: {e}"
+            ) from e
+
+    page_arrays: list[np.ndarray] = []
+    for img in training_images or []:
+        try:
+            page_arrays.append(
+                np.array(Image.open(io.BytesIO(await img.read())).convert("L"))
+            )
+        except Exception as e:
+            raise ValueError(f"{img.filename!r} is not a readable image: {e}") from e
+
     training_glyphs: list = []
     for tf in training_files:
         name = tf.filename or ""
         if not name.lower().endswith(".xml"):
             raise ValueError(f"{name!r} is not a .xml file.")
         try:
-            training_glyphs.extend(load_glyphs_bytes(await tf.read()))
+            glyphs = load_glyphs_bytes(await tf.read())
         except etree.XMLSyntaxError as e:
             raise ValueError(f"{name!r} is not valid XML: {e}") from e
+
+        stem = Path(name).stem
+        if stem in embeddings_by_stem:
+            embeddings = embeddings_by_stem[stem]
+            if len(embeddings) != len(glyphs):
+                raise ValueError(
+                    f"{name!r} has {len(glyphs)} glyphs but its companion "
+                    f"embeddings file has {len(embeddings)} vectors."
+                )
+            glyphs = attach_ssl_embeddings(glyphs, embeddings)
+        elif page_arrays:
+            glyphs = match_glyphs_to_source_pages(glyphs, page_arrays)
+
+        training_glyphs.extend(glyphs)
     return training_glyphs
 
 
@@ -374,7 +438,10 @@ def _parse_training_presets(training_presets: str | None) -> list:
 
 
 async def _training_glyphs_by_source(
-    training_files, training_presets
+    training_files,
+    training_presets,
+    training_embeddings=None,
+    training_images=None,
 ) -> tuple[list, list]:
     """Load preset + uploaded training glyphs, kept separate by source.
 
@@ -385,7 +452,7 @@ async def _training_glyphs_by_source(
     """
     return (
         _parse_training_presets(training_presets),
-        await _parse_training_files(training_files),
+        await _parse_training_files(training_files, training_embeddings, training_images),
     )
 
 
@@ -682,6 +749,33 @@ async def create_session(
             ),
         ),
     ] = None,
+    training_embeddings: Annotated[
+        list[UploadFile] | None,
+        File(
+            description=(
+                "Optional precomputed SSL embeddings (.npz, one vector per "
+                "glyph in document order) for an uploaded training_files "
+                "entry, matched by filename stem (e.g. foo.ssl_embeddings.npz "
+                "or foo.npz pairs with foo.xml). Lets that file's glyphs be "
+                "used with the 'ssl_fusion' classify backend without a live "
+                "crop -- see GET /training-presets for the same idea applied "
+                "to built-in presets."
+            ),
+        ),
+    ] = None,
+    training_images: Annotated[
+        list[UploadFile] | None,
+        File(
+            description=(
+                "Optional original source page image(s) an uploaded "
+                "training_files entry's glyphs were cropped from. Pooled "
+                "across every uploaded training file and matched per-glyph "
+                "by bounding box + mask agreement -- no filename convention "
+                "needed. Also unlocks the 'ssl_fusion' classify backend for "
+                "that training data, as an alternative to training_embeddings."
+            ),
+        ),
+    ] = None,
     vocabulary: Annotated[
         str | None,
         Form(
@@ -715,7 +809,7 @@ async def create_session(
     """
     parsed_names = _resolve_class_names(class_names, vocabulary)
     preset_glyphs, uploaded_glyphs = await _training_glyphs_by_source(
-        training_files, training_presets
+        training_files, training_presets, training_embeddings, training_images
     )
 
     page_bytes = await page_image.read()
@@ -850,6 +944,25 @@ async def create_session_from_staging(
             ),
         ),
     ] = None,
+    training_embeddings: Annotated[
+        list[UploadFile] | None,
+        File(
+            description=(
+                "Optional precomputed SSL embeddings (.npz) for a "
+                "training_files entry, matched by filename stem. See "
+                "POST /sessions for details."
+            ),
+        ),
+    ] = None,
+    training_images: Annotated[
+        list[UploadFile] | None,
+        File(
+            description=(
+                "Optional source page image(s) for a training_files entry's "
+                "glyphs, matched by bbox + mask. See POST /sessions for details."
+            ),
+        ),
+    ] = None,
     vocabulary: Annotated[
         str | None, Form(description="Optional vocabulary CSV filename.")
     ] = None,
@@ -867,7 +980,7 @@ async def create_session_from_staging(
         raise KeyError(f"Unknown staging id: {staging_id!r}")
     parsed_names = _resolve_class_names(class_names, vocabulary)
     preset_glyphs, uploaded_glyphs = await _training_glyphs_by_source(
-        training_files, training_presets
+        training_files, training_presets, training_embeddings, training_images
     )
     return _finalize_session(
         store,
