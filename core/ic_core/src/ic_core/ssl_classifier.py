@@ -120,11 +120,34 @@ class SSLFusionClassifier:
             self._ssl_extractor = ViTExtractor(checkpoint=self.checkpoint)
         return self._ssl_extractor
 
+    def _ssl_features(self, glyphs: Sequence[Glyph]) -> np.ndarray:
+        """Get the SSL feature block, per glyph preferring a precomputed
+        ``ssl_embedding`` (see ``ic_core.ssl_preset_embeddings``) over a
+        live extractor pass on ``image_gray_b64``.
+
+        Glyphs within one call must be uniformly one or the other --
+        :meth:`fit`/:meth:`predict_many` partition their input by
+        ``ssl_embedding`` availability before calling this, so a mixed
+        batch never reaches here.
+        """
+        if glyphs[0].ssl_embedding is not None:
+            return np.asarray([g.ssl_embedding for g in glyphs], dtype=np.float64)
+        return self._get_extractor().extract_batch(glyphs, pooling="cls_mean")
+
     def _fused_features(self, glyphs: Sequence[Glyph], fit_scalers: bool) -> np.ndarray:
         from sklearn.preprocessing import StandardScaler
 
         X_hc = compute_features_batch(glyphs)
-        X_ssl = self._get_extractor().extract_batch(glyphs, pooling="cls_mean")
+        precomputed = [g for g in glyphs if g.ssl_embedding is not None]
+        live = [g for g in glyphs if g.ssl_embedding is None]
+        if precomputed and live:
+            X_ssl = np.empty((len(glyphs), len(precomputed[0].ssl_embedding)))
+            idx_precomputed = [i for i, g in enumerate(glyphs) if g.ssl_embedding is not None]
+            idx_live = [i for i, g in enumerate(glyphs) if g.ssl_embedding is None]
+            X_ssl[idx_precomputed] = self._ssl_features(precomputed)
+            X_ssl[idx_live] = self._ssl_features(live)
+        else:
+            X_ssl = self._ssl_features(glyphs)
 
         if fit_scalers:
             self._sc_ssl = StandardScaler().fit(X_ssl)
@@ -145,15 +168,17 @@ class SSLFusionClassifier:
         every round" semantics: calling this discards any prior model
         state.
 
-        Glyphs without a real-pixel crop (``image_gray_b64 is None`` --
-        e.g. training data sourced from a preset or an uploaded
-        GameraXML file, which only ever carries the binary mask) are
-        silently excluded from this backend's training pool, since the
-        SSL extractor cannot use them. This is a difference from
-        :class:`InteractiveClassifier`, which uses every training
-        glyph regardless of crop availability -- worth knowing if a
-        classify round trains on fewer examples than the training-set
-        count displayed in the UI suggests.
+        Glyphs with neither a precomputed ``ssl_embedding`` (see
+        ``ic_core.ssl_preset_embeddings`` -- only set for presets that
+        ship a companion embeddings file) nor a real-pixel crop
+        (``image_gray_b64`` -- set only by a live page upload with
+        ``store_real_crop=True``) are silently excluded from this
+        backend's training pool, since the SSL extractor cannot use
+        them. This is a difference from :class:`InteractiveClassifier`,
+        which uses every training glyph regardless of crop
+        availability -- worth knowing if a classify round trains on
+        fewer examples than the training-set count displayed in the UI
+        suggests.
         """
         from sklearn.linear_model import LogisticRegression
 
@@ -162,16 +187,23 @@ class SSLFusionClassifier:
                 "Cannot fit SSLFusionClassifier with zero training glyphs"
             )
 
-        usable = [g for g in training_glyphs if g.image_gray_b64 is not None]
+        usable = [
+            g
+            for g in training_glyphs
+            if g.ssl_embedding is not None or g.image_gray_b64 is not None
+        ]
         if not usable:
             raise ValueError(
-                f"None of the {len(training_glyphs)} training glyphs have a "
-                "real-pixel crop (image_gray_b64). This backend needs "
-                "glyphs ingested from a live page upload (store_real_crop=True); "
-                "training data sourced entirely from a preset or an uploaded "
-                "GameraXML file only carries the binary mask and cannot be "
-                "used by the ssl_fusion backend. Label at least one glyph "
-                "manually in this session, or switch back to the 'knn' backend."
+                f"None of the {len(training_glyphs)} training glyphs have "
+                "usable SSL features -- neither a precomputed ssl_embedding "
+                "(only available for presets shipping a companion "
+                ".ssl_embeddings.npz file) nor a real-pixel crop "
+                "(image_gray_b64, set by a live page upload with "
+                "store_real_crop=True). Training data sourced from a preset "
+                "without embeddings or an uploaded GameraXML file only "
+                "carries the binary mask and cannot be used by the "
+                "ssl_fusion backend. Label at least one glyph manually in "
+                "this session, or switch back to the 'knn' backend."
             )
         training_glyphs = usable
 
