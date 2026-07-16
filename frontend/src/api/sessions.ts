@@ -219,3 +219,22 @@ export const completeSession = (id: string, selection: ExportSelection) => {
   if (selection.uploadedTraining) params.set("uploaded_training", "true");
   return postForBlob(`/sessions/${id}/complete?${params.toString()}`);
 };
+
+/**
+ * Download a companion SSL embeddings (.npz) file for the same section
+ * selection as {@link completeSession} -- the ssl_fusion backend's
+ * counterpart, letting this exact training set be reused later without a
+ * live crop or model pass (see POST /sessions' training_embeddings).
+ * Unlike completeSession, this doesn't move the session to EXPORT.
+ */
+export const exportSessionEmbeddings = (
+  id: string,
+  selection: ExportSelection,
+) => {
+  const params = new URLSearchParams();
+  if (selection.page) params.set("page", "true");
+  if (selection.manualNeumes) params.set("manual_neumes", "true");
+  if (selection.presetTraining) params.set("preset_training", "true");
+  if (selection.uploadedTraining) params.set("uploaded_training", "true");
+  return postForBlob(`/sessions/${id}/export-embeddings?${params.toString()}`);
+};

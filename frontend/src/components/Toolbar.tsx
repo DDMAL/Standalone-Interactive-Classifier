@@ -4,6 +4,7 @@ import { AlertCircleIcon } from "@/components/ui/icons";
 import { CLASSIFIER_BACKENDS } from "@/constants/classifierBackends";
 import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
+import { useExportEmbeddings } from "@/hooks/useExportEmbeddings";
 import { useRebinarize } from "@/hooks/useRebinarize";
 import { useUndoApply } from "@/hooks/useUpdateGlyphs";
 import { type GlyphImageMode, useUiStore } from "@/store/uiStore";
@@ -51,6 +52,7 @@ export function Toolbar({
   binarizationMethod,
 }: ToolbarProps) {
   const complete = useComplete(sessionId);
+  const exportEmbeddings = useExportEmbeddings(sessionId);
   const classify = useClassify(sessionId);
   const rebinarize = useRebinarize(sessionId);
   const undoApply = useUndoApply(sessionId);
@@ -265,11 +267,14 @@ export function Toolbar({
         </Button>
         <ExportMenu
           pending={complete.isPending}
+          embeddingsPending={exportEmbeddings.isPending}
+          showEmbeddingsExport={classifierBackend === "ssl_fusion"}
           pageCount={glyphCount}
           manualNeumeCount={manualNeumeCount}
           presetTrainingCount={presetTrainingCount}
           uploadedTrainingCount={uploadedTrainingCount}
           onExport={(selection) => complete.mutate(selection)}
+          onExportEmbeddings={(selection) => exportEmbeddings.mutate(selection)}
         />
       </div>
     </header>
@@ -306,11 +311,15 @@ function SmallTrainingWarning() {
 
 interface ExportMenuProps {
   pending: boolean;
+  embeddingsPending: boolean;
+  /** Only the ssl_fusion backend produces SSL embeddings worth exporting. */
+  showEmbeddingsExport: boolean;
   pageCount: number;
   manualNeumeCount: number;
   presetTrainingCount: number;
   uploadedTrainingCount: number;
   onExport: (selection: ExportSelection) => void;
+  onExportEmbeddings: (selection: ExportSelection) => void;
 }
 
 // The four sections the export can fold into one GameraXML. `key` matches the
@@ -326,11 +335,14 @@ type ExportOptionKey = keyof ExportSelection;
  */
 function ExportMenu({
   pending,
+  embeddingsPending,
+  showEmbeddingsExport,
   pageCount,
   manualNeumeCount,
   presetTrainingCount,
   uploadedTrainingCount,
   onExport,
+  onExportEmbeddings,
 }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -411,6 +423,12 @@ function ExportMenu({
     onExport(effective);
   };
 
+  const handleExportEmbeddings = () => {
+    if (!anySelected) return;
+    setOpen(false);
+    onExportEmbeddings(effective);
+  };
+
   return (
     <div ref={ref} className="relative">
       <Button onClick={() => setOpen((v) => !v)} disabled={pending}>
@@ -452,7 +470,7 @@ function ExportMenu({
               );
             })}
           </div>
-          <div className="border-t border-slate-100 p-2">
+          <div className="space-y-1 border-t border-slate-100 p-2">
             <Button
               className="w-full"
               onClick={handleExport}
@@ -465,6 +483,23 @@ function ExportMenu({
             >
               Export selected
             </Button>
+            {showEmbeddingsExport && (
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={handleExportEmbeddings}
+                disabled={!anySelected || embeddingsPending}
+                title={
+                  anySelected
+                    ? "Download a companion .ssl_embeddings.npz for these same sections, so this training set can be re-used with ssl_fusion later without a live crop or model pass."
+                    : "Select at least one section to export"
+                }
+              >
+                {embeddingsPending
+                  ? "Exporting embeddings…"
+                  : "Export embeddings (.npz)"}
+              </Button>
+            )}
           </div>
         </div>
       )}
