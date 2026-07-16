@@ -18,12 +18,11 @@ import { type FormEvent, useRef, useState } from "react";
 /** Adds newly-picked files to the existing selection (deduped by name+size)
  *  instead of replacing it — so picking files across multiple dialogs
  *  accumulates, matching what the chip list with per-file removal implies. */
-function mergeFiles(existing: File[], picked: FileList | null): File[] {
-  const incoming = Array.from(picked ?? []);
+function mergeFiles(existing: File[], picked: File[]): File[] {
   const seen = new Set(existing.map((f) => `${f.name}:${f.size}`));
   return [
     ...existing,
-    ...incoming.filter((f) => !seen.has(`${f.name}:${f.size}`)),
+    ...picked.filter((f) => !seen.has(`${f.name}:${f.size}`)),
   ];
 }
 
@@ -427,8 +426,9 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                 accept=".xml"
                 multiple
                 onChange={(e) => {
-                  setTrainingFiles((prev) => mergeFiles(prev, e.target.files));
+                  const picked = Array.from(e.target.files ?? []);
                   e.target.value = "";
+                  setTrainingFiles((prev) => mergeFiles(prev, picked));
                 }}
                 className="block w-full text-sm"
               />
@@ -456,10 +456,9 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                     accept=".npz"
                     multiple
                     onChange={(e) => {
-                      setTrainingEmbeddings((prev) =>
-                        mergeFiles(prev, e.target.files),
-                      );
+                      const picked = Array.from(e.target.files ?? []);
                       e.target.value = "";
+                      setTrainingEmbeddings((prev) => mergeFiles(prev, picked));
                     }}
                     className="block w-full text-sm"
                   />
@@ -487,10 +486,9 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                     accept="image/*"
                     multiple
                     onChange={(e) => {
-                      setTrainingImages((prev) =>
-                        mergeFiles(prev, e.target.files),
-                      );
+                      const picked = Array.from(e.target.files ?? []);
                       e.target.value = "";
+                      setTrainingImages((prev) => mergeFiles(prev, picked));
                     }}
                     className="block w-full text-sm"
                   />
