@@ -944,7 +944,7 @@ def presets_dir(monkeypatch, tmp_path) -> Path:
 def test_list_training_presets_only_returns_xml_files(client, presets_dir):
     response = client.get("/training-presets")
     assert response.status_code == 200
-    assert response.json() == ["SamplePreset.xml"]
+    assert response.json() == [{"name": "SamplePreset.xml", "ssl_compatible": False}]
 
 
 def test_create_session_seeds_training_pool_from_preset(client, presets_dir):

@@ -104,6 +104,21 @@ class SessionDTO(BaseModel):
     )
 
 
+class TrainingPresetDTO(BaseModel):
+    """One entry of GET /training-presets."""
+
+    name: str = Field(..., description="Preset filename, as passed back in training_presets.")
+    ssl_compatible: bool = Field(
+        ...,
+        description=(
+            "Whether this preset ships precomputed SSL embeddings, "
+            "letting it be selected as training data for the 'ssl_fusion' "
+            "classify backend. Presets without embeddings only carry a "
+            "binary mask and cannot be used by that backend."
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Request bodies — write paths
 # ---------------------------------------------------------------------------

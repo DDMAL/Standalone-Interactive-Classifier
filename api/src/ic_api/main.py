@@ -64,6 +64,7 @@ from ic_api.schemas import (
     SessionDTO,
     SessionSummaryDTO,
     SplitRequest,
+    TrainingPresetDTO,
     UpdateGlyphRequest,
     glyph_to_dto,
     session_to_dto,
@@ -77,6 +78,11 @@ from ic_core.ingest import (
 )
 from ic_core.glyph import CATEGORY_NEUMES
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
+from ic_core.ssl_preset_embeddings import (
+    attach_ssl_embeddings,
+    has_ssl_embeddings,
+    load_ssl_embeddings,
+)
 from ic_core.state import Session, StateTransitionError
 
 
@@ -350,11 +356,20 @@ def _parse_training_presets(training_presets: str | None) -> list:
     for name in names:
         path = resolve_preset(name)
         try:
-            preset_glyphs.extend(load_glyphs_bytes(path.read_bytes()))
+            glyphs = load_glyphs_bytes(path.read_bytes())
         except OSError as e:
              raise ValueError(f"Could not read preset {name!r}: {e}") from e
         except etree.XMLSyntaxError as e:
             raise ValueError(f"Preset {name!r} is not valid XML: {e}") from e
+        # Presets shipping a companion .ssl_embeddings.npz (currently just
+        # Hufnagel.xml -- see ic_core.ssl_preset_embeddings) get those
+        # vectors attached so the ssl_fusion backend can train on them
+        # without a live crop. Presets without one are unaffected: their
+        # glyphs are unusable by ssl_fusion, same as before this existed.
+        embeddings = load_ssl_embeddings(path)
+        if embeddings is not None:
+            glyphs = attach_ssl_embeddings(glyphs, embeddings)
+        preset_glyphs.extend(glyphs)
     return preset_glyphs
 
 
@@ -560,16 +575,28 @@ async def _value_error_handler(_request, exc: ValueError) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
-@app.get("/training-presets", response_model=list[str])
-def get_training_presets() -> list[str]:
-    """List the built-in training-set preset filenames available for selection.
+@app.get("/training-presets", response_model=list[TrainingPresetDTO])
+def get_training_presets() -> list[TrainingPresetDTO]:
+    """List the built-in training-set presets available for selection.
 
     These are the GameraXML (.xml) files under ``core/data/presets``. The
     frontend renders them as checkboxes on the upload screen; the chosen
     filenames are passed back as the ``training_presets`` field of
     :func:`create_session` and concatenated into the training pool.
+
+    ``ssl_compatible`` reflects whether a preset ships a companion
+    ``.ssl_embeddings.npz`` file (see ``ic_core.ssl_preset_embeddings``) --
+    the frontend uses it to restrict preset selection to compatible ones
+    when the user picks the ``ssl_fusion`` classify backend, since a
+    preset without embeddings only carries a binary mask that backend
+    can't use.
     """
-    return list_presets()
+    return [
+        TrainingPresetDTO(
+            name=name, ssl_compatible=has_ssl_embeddings(resolve_preset(name))
+        )
+        for name in list_presets()
+    ]
 
 
 @app.get("/vocabularies", response_model=list[str])
