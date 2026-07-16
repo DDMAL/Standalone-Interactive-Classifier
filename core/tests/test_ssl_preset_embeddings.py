@@ -20,6 +20,7 @@ sklearn = pytest.importorskip("sklearn")
 from ic_core.classifier import UNCLASSIFIED, run_correction_stage
 from ic_core.io_xml import load_glyphs
 from ic_core.ssl_classifier import SSLFusionClassifier
+from ic_core.ssl_extractor import extract_ssl_embeddings
 from ic_core.ssl_preset_embeddings import (
     attach_ssl_embeddings,
     has_ssl_embeddings,
@@ -114,3 +115,22 @@ def test_match_glyphs_to_source_pages_leaves_unmatched_glyphs_alone():
 
     assert len(matched) == len(glyphs)
     assert all(g.image_gray_b64 is None for g in matched)
+
+
+def test_extract_ssl_embeddings_reuses_precomputed_vectors_without_a_checkpoint():
+    """All-precomputed glyphs never need torch/a checkpoint at all."""
+    glyphs = load_glyphs(PRESET_XML)[:5]
+    embeddings = load_ssl_embeddings(PRESET_XML)[:5]
+    attached = attach_ssl_embeddings(glyphs, embeddings)
+
+    result = extract_ssl_embeddings(attached, checkpoint=None)
+
+    assert np.allclose(result, embeddings)
+
+
+def test_extract_ssl_embeddings_rejects_glyphs_with_no_features_at_all():
+    glyphs = load_glyphs(PRESET_XML)[:3]
+    assert all(g.ssl_embedding is None and g.image_gray_b64 is None for g in glyphs)
+
+    with pytest.raises(ValueError, match="neither a"):
+        extract_ssl_embeddings(glyphs, checkpoint=None)

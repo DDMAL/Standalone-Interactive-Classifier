@@ -223,6 +223,61 @@ class ViTExtractor:
         return f"ViTExtractor({self.model_name!r}{ckpt})"
 
 
+def extract_ssl_embeddings(
+    glyphs: Sequence[Glyph],
+    checkpoint: str | Path | None,
+    pooling: str = "cls_mean",
+) -> np.ndarray:
+    """Pure SSL feature vectors for ``glyphs``, one row per glyph in order.
+
+    For each glyph, prefers an already-attached ``ssl_embedding`` (see
+    ``ic_core.ssl_preset_embeddings`` -- set for SSL-compatible presets or
+    uploads paired with a companion ``.ssl_embeddings.npz``) over a live
+    model pass; glyphs without one are extracted via
+    :meth:`ViTExtractor.extract_batch` on their ``image_gray_b64`` crop.
+    A mixed batch of both is handled in one call.
+
+    This is the standalone counterpart to the same precomputed-vs-live
+    logic ``ic_core.ssl_classifier.SSLFusionClassifier`` uses internally
+    while fitting/predicting -- exposed here so a caller that just wants
+    the SSL vectors themselves (e.g. to export a companion embeddings
+    file for later reuse) doesn't need to go through a classifier.
+
+    Raises:
+        ValueError: If any glyph has neither ``ssl_embedding`` nor
+            ``image_gray_b64``.
+    """
+    missing = [
+        g.id for g in glyphs if g.ssl_embedding is None and g.image_gray_b64 is None
+    ]
+    if missing:
+        raise ValueError(
+            f"{len(missing)} of {len(glyphs)} glyphs have neither a "
+            "precomputed ssl_embedding nor a real-pixel crop "
+            "(image_gray_b64), so no SSL feature vector can be produced "
+            f"for them: {missing[:5]}{'...' if len(missing) > 5 else ''}"
+        )
+
+    live = [g for g in glyphs if g.ssl_embedding is None]
+    if not live:
+        return np.asarray([g.ssl_embedding for g in glyphs], dtype=np.float64)
+
+    extractor = ViTExtractor(checkpoint=checkpoint)
+    precomputed = [g for g in glyphs if g.ssl_embedding is not None]
+    if not precomputed:
+        return extractor.extract_batch(glyphs, pooling=pooling)
+
+    dim = len(precomputed[0].ssl_embedding)
+    out = np.empty((len(glyphs), dim), dtype=np.float64)
+    idx_precomputed = [i for i, g in enumerate(glyphs) if g.ssl_embedding is not None]
+    idx_live = [i for i, g in enumerate(glyphs) if g.ssl_embedding is None]
+    out[idx_precomputed] = np.asarray(
+        [g.ssl_embedding for g in precomputed], dtype=np.float64
+    )
+    out[idx_live] = extractor.extract_batch(live, pooling=pooling)
+    return out
+
+
 def _apply_adapters(backbone, bottleneck: int = 64):
     """Inject Houlsby bottleneck adapters and return the modified backbone."""
     import torch.nn as nn
