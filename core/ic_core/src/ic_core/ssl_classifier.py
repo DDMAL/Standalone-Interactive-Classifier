@@ -144,6 +144,16 @@ class SSLFusionClassifier:
         Mirrors :meth:`InteractiveClassifier.fit`'s "full re-train
         every round" semantics: calling this discards any prior model
         state.
+
+        Glyphs without a real-pixel crop (``image_gray_b64 is None`` --
+        e.g. training data sourced from a preset or an uploaded
+        GameraXML file, which only ever carries the binary mask) are
+        silently excluded from this backend's training pool, since the
+        SSL extractor cannot use them. This is a difference from
+        :class:`InteractiveClassifier`, which uses every training
+        glyph regardless of crop availability -- worth knowing if a
+        classify round trains on fewer examples than the training-set
+        count displayed in the UI suggests.
         """
         from sklearn.linear_model import LogisticRegression
 
@@ -151,6 +161,19 @@ class SSLFusionClassifier:
             raise ValueError(
                 "Cannot fit SSLFusionClassifier with zero training glyphs"
             )
+
+        usable = [g for g in training_glyphs if g.image_gray_b64 is not None]
+        if not usable:
+            raise ValueError(
+                f"None of the {len(training_glyphs)} training glyphs have a "
+                "real-pixel crop (image_gray_b64). This backend needs "
+                "glyphs ingested from a live page upload (store_real_crop=True); "
+                "training data sourced entirely from a preset or an uploaded "
+                "GameraXML file only carries the binary mask and cannot be "
+                "used by the ssl_fusion backend. Label at least one glyph "
+                "manually in this session, or switch back to the 'knn' backend."
+            )
+        training_glyphs = usable
 
         X = self._fused_features(training_glyphs, fit_scalers=True)
         y = np.asarray([g.class_name for g in training_glyphs], dtype=object)
