@@ -17,6 +17,13 @@ export interface CreateSessionArgs {
   classNames?: string[];
   /** Uploaded GameraXML (.xml) training-set files; glyphs are concatenated. */
   trainingFiles?: File[];
+  /** Precomputed SSL embeddings (.npz) for a trainingFiles entry, matched by
+   *  filename stem — see POST /sessions. Unlocks the ssl_fusion backend for
+   *  that upload without a live crop. */
+  trainingEmbeddings?: File[];
+  /** Source page image(s) a trainingFiles entry's glyphs were cropped from,
+   *  matched by bbox + mask — an alternative to trainingEmbeddings. */
+  trainingImages?: File[];
   /** Built-in preset filenames (see {@link listTrainingPresets}); concatenated ahead of uploads. */
   trainingPresets?: string[];
   /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
@@ -33,6 +40,12 @@ export function createSession(args: CreateSessionArgs): Promise<SessionDTO> {
   }
   for (const file of args.trainingFiles ?? []) {
     form.append("training_files", file);
+  }
+  for (const file of args.trainingEmbeddings ?? []) {
+    form.append("training_embeddings", file);
+  }
+  for (const file of args.trainingImages ?? []) {
+    form.append("training_images", file);
   }
   if (args.trainingPresets && args.trainingPresets.length > 0) {
     form.append("training_presets", JSON.stringify(args.trainingPresets));
@@ -59,6 +72,12 @@ export interface CreateSessionFromStagingArgs {
   classNames?: string[];
   /** Uploaded GameraXML (.xml) training-set files; glyphs are concatenated. */
   trainingFiles?: File[];
+  /** Precomputed SSL embeddings (.npz) for a trainingFiles entry, matched by
+   *  filename stem — see {@link CreateSessionArgs.trainingEmbeddings}. */
+  trainingEmbeddings?: File[];
+  /** Source page image(s) for a trainingFiles entry's glyphs, matched by
+   *  bbox + mask — see {@link CreateSessionArgs.trainingImages}. */
+  trainingImages?: File[];
   /** Built-in preset filenames (see {@link listTrainingPresets}); concatenated ahead of uploads. */
   trainingPresets?: string[];
   /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
@@ -76,6 +95,12 @@ export function createSessionFromStaging(
   }
   for (const file of args.trainingFiles ?? []) {
     form.append("training_files", file);
+  }
+  for (const file of args.trainingEmbeddings ?? []) {
+    form.append("training_embeddings", file);
+  }
+  for (const file of args.trainingImages ?? []) {
+    form.append("training_images", file);
   }
   if (args.trainingPresets && args.trainingPresets.length > 0) {
     form.append("training_presets", JSON.stringify(args.trainingPresets));
