@@ -11,7 +11,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
+from PIL import Image
 
 sklearn = pytest.importorskip("sklearn")
 
@@ -22,9 +24,16 @@ from ic_core.ssl_preset_embeddings import (
     attach_ssl_embeddings,
     has_ssl_embeddings,
     load_ssl_embeddings,
+    match_glyphs_to_source_pages,
 )
 
 PRESET_XML = Path(__file__).parent.parent / "data" / "presets" / "Hufnagel.xml"
+TRAIN_DIR = Path(__file__).parent.parent / "data" / "train"
+HUFNAGEL_SOURCE_PAGES = [
+    TRAIN_DIR / "hufnagel_example_826dd1b4.png",
+    TRAIN_DIR / "hufnagel_example_a77ec16f.png",
+    TRAIN_DIR / "hufnagel_example_fbed8126.png",
+]
 
 
 def test_hufnagel_preset_has_embeddings():
@@ -77,3 +86,31 @@ def test_ssl_fusion_classifier_trains_on_preset_embeddings_alone():
     assert len(new_glyphs) == len(query_glyphs)
     for g in new_glyphs:
         assert g.class_name != UNCLASSIFIED
+
+
+def test_match_glyphs_to_source_pages_recovers_every_hufnagel_glyph():
+    """Same recovery this preset's embeddings were generated from (see
+    core/scripts/generate_hufnagel_ssl_embeddings.py), exercised as the
+    general-purpose path an uploaded (not just preset) GameraXML file
+    would go through if its source pages are supplied alongside it.
+    """
+    glyphs = load_glyphs(PRESET_XML)
+    pages = [np.array(Image.open(p).convert("L")) for p in HUFNAGEL_SOURCE_PAGES]
+
+    matched = match_glyphs_to_source_pages(glyphs, pages)
+
+    assert len(matched) == len(glyphs)
+    assert all(g.image_gray_b64 is not None for g in matched)
+    # Doesn't touch identity/labelling.
+    assert [g.id for g in matched] == [g.id for g in glyphs]
+    assert [g.class_name for g in matched] == [g.class_name for g in glyphs]
+
+
+def test_match_glyphs_to_source_pages_leaves_unmatched_glyphs_alone():
+    glyphs = load_glyphs(PRESET_XML)
+    blank_page = np.full((3000, 3000), 255, dtype=np.uint8)
+
+    matched = match_glyphs_to_source_pages(glyphs, [blank_page])
+
+    assert len(matched) == len(glyphs)
+    assert all(g.image_gray_b64 is None for g in matched)
