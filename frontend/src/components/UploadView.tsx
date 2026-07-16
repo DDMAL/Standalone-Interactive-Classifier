@@ -13,7 +13,50 @@ import { useUiStore } from "@/store/uiStore";
 import type { AnnotationFormat } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
+
+/** Adds newly-picked files to the existing selection (deduped by name+size)
+ *  instead of replacing it — so picking files across multiple dialogs
+ *  accumulates, matching what the chip list with per-file removal implies. */
+function mergeFiles(existing: File[], picked: FileList | null): File[] {
+  const incoming = Array.from(picked ?? []);
+  const seen = new Set(existing.map((f) => `${f.name}:${f.size}`));
+  return [
+    ...existing,
+    ...incoming.filter((f) => !seen.has(`${f.name}:${f.size}`)),
+  ];
+}
+
+/** Selected-file chips with a per-file remove button, for a multi-file input. */
+function FileChipList({
+  files,
+  onRemove,
+}: {
+  files: File[];
+  onRemove: (index: number) => void;
+}) {
+  if (files.length === 0) return null;
+  return (
+    <ul className="mt-1 flex flex-wrap gap-1">
+      {files.map((f, i) => (
+        <li
+          key={`${f.name}:${f.size}:${i}`}
+          className="flex items-center gap-1 rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700"
+        >
+          {f.name}
+          <button
+            type="button"
+            onClick={() => onRemove(i)}
+            aria-label={`Remove ${f.name}`}
+            className="text-slate-500 hover:text-red-600"
+          >
+            ×
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 interface UploadViewProps {
   // When set, the page image + bboxes have been staged by an embedding host
@@ -27,6 +70,18 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const [pageImage, setPageImage] = useState<File | null>(null);
   const [annotations, setAnnotations] = useState<File | null>(null);
   const [format, setFormat] = useState<AnnotationFormat>("json");
+  const pageImageInputRef = useRef<HTMLInputElement>(null);
+  const annotationsInputRef = useRef<HTMLInputElement>(null);
+
+  function clearPageImage() {
+    setPageImage(null);
+    if (pageImageInputRef.current) pageImageInputRef.current.value = "";
+  }
+
+  function clearAnnotations() {
+    setAnnotations(null);
+    if (annotationsInputRef.current) annotationsInputRef.current.value = "";
+  }
   const [trainingFiles, setTrainingFiles] = useState<File[]>([]);
   // Only meaningful (and only shown) when the ssl_fusion model is selected:
   // an uploaded GameraXML training file carries just a binary mask, same as
@@ -34,6 +89,9 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   // backend — see ic_core.ssl_preset_embeddings.
   const [trainingEmbeddings, setTrainingEmbeddings] = useState<File[]>([]);
   const [trainingImages, setTrainingImages] = useState<File[]>([]);
+  const trainingFilesInputRef = useRef<HTMLInputElement>(null);
+  const trainingEmbeddingsInputRef = useRef<HTMLInputElement>(null);
+  const trainingImagesInputRef = useRef<HTMLInputElement>(null);
   const [selectedPresets, setSelectedPresets] = useState<string[]>([]);
   const [vocabulary, setVocabulary] = useState("");
   const create = useCreateSession();
@@ -208,29 +266,57 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
             </div>
           ) : (
             <>
-              <label className="block text-sm">
+              <div className="text-sm">
                 <span className="mb-1 block font-medium text-slate-700">
                   Page image
                 </span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setPageImage(e.target.files?.[0] ?? null)}
-                  className="block w-full text-sm"
-                />
-              </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={pageImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setPageImage(e.target.files?.[0] ?? null)}
+                    className="block w-full text-sm"
+                  />
+                  {pageImage && (
+                    <button
+                      type="button"
+                      onClick={clearPageImage}
+                      aria-label="Remove page image"
+                      className="shrink-0 text-slate-500 hover:text-red-600"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
 
-              <label className="block text-sm">
+              <div className="text-sm">
                 <span className="mb-1 block font-medium text-slate-700">
                   Annotations file
                 </span>
-                <input
-                  type="file"
-                  accept=".json,.txt"
-                  onChange={(e) => setAnnotations(e.target.files?.[0] ?? null)}
-                  className="block w-full text-sm"
-                />
-              </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={annotationsInputRef}
+                    type="file"
+                    accept=".json,.txt"
+                    onChange={(e) =>
+                      setAnnotations(e.target.files?.[0] ?? null)
+                    }
+                    className="block w-full text-sm"
+                  />
+                  {annotations && (
+                    <button
+                      type="button"
+                      onClick={clearAnnotations}
+                      aria-label="Remove annotations file"
+                      className="shrink-0 text-slate-500 hover:text-red-600"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
 
               <label className="block text-sm">
                 <span className="mb-1 block font-medium text-slate-700">
@@ -273,8 +359,9 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
             {sslFusionSelected && (
               <span className="block text-xs font-normal text-slate-400">
                 Only presets with precomputed SSL embeddings can be used as
-                training data with this model — uploaded GameraXML files don't
-                qualify.
+                training data with this model. Uploaded GameraXML files need a
+                companion embeddings or source-image upload to qualify (see
+                below).
               </span>
             )}
           </div>
@@ -335,13 +422,21 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                 Upload
               </span>
               <input
+                ref={trainingFilesInputRef}
                 type="file"
                 accept=".xml"
                 multiple
-                onChange={(e) =>
-                  setTrainingFiles(Array.from(e.target.files ?? []))
-                }
+                onChange={(e) => {
+                  setTrainingFiles((prev) => mergeFiles(prev, e.target.files));
+                  e.target.value = "";
+                }}
                 className="block w-full text-sm"
+              />
+              <FileChipList
+                files={trainingFiles}
+                onRemove={(i) =>
+                  setTrainingFiles((prev) => prev.filter((_, j) => j !== i))
+                }
               />
             </label>
 
@@ -356,13 +451,25 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                     SSL embeddings (.npz)
                   </span>
                   <input
+                    ref={trainingEmbeddingsInputRef}
                     type="file"
                     accept=".npz"
                     multiple
-                    onChange={(e) =>
-                      setTrainingEmbeddings(Array.from(e.target.files ?? []))
-                    }
+                    onChange={(e) => {
+                      setTrainingEmbeddings((prev) =>
+                        mergeFiles(prev, e.target.files),
+                      );
+                      e.target.value = "";
+                    }}
                     className="block w-full text-sm"
+                  />
+                  <FileChipList
+                    files={trainingEmbeddings}
+                    onRemove={(i) =>
+                      setTrainingEmbeddings((prev) =>
+                        prev.filter((_, j) => j !== i),
+                      )
+                    }
                   />
                   <span className="mt-1 block text-xs font-normal text-slate-400">
                     One precomputed vector per glyph, matched to a training file
@@ -375,13 +482,25 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                     or source image(s)
                   </span>
                   <input
+                    ref={trainingImagesInputRef}
                     type="file"
                     accept="image/*"
                     multiple
-                    onChange={(e) =>
-                      setTrainingImages(Array.from(e.target.files ?? []))
-                    }
+                    onChange={(e) => {
+                      setTrainingImages((prev) =>
+                        mergeFiles(prev, e.target.files),
+                      );
+                      e.target.value = "";
+                    }}
                     className="block w-full text-sm"
+                  />
+                  <FileChipList
+                    files={trainingImages}
+                    onRemove={(i) =>
+                      setTrainingImages((prev) =>
+                        prev.filter((_, j) => j !== i),
+                      )
+                    }
                   />
                   <span className="mt-1 block text-xs font-normal text-slate-400">
                     The original page(s) the training file's glyphs were cropped
