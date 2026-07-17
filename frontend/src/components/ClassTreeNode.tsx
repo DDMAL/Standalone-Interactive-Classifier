@@ -227,7 +227,7 @@ function RenameInput({
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={handleKeyDown}
       onBlur={() => onCommit(value)}
-      className="min-w-0 flex-1 rounded border border-blue-300 bg-white px-1 py-0.5 text-sm"
+      className="min-w-0 flex-1 rounded border border-mothra-cyan bg-white px-1 py-0.5 text-sm"
     />
   );
 }

@@ -123,7 +123,7 @@ export function ClassNameInput({
                   onMouseEnter={() => setActiveIndex(i)}
                   className={clsx(
                     "block w-full truncate px-3 py-1 text-left text-sm",
-                    isActive ? "bg-blue-100" : "hover:bg-slate-100",
+                    isActive ? "bg-mothra-cyan-faint" : "hover:bg-slate-100",
                   )}
                 >
                   {option}

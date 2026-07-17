@@ -14,7 +14,7 @@ export function LassoLayer({ rect }: LassoLayerProps) {
       height={rect.h}
       strokeWidth={1}
       vectorEffect="non-scaling-stroke"
-      className="fill-blue-500/10 stroke-blue-500 pointer-events-none"
+      className="fill-mothra-cyan/10 stroke-mothra-cyan pointer-events-none"
       strokeDasharray="4 2"
     />
   );
