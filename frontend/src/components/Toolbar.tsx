@@ -53,7 +53,6 @@ export function Toolbar({
   const classify = useClassify(sessionId);
   const rebinarize = useRebinarize(sessionId);
   const undoApply = useUndoApply(sessionId);
-  const clearSession = useUiStore((s) => s.clearSession);
   const knnK = useUiStore((s) => s.knnK);
   const undoStack = useUiStore((s) => s.undoStack);
   const setKnnK = useUiStore((s) => s.setKnnK);
@@ -97,14 +96,9 @@ export function Toolbar({
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
       <div className="flex items-baseline gap-3">
-        <button
-          type="button"
-          onClick={() => clearSession()}
-          title="Return to the main page"
-          className="font-semibold text-slate-800 transition-colors hover:text-blue-600"
-        >
+        <span className="font-semibold text-slate-800">
           Interactive Classifier
-        </button>
+        </span>
         <span className="text-sm text-slate-500">{glyphCount} glyphs</span>
       </div>
       <div className="flex items-center gap-2">
@@ -223,9 +217,6 @@ export function Toolbar({
           }
         >
           {undoApply.isPending ? "Undoing…" : "Undo"}
-        </Button>
-        <Button variant="ghost" onClick={() => clearSession()}>
-          New session
         </Button>
         <ExportMenu
           pending={complete.isPending}
