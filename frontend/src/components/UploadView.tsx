@@ -76,8 +76,10 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     });
   }
 
-  // One-click shortcut: create the session, run a classify round, and download
-  // the page as GameraXML — no session view. Shares the same inputs as start.
+  // One-click shortcut: create the session and run a classify round over the
+  // page — no session view. Embedded in a host (mothra), it hands the page to
+  // the host's encode queue; standalone, it downloads the GameraXML. Shares
+  // the same inputs as start.
   function handleAutoExport() {
     const training = trainingFiles.length > 0 ? trainingFiles : undefined;
     const presetNames =
@@ -108,11 +110,14 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     });
   }
 
+  // Embedded in a host (mothra) via iframe → "queue page" semantics; standalone
+  // → "auto-export" (download). Drives the button's wording only.
+  const embedded = window.parent !== window;
   const anyPending = active.isPending || autoExport.isPending;
   const inputsMissing = stagedId ? !staging.data : !pageImage || !annotations;
   const submitDisabled = anyPending || inputsMissing;
-  // Auto-export always runs a classify round, which needs a non-empty training
-  // pool — so grey it out until the user picks a preset or uploads a set.
+  // Queueing/auto-export always runs a classify round, which needs a non-empty
+  // training pool — so grey it out until the user picks a preset or uploads a set.
   const autoExportDisabled = submitDisabled || totalTrainingSets === 0;
 
   return (
@@ -319,7 +324,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
               {(autoExport.error as Error).message}
             </p>
           )}
-          {autoExport.isSuccess && (
+          {autoExport.isSuccess && !embedded && (
             <p className="text-sm text-green-600">
               Exported {autoExport.data}.
             </p>
@@ -334,11 +339,21 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
               className="flex-1"
               title={
                 totalTrainingSets === 0
-                  ? "Add a preset or upload a training set to enable auto-export"
-                  : "Create the session, run one classification round, and download the page as GameraXML"
+                  ? embedded
+                    ? "Add a preset or upload a training set to enable queuing"
+                    : "Add a preset or upload a training set to enable auto-export"
+                  : embedded
+                    ? "Classify the page with the training set and add it straight to the encode queue"
+                    : "Create the session, run one classification round, and download the page as GameraXML"
               }
             >
-              {autoExport.isPending ? "Auto-exporting…" : "Auto-export"}
+              {autoExport.isPending
+                ? embedded
+                  ? "Queuing…"
+                  : "Auto-exporting…"
+                : embedded
+                  ? "Queue page"
+                  : "Auto-export"}
             </Button>
             <Button type="submit" disabled={submitDisabled} className="flex-1">
               {active.isPending ? "Uploading…" : "Start session"}

@@ -12,7 +12,7 @@ const ROW_HEIGHT = 140;
  * The recycle-bin section at the bottom of the glyph grid. Soft-deleted
  * glyphs land here; each tile carries a "Put back" button that restores
  * the glyph to its original category section. Deletes commit to the
- * backend only at Complete & Export time.
+ * backend only at export time.
  */
 export function DeletedSection({ glyphs }: { glyphs: GlyphDTO[] }) {
   const [open, setOpen] = useState(false);

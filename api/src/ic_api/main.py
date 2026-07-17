@@ -75,6 +75,7 @@ from ic_core.ingest import (
     binarize_page,
     ingest_page,
 )
+from ic_core.classifier import UNCLASSIFIED, filter_parts
 from ic_core.glyph import CATEGORY_NEUMES
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
 from ic_core.state import Session, StateTransitionError
@@ -1181,11 +1182,13 @@ def complete_session(
     preset_training: bool = False,
     uploaded_training: bool = False,
 ) -> Response:
-    """Finalise the session and stream back the GameraXML export.
+    """Stream back the GameraXML export for the session.
 
-    The session transitions to ``EXPORT`` (terminal). The frontend
-    should treat the returned XML as the canonical artefact for
-    downstream MEI pipelines.
+    Exporting does **not** finalise the session — it stays in
+    ``CLASSIFYING`` and fully editable, so the user can keep correcting
+    and re-export as many times as they like (and resume the page
+    later). The returned XML is a snapshot of the current working set,
+    the canonical artefact for downstream MEI pipelines.
 
     The caller picks which sections to fold into a single GameraXML
     document via independent boolean flags (the export screen's
@@ -1203,15 +1206,26 @@ def complete_session(
     glyph twice). At least one flag must be set, else 400.
 
     Response body is ``application/xml``, not JSON, because the XML
-    *is* the deliverable. The session remains in the store so the
-    caller can ``DELETE`` it explicitly once they've saved the file.
+    *is* the deliverable. The session remains in the store, still
+    editable, so the caller can re-export or ``DELETE`` it explicitly
+    once they've saved the file.
     """
     if not (page or manual_neumes or preset_training or uploaded_training):
         raise ValueError(
             "Select at least one section to include in the export."
         )
     with store.session(session_id) as session:
-        session.complete()
+        # Export-time hygiene applied to the *exported* glyphs only, so the
+        # live session is left untouched (and re-editable). Mirrors the
+        # cleanup ``Session.complete`` used to do in-place: strip transient
+        # ``_group`` / ``_delete`` parts, and drop UNCLASSIFIED training
+        # entries that snuck in via the original training XML.
+        page_glyphs = filter_parts(session.glyphs)
+        training_glyphs = [
+            g
+            for g in filter_parts(session.training_glyphs)
+            if g.class_name != UNCLASSIFIED
+        ]
         selected: list = []
         seen: set[str] = set()
 
@@ -1222,23 +1236,23 @@ def complete_session(
                     selected.append(g)
 
         if page:
-            add(session.glyphs)
+            add(page_glyphs)
         if manual_neumes:
             add(
                 g
-                for g in session.glyphs
+                for g in page_glyphs
                 if g.category == CATEGORY_NEUMES and g.id_state_manual
             )
         if preset_training:
             add(
                 g
-                for g in session.training_glyphs
+                for g in training_glyphs
                 if g.id in session.preset_training_ids
             )
         if uploaded_training:
             add(
                 g
-                for g in session.training_glyphs
+                for g in training_glyphs
                 if g.id in session.uploaded_training_ids
             )
         payload = dumps_glyphs(selected)
