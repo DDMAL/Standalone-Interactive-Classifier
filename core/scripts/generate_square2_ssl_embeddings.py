@@ -5,7 +5,7 @@ its source page -- but all 144 of its glyphs were verified (bbox + mask,
 144/144 exact matches at binarize_threshold=110) to come from
 ``core/data/train/Einsiedeln__Stiftsbibliothek__Codex_611_014r.jpg``. This
 script re-derives each glyph's *real* greyscale crop from that page,
-runs it through the validated SSL extractor (DINO SimCLR epoch_011,
+runs it through the validated SSL extractor (DINO SimCLR epoch_005,
 cls_mean pooling), and writes the resulting ``(144, 768)`` feature array
 in the exact document order ``ic_core.io_xml.load_glyphs`` produces -- so
 ``ic_core.ssl_preset_embeddings.attach_ssl_embeddings`` can zip it
@@ -14,7 +14,7 @@ straight onto the loaded glyphs.
 Not part of the application runtime -- run by hand, once, whenever the
 preset or the checkpoint changes:
 
-    IC_SSL_CHECKPOINT=/path/to/epoch_011 uv run --project ic_core \
+    IC_SSL_CHECKPOINT=/path/to/epoch_005 uv run --project ic_core \
         python ../scripts/generate_square2_ssl_embeddings.py
 """
 from __future__ import annotations
@@ -51,7 +51,7 @@ BINARIZE_THRESHOLD = 110
 def main() -> None:
     checkpoint = os.environ.get("IC_SSL_CHECKPOINT")
     if not checkpoint:
-        raise SystemExit("Set IC_SSL_CHECKPOINT to the epoch_011 checkpoint directory.")
+        raise SystemExit("Set IC_SSL_CHECKPOINT to the epoch_005 checkpoint directory.")
 
     glyphs = load_glyphs(PRESET_XML)
     page = np.array(Image.open(SOURCE_PAGE).convert("L"))

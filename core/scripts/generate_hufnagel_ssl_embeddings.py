@@ -5,7 +5,7 @@ its source page -- but its glyphs were verified (bbox + mask, 557/557
 exact matches) to come from three known page images that are still on
 disk in a sibling checkout. This script re-derives each glyph's *real*
 greyscale crop from those pages, runs it through the validated SSL
-extractor (DINO SimCLR epoch_011, cls_mean pooling), and writes the
+extractor (DINO SimCLR epoch_005, cls_mean pooling), and writes the
 resulting ``(557, 768)`` feature array in the exact document order
 ``ic_core.io_xml.load_glyphs`` produces -- so
 ``ic_core.ssl_preset_embeddings.attach_ssl_embeddings`` can zip it
@@ -14,7 +14,7 @@ straight onto the loaded glyphs.
 Not part of the application runtime -- run by hand, once, whenever the
 preset or the checkpoint changes:
 
-    IC_SSL_CHECKPOINT=/path/to/epoch_011 uv run --project ic_core \
+    IC_SSL_CHECKPOINT=/path/to/epoch_005 uv run --project ic_core \
         python ../scripts/generate_hufnagel_ssl_embeddings.py
 """
 from __future__ import annotations
@@ -76,7 +76,7 @@ def _parse_preset_glyphs(xml_path: Path):
 def main() -> None:
     checkpoint = os.environ.get("IC_SSL_CHECKPOINT")
     if not checkpoint:
-        raise SystemExit("Set IC_SSL_CHECKPOINT to the epoch_011 checkpoint directory.")
+        raise SystemExit("Set IC_SSL_CHECKPOINT to the epoch_005 checkpoint directory.")
 
     pages = [np.array(Image.open(p).convert("L")) for p in SOURCE_PAGES]
 

@@ -9,14 +9,15 @@ which are core dependencies of this package -- install them via the
 ``ssl`` extra (``pip install ic-core[ssl]``) before using this module.
 
 Model selection summary (see the accompanying paper/report for the
-full methodology): DINO SimCLR checkpoint at epoch 11, final-layer
+full methodology): DINO SimCLR checkpoint at epoch 5, final-layer
 CLS+mean pooling, fused with 29-dim handcrafted features via weighted
-concatenation (HC block scaled by ``hc_weight=4.0`` before
+concatenation (HC block scaled by ``hc_weight=3.0`` before
 concatenation, to correct for the 768:29 dimensionality imbalance
-between the two feature blocks), classified with L2-regularized
-logistic regression (``C=0.3``) -- all hyperparameters selected purely
-via cross-validation on held-out training manuscripts, never on data
-this classifier would later be evaluated against.
+between the two feature blocks), classified with an RBF-kernel SVM
+(``C=3.0``) -- re-selected via leave-one-manuscript-out cross-validation
+across the full production corpus (Hufnagel, Antiphonal, NZ-Wt MSR-03,
+and McGill MS234; nothing held out, since this is the deployed config
+rather than the paper's honest-generalization estimate).
 
 Exposes the same public shape as
 :class:`ic_core.classifier.InteractiveClassifier` --
@@ -37,11 +38,10 @@ from ic_core.classifier import Prediction
 from ic_core.features import compute_features_batch
 from ic_core.glyph import Glyph
 
-#: Selected via cross-validation on held-out training manuscripts --
-#: see module docstring. Not re-tuned per deployment; override via the
-#: constructor if you have reason to.
-DEFAULT_HC_WEIGHT: float = 4.0
-DEFAULT_C: float = 0.3
+#: Selected via cross-validation -- see module docstring. Not re-tuned
+#: per deployment; override via the constructor if you have reason to.
+DEFAULT_HC_WEIGHT: float = 3.0
+DEFAULT_C: float = 3.0
 
 
 def _require_sklearn():
@@ -56,7 +56,7 @@ def _require_sklearn():
 
 
 class SSLFusionClassifier:
-    """SSL+HC fused features, classified with logistic regression.
+    """SSL+HC fused features, classified with an RBF-kernel SVM.
 
     Args:
         checkpoint: Path to the DINO SimCLR fine-tuned checkpoint
@@ -67,9 +67,8 @@ class SSLFusionClassifier:
             feature block before concatenating with the standardized
             SSL block. Defaults to the cross-validated value; only
             override this if you're re-running model selection.
-        C: Inverse regularization strength for the logistic
-            regression classifier. Defaults to the cross-validated
-            value.
+        C: Inverse regularization strength for the SVM classifier.
+            Defaults to the cross-validated value.
 
     Raises:
         ImportError: If scikit-learn (or, at extraction time,
@@ -180,7 +179,8 @@ class SSLFusionClassifier:
         fewer examples than the training-set count displayed in the UI
         suggests.
         """
-        from sklearn.linear_model import LogisticRegression
+        from sklearn.calibration import CalibratedClassifierCV
+        from sklearn.svm import SVC
 
         if not training_glyphs:
             raise ValueError(
@@ -210,7 +210,13 @@ class SSLFusionClassifier:
         X = self._fused_features(training_glyphs, fit_scalers=True)
         y = np.asarray([g.class_name for g in training_glyphs], dtype=object)
 
-        clf = LogisticRegression(C=self.C, class_weight="balanced", max_iter=500)
+        # CalibratedClassifierCV(..., ensemble=False) rather than
+        # SVC(probability=True) directly: same Platt-scaling probability
+        # estimates, but not on sklearn's deprecation path (probability=True
+        # is slated for removal in a future release).
+        clf = CalibratedClassifierCV(
+            SVC(C=self.C, kernel="rbf", class_weight="balanced"), ensemble=False
+        )
         clf.fit(X, y)
 
         self._clf = clf
