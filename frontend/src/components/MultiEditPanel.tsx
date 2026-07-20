@@ -107,20 +107,21 @@ export function MultiEditPanel({
     softDeleteGlyphs(selectedGlyphs.map((g) => g.id));
   }
 
-  // Enter-from-anywhere opens the BatchConfirmDialog (the primary action).
-  // Gated by isEditableTarget so the autocomplete keeps its own Enter handling.
-  const batchOpenRef = useRef(setBatchOpen);
-  batchOpenRef.current = setBatchOpen;
-  const canBatchRef = useRef(false);
-  canBatchRef.current = !pending && neumeIds.length > 0;
+  // Enter-from-anywhere applies the class name to every Neume (the primary
+  // action). Gated by isEditableTarget so the autocomplete keeps its own
+  // Enter handling.
+  const applyToManyRef = useRef(applyToMany);
+  applyToManyRef.current = applyToMany;
+  const canApplyRef = useRef(false);
+  canApplyRef.current = !pending && neumeIds.length > 0 && !!className.trim();
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key !== "Enter") return;
       if (isModalOpen()) return;
       if (isEditableTarget(e.target)) return;
-      if (!canBatchRef.current) return;
+      if (!canApplyRef.current) return;
       e.preventDefault();
-      batchOpenRef.current(true);
+      void applyToManyRef.current();
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -190,7 +191,7 @@ export function MultiEditPanel({
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          setBatchOpen(true);
+          void applyToMany(className);
         }}
         className="space-y-3"
       >
@@ -202,7 +203,7 @@ export function MultiEditPanel({
             value={className}
             onChange={setClassName}
             options={classNames}
-            onApply={() => setBatchOpen(true)}
+            onApply={() => void applyToMany(className)}
           />
         </div>
         {nonNeumeCount > 0 && (
@@ -223,10 +224,9 @@ export function MultiEditPanel({
           </p>
         )}
         <Button
-          type="button"
-          variant="secondary"
+          type="submit"
+          variant="primary"
           disabled={pending || !className.trim() || neumeIds.length === 0}
-          onClick={() => void applyToMany(className)}
           className="w-full"
         >
           {pending
@@ -234,9 +234,10 @@ export function MultiEditPanel({
             : `Apply to ${neumeCount} Neume${neumeCount === 1 ? "" : "s"}`}
         </Button>
         <Button
-          type="submit"
-          variant="primary"
+          type="button"
+          variant="secondary"
           disabled={pending || neumeIds.length === 0}
+          onClick={() => setBatchOpen(true)}
           className="w-full"
         >
           Apply each in own class…
