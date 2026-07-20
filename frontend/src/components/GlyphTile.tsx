@@ -46,7 +46,7 @@ export function GlyphTile({ glyph, selected }: GlyphTileProps) {
           : selected
             ? "border-violet-600 bg-violet-200 ring-2 ring-violet-400"
             : hovered
-              ? "border-amber-400 bg-amber-50"
+              ? "border-amber-500 bg-amber-100 animate-amber-glow motion-reduce:animate-none"
               : "border-slate-200 bg-white hover:border-slate-400",
       )}
     >
