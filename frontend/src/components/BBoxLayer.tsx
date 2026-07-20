@@ -25,7 +25,7 @@ function classFor(
       : selected
         ? "fill-violet-500/35 stroke-violet-600"
         : hovered
-          ? "fill-amber-300/20 stroke-amber-500"
+          ? "fill-amber-400/40 stroke-amber-600 animate-bbox-pulse motion-reduce:animate-none"
           : "fill-transparent stroke-slate-400/70 hover:stroke-amber-500",
   );
 }
@@ -69,13 +69,13 @@ function BBoxLayerImpl({ glyphs, selectedIds, hoverId }: BBoxLayerProps) {
               y={g.uly}
               width={g.ncols}
               height={g.nrows}
-              strokeWidth={1}
+              strokeWidth={selected ? 1 : 2}
               vectorEffect="non-scaling-stroke"
               strokeDasharray="3 3"
               className={
                 selected
                   ? "fill-violet-500/20 stroke-violet-600"
-                  : "fill-amber-300/15 stroke-amber-500"
+                  : "fill-amber-400/30 stroke-amber-600 animate-bbox-pulse motion-reduce:animate-none"
               }
             />
           );
@@ -92,7 +92,7 @@ function BBoxLayerImpl({ glyphs, selectedIds, hoverId }: BBoxLayerProps) {
             y={g.uly}
             width={g.ncols}
             height={g.nrows}
-            strokeWidth={1}
+            strokeWidth={hovered && !selected ? 2.5 : 1}
             vectorEffect="non-scaling-stroke"
             className={classFor(selected, hovered, g.id_state_manual)}
             onPointerEnter={() => setHover(g.id)}
