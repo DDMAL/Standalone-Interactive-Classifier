@@ -10,7 +10,7 @@ import { useTrainingPresets } from "@/hooks/useTrainingPresets";
 import { useVocabularies, useVocabularyClasses } from "@/hooks/useVocabularies";
 import type { AnnotationFormat } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 interface UploadViewProps {
   // When set, the page image + bboxes have been staged by an embedding host
@@ -50,6 +50,26 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   });
 
   const active = stagedId ? createFromStaging : create;
+
+  // Embedded in a host (mothra): the host may have picked a training set at the
+  // batch level. Announce readiness, then adopt whatever it pushes back so the
+  // user doesn't re-select the same training set on every page — but never
+  // clobber a selection already made here.
+  useEffect(() => {
+    if (window.parent === window) return; // standalone — nothing to sync
+    function onMessage(e: MessageEvent) {
+      if (e.source !== window.parent) return;
+      const data = e.data;
+      if (data?.type !== "ic:prefill-training") return;
+      if (Array.isArray(data.presets))
+        setSelectedPresets((prev) => (prev.length ? prev : data.presets));
+      if (Array.isArray(data.files))
+        setTrainingFiles((prev) => (prev.length ? prev : data.files));
+    }
+    window.addEventListener("message", onMessage);
+    window.parent.postMessage({ type: "ic:ready" }, "*");
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -254,6 +274,16 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                 className="block w-full text-sm"
               />
             </label>
+
+            {trainingFiles.length > 0 && (
+              <ul className="space-y-0.5 text-xs text-slate-500">
+                {trainingFiles.map((f, i) => (
+                  <li key={`${f.name}-${i}`} className="truncate">
+                    {f.name}
+                  </li>
+                ))}
+              </ul>
+            )}
 
             <span className="block text-xs font-normal text-slate-400">
               {totalTrainingSets > 0
