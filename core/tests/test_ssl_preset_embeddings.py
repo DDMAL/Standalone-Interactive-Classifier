@@ -134,3 +134,34 @@ def test_extract_ssl_embeddings_rejects_glyphs_with_no_features_at_all():
 
     with pytest.raises(ValueError, match="neither a"):
         extract_ssl_embeddings(glyphs, checkpoint=None)
+
+
+SQUARE2_XML = Path(__file__).parent.parent / "data" / "presets" / "Square2.xml"
+SQUARE2_SOURCE_PAGE = (
+    TRAIN_DIR / "Einsiedeln__Stiftsbibliothek__Codex_611_014r.jpg"
+)
+
+
+def test_square2_preset_has_embeddings():
+    assert has_ssl_embeddings(SQUARE2_XML)
+
+
+def test_square2_embeddings_length_matches_preset_glyph_count():
+    glyphs = load_glyphs(SQUARE2_XML)
+    embeddings = load_ssl_embeddings(SQUARE2_XML)
+    assert embeddings is not None
+    assert embeddings.shape[0] == len(glyphs)
+
+
+def test_match_glyphs_to_source_pages_recovers_every_square2_glyph():
+    """Same recovery this preset's embeddings were generated from (see
+    core/scripts/generate_square2_ssl_embeddings.py) -- confirms the
+    committed Einsiedeln page is still the exact source for every glyph.
+    """
+    glyphs = load_glyphs(SQUARE2_XML)
+    page = np.array(Image.open(SQUARE2_SOURCE_PAGE).convert("L"))
+
+    matched = match_glyphs_to_source_pages(glyphs, [page], binarize_threshold=110)
+
+    assert len(matched) == len(glyphs)
+    assert all(g.image_gray_b64 is not None for g in matched)
