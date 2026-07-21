@@ -10,7 +10,31 @@ import { useTrainingPresets } from "@/hooks/useTrainingPresets";
 import { useVocabularies, useVocabularyClasses } from "@/hooks/useVocabularies";
 import type { AnnotationFormat } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
+
+// Default sample page, bundled under frontend/public/samples (the Hufnagel
+// test pair from core/data/test). It ships inside the frontend so it is
+// fetchable both from the Vite dev server and the single-origin production
+// build, where the API serves the built assets. Pre-loading it lets the user
+// start a session in one click; either file can still be replaced.
+const SAMPLE_IMAGE_URL = "/samples/image_hfn_sample.png";
+const SAMPLE_IMAGE_NAME = "image_hfn_sample.png";
+const SAMPLE_ANNOTATIONS_URL = "/samples/image_hfn_sample_annotations.json";
+const SAMPLE_ANNOTATIONS_NAME = "image_hfn_sample_annotations.json";
+// Preset checked by default on load, when the API offers it.
+const DEFAULT_PRESET = "Hufnagel.xml";
+
+/** Fetch a bundled asset and wrap it as a File for the upload form. */
+async function fetchAsFile(
+  url: string,
+  name: string,
+  type: string,
+): Promise<File> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to load ${name}`);
+  const blob = await res.blob();
+  return new File([blob], name, { type });
+}
 
 interface UploadViewProps {
   // When set, the page image + bboxes have been staged by an embedding host
@@ -50,6 +74,45 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   });
 
   const active = stagedId ? createFromStaging : create;
+
+  // Pre-load the bundled Hufnagel sample page so the form is ready to submit
+  // without picking files. Skipped in the staged (mothra) flow, where the page
+  // is supplied upstream. `prev ?? file` avoids clobbering anything the user
+  // selected before the async fetch resolved.
+  useEffect(() => {
+    if (stagedId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [img, ann] = await Promise.all([
+          fetchAsFile(SAMPLE_IMAGE_URL, SAMPLE_IMAGE_NAME, "image/png"),
+          fetchAsFile(
+            SAMPLE_ANNOTATIONS_URL,
+            SAMPLE_ANNOTATIONS_NAME,
+            "application/json",
+          ),
+        ]);
+        if (cancelled) return;
+        setPageImage((prev) => prev ?? img);
+        setAnnotations((prev) => prev ?? ann);
+      } catch {
+        // The sample is a convenience default; on failure just leave the
+        // inputs empty for the user to fill in.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [stagedId]);
+
+  // Default-select the Hufnagel preset once the list has loaded, if present.
+  // Gated on an empty selection so it does not fight a user's own choice, and
+  // keyed on the loaded data so unchecking it does not re-add it.
+  const presetNames = presets.data;
+  useEffect(() => {
+    if (!presetNames?.includes(DEFAULT_PRESET)) return;
+    setSelectedPresets((prev) => (prev.length === 0 ? [DEFAULT_PRESET] : prev));
+  }, [presetNames]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -167,6 +230,11 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                   onChange={(e) => setPageImage(e.target.files?.[0] ?? null)}
                   className="block w-full text-sm"
                 />
+                {pageImage && (
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Loaded: {pageImage.name}
+                  </span>
+                )}
               </label>
 
               <label className="block text-sm">
@@ -179,6 +247,11 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                   onChange={(e) => setAnnotations(e.target.files?.[0] ?? null)}
                   className="block w-full text-sm"
                 />
+                {annotations && (
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Loaded: {annotations.name}
+                  </span>
+                )}
               </label>
 
               <label className="block text-sm">
