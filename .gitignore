@@ -9,6 +9,7 @@ __pycache__/
 dist/
 build/
 .vscode/
+.idea/
 core/tests/fixtures/meta
 
 # Built frontend copied into the API's static mount. Regenerable from

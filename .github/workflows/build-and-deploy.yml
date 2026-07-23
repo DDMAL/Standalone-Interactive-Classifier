@@ -1,8 +1,4 @@
-name: Build and Push Docker Image
-
-# Builds the single-image deploy (root Dockerfile: Vite frontend + FastAPI API)
-# and pushes it to GHCR. Tags are derived from the branch name and short SHA so
-# the same workflow works for any branch it's triggered from, not just develop.
+name: Build and Deploy to Kubernetes
 
 on:
   push:
@@ -19,6 +15,8 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      sha_tag: ${{ steps.vars.outputs.sha_tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -52,3 +50,32 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ steps.vars.outputs.latest_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    # build may run via workflow_dispatch on other branches; only deploy develop.
+    if: github.ref == 'refs/heads/develop'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubeconfig
+        env:
+          KUBECONFIG_CONTENT: ${{ secrets.KUBECONFIG }}
+        run: |
+          mkdir -p "$HOME/.kube"
+          printf '%s' "$KUBECONFIG_CONTENT" > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+
+      - name: Apply manifests
+        run: kubectl apply -f k8s/interactive-classifier/
+
+      - name: Roll out freshly built image
+        run: |
+          kubectl -n interactive-classifier set image deployment/ic \
+            ic=${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.sha_tag }}
+          kubectl -n interactive-classifier rollout status deployment/ic --timeout=180s
