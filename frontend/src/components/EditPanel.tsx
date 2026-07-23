@@ -72,6 +72,17 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
   const pending = updateGlyph.isPending || classify.isPending;
   const isNeume = glyph.category === "Neumes";
 
+  // Reseed the input when the glyph's class_name changes externally — e.g. the
+  // user clicked a class in the left tree, which applies + reclassifies without
+  // remounting this panel (same primary id). Only reseed when the user hasn't
+  // typed something of their own, detected by comparing to the previous
+  // class_name. Mirrors MultiEditPanel's dominant-reseed.
+  const prevClassName = useRef(glyph.class_name);
+  useEffect(() => {
+    if (className === prevClassName.current) setClassName(glyph.class_name);
+    prevClassName.current = glyph.class_name;
+  }, [glyph.class_name, className]);
+
   // applyRef keeps the latest handleApply reachable from the window keydown
   // listener without re-binding the listener on every render.
   const applyRef = useRef<() => Promise<void>>(() => Promise.resolve());

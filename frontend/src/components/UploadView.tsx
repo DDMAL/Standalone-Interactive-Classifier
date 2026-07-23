@@ -13,7 +13,7 @@ import { useUiStore } from "@/store/uiStore";
 import type { AnnotationFormat } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 /** Adds newly-picked files to the existing selection (deduped by name+size)
  *  instead of replacing it — so picking files across multiple dialogs
@@ -145,6 +145,26 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
 
   const active = stagedId ? createFromStaging : create;
 
+  // Embedded in a host (mothra): the host may have picked a training set at the
+  // batch level. Announce readiness, then adopt whatever it pushes back so the
+  // user doesn't re-select the same training set on every page — but never
+  // clobber a selection already made here.
+  useEffect(() => {
+    if (window.parent === window) return; // standalone — nothing to sync
+    function onMessage(e: MessageEvent) {
+      if (e.source !== window.parent) return;
+      const data = e.data;
+      if (data?.type !== "ic:prefill-training") return;
+      if (Array.isArray(data.presets))
+        setSelectedPresets((prev) => (prev.length ? prev : data.presets));
+      if (Array.isArray(data.files))
+        setTrainingFiles((prev) => (prev.length ? prev : data.files));
+    }
+    window.addEventListener("message", onMessage);
+    window.parent.postMessage({ type: "ic:ready" }, "*");
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const training = trainingFiles.length > 0 ? trainingFiles : undefined;
@@ -177,8 +197,10 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     });
   }
 
-  // One-click shortcut: create the session, run a classify round, and download
-  // the page as GameraXML — no session view. Shares the same inputs as start.
+  // One-click shortcut: create the session and run a classify round over the
+  // page — no session view. Embedded in a host (mothra), it hands the page to
+  // the host's encode queue; standalone, it downloads the GameraXML. Shares
+  // the same inputs as start.
   function handleAutoExport() {
     const training = trainingFiles.length > 0 ? trainingFiles : undefined;
     const embeddings =
@@ -216,11 +238,14 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     });
   }
 
+  // Embedded in a host (mothra) via iframe → "queue page" semantics; standalone
+  // → "auto-export" (download). Drives the button's wording only.
+  const embedded = window.parent !== window;
   const anyPending = active.isPending || autoExport.isPending;
   const inputsMissing = stagedId ? !staging.data : !pageImage || !annotations;
   const submitDisabled = anyPending || inputsMissing || uploadNeedsSslCompanion;
-  // Auto-export always runs a classify round, which needs a non-empty training
-  // pool — so grey it out until the user picks a preset or uploads a set.
+  // Queueing/auto-export always runs a classify round, which needs a non-empty
+  // training pool — so grey it out until the user picks a preset or uploads a set.
   const autoExportDisabled = submitDisabled || totalTrainingSets === 0;
 
   return (
@@ -584,7 +609,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
               {(autoExport.error as Error).message}
             </p>
           )}
-          {autoExport.isSuccess && (
+          {autoExport.isSuccess && !embedded && (
             <p className="text-sm text-green-600">
               Exported {autoExport.data}.
             </p>
@@ -599,11 +624,21 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
               className="flex-1"
               title={
                 totalTrainingSets === 0
-                  ? "Add a preset or upload a training set to enable auto-export"
-                  : "Create the session, run one classification round, and download the page as GameraXML"
+                  ? embedded
+                    ? "Add a preset or upload a training set to enable queuing"
+                    : "Add a preset or upload a training set to enable auto-export"
+                  : embedded
+                    ? "Classify the page with the training set and add it straight to the encode queue"
+                    : "Create the session, run one classification round, and download the page as GameraXML"
               }
             >
-              {autoExport.isPending ? "Auto-exporting…" : "Auto-export"}
+              {autoExport.isPending
+                ? embedded
+                  ? "Queuing…"
+                  : "Auto-exporting…"
+                : embedded
+                  ? "Queue page"
+                  : "Auto-export"}
             </Button>
             <Button type="submit" disabled={submitDisabled} className="flex-1">
               {active.isPending ? "Uploading…" : "Start session"}

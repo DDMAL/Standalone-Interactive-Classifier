@@ -79,6 +79,7 @@ from ic_core.ingest import (
     binarize_page,
     ingest_page,
 )
+from ic_core.classifier import UNCLASSIFIED, filter_parts
 from ic_core.glyph import CATEGORY_NEUMES
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
 from ic_core.ssl_preset_embeddings import (
@@ -999,7 +1000,9 @@ async def create_session_from_staging(
 
 
 @app.get("/sessions", response_model=list[SessionSummaryDTO])
-def list_sessions(store: Store) -> list[SessionSummaryDTO]:
+def list_sessions(
+    store: Store, project_id: int | None = None
+) -> list[SessionSummaryDTO]:
     """List stored sessions as lightweight summaries, most-recent first.
 
     Powers the standalone frontend's "resume a saved session" list: the
@@ -1009,10 +1012,18 @@ def list_sessions(store: Store) -> list[SessionSummaryDTO]:
     user pick. Summaries omit glyph masks and the page image; the client
     fetches the full session via :func:`get_session` on open.
 
+    When ``project_id`` is given, only sessions staged for that project are
+    returned — this is how mothra's per-project "saved sessions" management
+    view scopes the otherwise-global list so it never surfaces (or lets a
+    user delete) another project's sessions.
+
     Against the in-memory store this reflects only sessions created since
     the last restart; against the persistent store it spans restarts and
     carries an ``updated_at`` timestamp.
     """
+    summaries = store.list_sessions()
+    if project_id is not None:
+        summaries = [s for s in summaries if s.project_id == project_id]
     return [
         SessionSummaryDTO(
             id=s.id,
@@ -1023,7 +1034,7 @@ def list_sessions(store: Store) -> list[SessionSummaryDTO]:
             project_id=s.project_id,
             image_id=s.image_id,
         )
-        for s in store.list_sessions()
+        for s in summaries
     ]
 
 
@@ -1345,9 +1356,19 @@ def _select_export_glyphs(
     Shared by :func:`complete_session` and :func:`export_session_embeddings`
     so a companion ``.ssl_embeddings.npz`` downloaded with the same section
     flags as a GameraXML export lines up with it row-for-row: both iterate
-    ``session.glyphs``/``session.training_glyphs`` in the same order, and
-    neither reorders or sorts.
+    the same underlying (hygiene-applied) glyph lists in the same order,
+    and neither reorders or sorts.
+
+    Export-time hygiene is applied to the *selected* glyphs only, so the
+    live session itself is left untouched (and re-editable): strip
+    transient ``_group``/``_delete`` parts, and drop UNCLASSIFIED training
+    entries that snuck in via the original training XML.
     """
+    page_glyphs = filter_parts(session.glyphs)
+    training_glyphs = [
+        g for g in filter_parts(session.training_glyphs) if g.class_name != UNCLASSIFIED
+    ]
+
     selected: list = []
     seen: set[str] = set()
 
@@ -1358,23 +1379,23 @@ def _select_export_glyphs(
                 selected.append(g)
 
     if page:
-        add(session.glyphs)
+        add(page_glyphs)
     if manual_neumes:
         add(
             g
-            for g in session.glyphs
+            for g in page_glyphs
             if g.category == CATEGORY_NEUMES and g.id_state_manual
         )
     if preset_training:
         add(
             g
-            for g in session.training_glyphs
+            for g in training_glyphs
             if g.id in session.preset_training_ids
         )
     if uploaded_training:
         add(
             g
-            for g in session.training_glyphs
+            for g in training_glyphs
             if g.id in session.uploaded_training_ids
         )
     return selected
@@ -1389,11 +1410,13 @@ def complete_session(
     preset_training: bool = False,
     uploaded_training: bool = False,
 ) -> Response:
-    """Finalise the session and stream back the GameraXML export.
+    """Stream back the GameraXML export for the session.
 
-    The session transitions to ``EXPORT`` (terminal). The frontend
-    should treat the returned XML as the canonical artefact for
-    downstream MEI pipelines.
+    Exporting does **not** finalise the session — it stays in
+    ``CLASSIFYING`` and fully editable, so the user can keep correcting
+    and re-export as many times as they like (and resume the page
+    later). The returned XML is a snapshot of the current working set,
+    the canonical artefact for downstream MEI pipelines.
 
     The caller picks which sections to fold into a single GameraXML
     document via independent boolean flags (the export screen's
@@ -1411,15 +1434,15 @@ def complete_session(
     glyph twice). At least one flag must be set, else 400.
 
     Response body is ``application/xml``, not JSON, because the XML
-    *is* the deliverable. The session remains in the store so the
-    caller can ``DELETE`` it explicitly once they've saved the file.
+    *is* the deliverable. The session remains in the store, still
+    editable, so the caller can re-export or ``DELETE`` it explicitly
+    once they've saved the file.
     """
     if not (page or manual_neumes or preset_training or uploaded_training):
         raise ValueError(
             "Select at least one section to include in the export."
         )
     with store.session(session_id) as session:
-        session.complete()
         selected = _select_export_glyphs(
             session, page, manual_neumes, preset_training, uploaded_training
         )

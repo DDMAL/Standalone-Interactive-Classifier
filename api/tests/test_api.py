@@ -422,7 +422,10 @@ def test_manual_split_all_regions_miss_returns_400(client):
     assert parent["id"] in ids
 
 
-def test_manual_split_after_complete_returns_409(client):
+def test_manual_split_after_complete_still_works(client):
+    """/complete is a snapshot export, not a finalization -- the session
+    stays CLASSIFYING and editable, so the user can keep correcting and
+    re-export as many times as they like."""
     sid = _create_session(client)
     parent = _pick_split_target(client, sid)
     # Seed a manual label so /complete has something meaningful to export.
@@ -436,8 +439,7 @@ def test_manual_split_after_complete_returns_409(client):
         f"/sessions/{sid}/glyphs/{parent['id']}/split",
         json={"regions": [[parent["ulx"], parent["uly"], 1, 1]]},
     )
-    assert response.status_code == 409
-    assert response.json()["code"] == "state_conflict"
+    assert response.status_code == 200
 
 
 def test_auto_group_returns_501(client):
@@ -543,18 +545,21 @@ def test_lookup_404_for_unknown_page(client):
     assert found.status_code == 404
 
 
-def test_lookup_skips_completed_sessions(client):
+def test_lookup_still_finds_session_after_complete(client):
+    """/complete is a snapshot export, not a finalization -- the session
+    stays CLASSIFYING, so a host embedding it can still look it up (e.g.
+    to resume editing) after an export."""
     staging_id = _stage(client, project_id=8, image_id="img-done")
     sid = client.post(
         "/sessions/from-staging", data={"staging_id": staging_id}
     ).json()["id"]
-    # A completed session is terminal (EXPORT) → not offered for resume.
     done = client.post(f"/sessions/{sid}/complete", params={"page": True})
     assert done.status_code == 200, done.text
     found = client.get(
         "/sessions/lookup", params={"project_id": 8, "image_id": "img-done"}
     )
-    assert found.status_code == 404
+    assert found.status_code == 200
+    assert found.json()["session_id"] == sid
 
 
 # ---------------------------------------------------------------------------
@@ -597,7 +602,7 @@ def test_list_sessions_drops_deleted_session(client):
     assert all(row["id"] != sid for row in response.json())
 
 
-def test_list_sessions_includes_completed_sessions(client):
+def test_list_sessions_includes_exported_sessions(client):
     sid = _create_session(client)
     g = client.get(f"/sessions/{sid}").json()["glyphs"][0]
     client.post(
@@ -606,10 +611,10 @@ def test_list_sessions_includes_completed_sessions(client):
     )
     assert client.post(f"/sessions/{sid}/complete?page=true").status_code == 200
 
-    # Unlike /sessions/lookup, the list surfaces completed sessions (state
-    # exposed) so the user can still reopen a finished page read-only.
+    # /complete is a snapshot export, not a finalization -- the session
+    # stays CLASSIFYING and keeps showing up (still editable) in the list.
     row = next(r for r in client.get("/sessions").json() if r["id"] == sid)
-    assert row["state"] == "export"
+    assert row["state"] == "classifying"
 
 
 def test_clear_sessions_removes_all(client):
@@ -631,10 +636,13 @@ def test_clear_sessions_empty_store_is_a_noop(client):
     assert response.json() == {"deleted": 0}
 
 
-def test_complete_returns_xml_and_transitions_to_export(client):
+def test_complete_returns_xml_and_session_stays_editable(client):
     sid = _create_session(client)
-    # Need at least one labelled glyph for export to be meaningful.
-    g = client.get(f"/sessions/{sid}").json()["glyphs"][0]
+    # Need at least one labelled *neume* glyph -- kNN only trains on
+    # Neumes-category glyphs, so labelling glyphs[0] blindly could hit a
+    # Text/Staves glyph and leave the training pool empty.
+    glyphs = client.get(f"/sessions/{sid}").json()["glyphs"]
+    g = next(g for g in glyphs if g["category"] == "Neumes")
     client.post(
         f"/sessions/{sid}/glyphs/{g['id']}",
         json={"class_name": "neume.A", "id_state_manual": True},
@@ -655,10 +663,11 @@ def test_complete_returns_xml_and_transitions_to_export(client):
         == 'attachment; filename="ic-session-annotations-page.xml"'
     )
 
-    # Subsequent mutating endpoints should now 409 (state conflict).
-    classify_resp = client.post(f"/sessions/{sid}/classify", json={})
-    assert classify_resp.status_code == 409
-    assert classify_resp.json()["code"] == "state_conflict"
+    # /complete is a snapshot export, not a finalization -- the session
+    # stays CLASSIFYING and mutating endpoints keep working (k=1 since
+    # this test only seeded one manually-labelled training glyph).
+    classify_resp = client.post(f"/sessions/{sid}/classify", json={"k": 1})
+    assert classify_resp.status_code == 200
 
 
 def test_complete_export_filename_derives_from_uploaded_name(client):
@@ -702,10 +711,9 @@ def test_complete_requires_at_least_one_section(client):
 
 
 def test_complete_is_repeatable_for_multiple_exports(client):
-    # The export menu can download several section combinations from the same
-    # finalised session. Completing is a one-shot cleanup, but the download
-    # must stay repeatable — a second /complete re-serialises rather than
-    # 409ing.
+    # The export menu can download several section combinations from the
+    # same session -- /complete is a snapshot, not a one-shot finalization,
+    # so repeated calls with different flags must all keep working.
     sid = _create_session(client)
 
     first = client.post(f"/sessions/{sid}/complete?page=true")
@@ -716,8 +724,10 @@ def test_complete_is_repeatable_for_multiple_exports(client):
     assert second.status_code == 200
     assert second.content.startswith(b"<?xml")
 
-    # Mutations remain forbidden after completion.
-    assert client.post(f"/sessions/{sid}/classify", json={}).status_code == 409
+    # The session stays editable across repeated exports (not blocked by a
+    # terminal-state conflict; a 400 here would be about the empty training
+    # pool, not about the session being closed).
+    assert client.post(f"/sessions/{sid}/classify", json={"k": 1}).status_code != 409
 
 
 # ---------------------------------------------------------------------------

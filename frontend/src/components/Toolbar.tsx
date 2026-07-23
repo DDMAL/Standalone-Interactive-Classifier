@@ -56,7 +56,6 @@ export function Toolbar({
   const classify = useClassify(sessionId);
   const rebinarize = useRebinarize(sessionId);
   const undoApply = useUndoApply(sessionId);
-  const clearSession = useUiStore((s) => s.clearSession);
   const knnK = useUiStore((s) => s.knnK);
   const undoStack = useUiStore((s) => s.undoStack);
   const setKnnK = useUiStore((s) => s.setKnnK);
@@ -102,14 +101,6 @@ export function Toolbar({
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
       <div className="flex items-baseline gap-3">
-        <button
-          type="button"
-          onClick={() => clearSession()}
-          title="Return to the main page"
-          className="font-semibold text-slate-800 transition-colors hover:text-blue-600"
-        >
-          Interactive Classifier
-        </button>
         <span className="text-sm text-slate-500">{glyphCount} glyphs</span>
       </div>
       <div className="flex items-center gap-2">
@@ -128,8 +119,8 @@ export function Toolbar({
                 className={clsx(
                   "px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                   value === binarizationMethod
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-slate-700 hover:bg-slate-100",
+                    ? "bg-mothra-cyan text-white"
+                    : "bg-white text-slate-700 hover:bg-mothra-cyan-faint",
                 )}
               >
                 {label}
@@ -154,8 +145,8 @@ export function Toolbar({
                 className={clsx(
                   "px-2 py-0.5 text-xs font-medium transition-colors",
                   value === glyphImageMode
-                    ? "bg-blue-600 text-white"
-                    : "bg-white text-slate-700 hover:bg-slate-100",
+                    ? "bg-mothra-cyan text-white"
+                    : "bg-white text-slate-700 hover:bg-mothra-cyan-faint",
                 )}
               >
                 {label}
@@ -203,8 +194,8 @@ export function Toolbar({
                   className={clsx(
                     "px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                     k === knnK
-                      ? "bg-blue-600 text-white"
-                      : "bg-white text-slate-700 hover:bg-slate-100",
+                      ? "bg-mothra-cyan text-white"
+                      : "bg-white text-slate-700 hover:bg-mothra-cyan-faint",
                   )}
                 >
                   {k}
@@ -229,7 +220,7 @@ export function Toolbar({
                   ? `Needs at least ${knnK} training glyphs (have ${trainingSize})`
                   : `Re-run classification with the ${classifierBackend === "knn" ? "HC + kNN" : "Pre-trained + LR"} model`
             }
-            className="px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 bg-blue-600 text-white hover:bg-blue-700 rounded"
+            className="px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 bg-mothra-cyan text-white hover:bg-mothra-cyan-dark rounded"
           >
             {classify.isPending ? "Classifying…" : "↺ Reclassify"}
           </button>
@@ -261,9 +252,6 @@ export function Toolbar({
           }
         >
           {undoApply.isPending ? "Undoing…" : "Undo"}
-        </Button>
-        <Button variant="ghost" onClick={() => clearSession()}>
-          New session
         </Button>
         <ExportMenu
           pending={complete.isPending}
@@ -432,7 +420,7 @@ function ExportMenu({
   return (
     <div ref={ref} className="relative">
       <Button onClick={() => setOpen((v) => !v)} disabled={pending}>
-        {pending ? "Exporting…" : "Complete & Export ▾"}
+        {pending ? "Exporting…" : "Export ▾"}
       </Button>
       {open && (
         <div className="absolute right-0 z-10 mt-1 w-80 overflow-hidden rounded border border-slate-200 bg-white shadow-lg">
