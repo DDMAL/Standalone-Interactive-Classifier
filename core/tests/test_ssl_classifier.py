@@ -144,3 +144,52 @@ def test_default_backend_unaffected_by_ssl_addition(real_glyphs):
 
     assert isinstance(classifier, InteractiveClassifier)
     assert len(new_glyphs) == len(query_glyphs)
+
+
+def test_fits_with_one_example_per_class(real_glyphs):
+    """CalibratedClassifierCV needs >=cv examples per class for stratified
+    CV -- unlike the LogisticRegression this replaced, which had no such
+    floor. A real session can start with exactly one labelled example per
+    class, so this must degrade gracefully (uncalibrated SVC, confidence=1.0)
+    rather than raise sklearn's "n_splits cannot be greater than the
+    number of members in each class" error.
+    """
+    two_glyphs = [
+        replace(real_glyphs[0], class_name="solo.a", id_state_manual=True),
+        replace(real_glyphs[1], class_name="solo.b", id_state_manual=True),
+    ]
+    query = [replace(g, class_name=UNCLASSIFIED, id_state_manual=False, confidence=0.0)
+             for g in real_glyphs[2:5]]
+
+    new_glyphs, classifier = run_correction_stage(
+        query, two_glyphs, classifier_factory=SSLFusionClassifier
+    )
+
+    assert classifier._calibrated is False
+    for g in new_glyphs:
+        assert g.class_name in ("solo.a", "solo.b")
+        assert g.confidence == 1.0
+
+
+def test_fits_with_few_examples_per_class_shrinks_cv(real_glyphs):
+    """3 examples/class is enough to calibrate (cv shrinks to 3), but would
+    have hit the same n_splits error at the default cv=5.
+    """
+    by_label: dict[str, list] = {}
+    for g in real_glyphs:
+        by_label.setdefault(g.class_name, []).append(g)
+    two_classes = [c for c, gs in by_label.items() if len(gs) >= 4][:2]
+    assert len(two_classes) == 2, "fixture should have at least 2 classes with >=4 examples"
+
+    training = [g for c in two_classes for g in by_label[c][:3]]
+    query = [
+        replace(g, class_name=UNCLASSIFIED, id_state_manual=False, confidence=0.0)
+        for c in two_classes for g in by_label[c][3:4]
+    ]
+
+    new_glyphs, classifier = run_correction_stage(
+        query, training, classifier_factory=SSLFusionClassifier
+    )
+
+    assert classifier._calibrated is True
+    assert len(new_glyphs) == len(query)

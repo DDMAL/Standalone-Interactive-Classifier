@@ -29,6 +29,7 @@ parameter).
 """
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 from typing import Sequence
 
@@ -92,6 +93,7 @@ class SSLFusionClassifier:
         self._clf = None
         self._classes: tuple[str, ...] = ()
         self._training_size = 0
+        self._calibrated = False
 
     # ------------------------------------------------------------------
     # Introspection -- mirrors InteractiveClassifier's public surface
@@ -214,9 +216,26 @@ class SSLFusionClassifier:
         # SVC(probability=True) directly: same Platt-scaling probability
         # estimates, but not on sklearn's deprecation path (probability=True
         # is slated for removal in a future release).
-        clf = CalibratedClassifierCV(
-            SVC(C=self.C, kernel="rbf", class_weight="balanced"), ensemble=False
-        )
+        #
+        # Calibration needs stratified CV, which needs every class to have
+        # at least `cv` examples -- unlike the LogisticRegression this
+        # replaced, which had no such floor and fit fine on a single
+        # example per class. Real sessions often start there (a user has
+        # only just begun labelling), so this must degrade gracefully
+        # rather than raise: shrink `cv` to the rarest class's count, and
+        # below 2 (where no CV split is even possible) skip calibration
+        # entirely -- fit an uncalibrated SVC and report a fixed
+        # confidence, matching the "no predict_proba" fallback pattern
+        # used elsewhere in this codebase's classifier wrappers.
+        counts = Counter(y.tolist())
+        min_class_count = min(counts.values())
+        base = SVC(C=self.C, kernel="rbf", class_weight="balanced")
+        if min_class_count < 2:
+            clf = base
+            self._calibrated = False
+        else:
+            clf = CalibratedClassifierCV(base, cv=min(5, min_class_count), ensemble=False)
+            self._calibrated = True
         clf.fit(X, y)
 
         self._clf = clf
@@ -235,8 +254,19 @@ class SSLFusionClassifier:
             return []
 
         X = self._fused_features(glyphs, fit_scalers=False)
-        proba = self._clf.predict_proba(X)
         classes = self._clf.classes_
+        if self._calibrated:
+            proba = self._clf.predict_proba(X)
+        else:
+            # Fit skipped calibration (a class had <2 training examples) --
+            # no predict_proba available. One-hot the hard prediction with
+            # confidence=1.0, same fallback other classifier wrappers in
+            # this codebase use when proba isn't available.
+            preds = self._clf.predict(X)
+            proba = np.zeros((len(glyphs), len(classes)))
+            class_index = {c: i for i, c in enumerate(classes)}
+            for i, p in enumerate(preds):
+                proba[i, class_index[p]] = 1.0
         pred_idx = proba.argmax(axis=1)
 
         return [
