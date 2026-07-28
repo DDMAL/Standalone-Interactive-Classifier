@@ -54,7 +54,7 @@ def main() -> None:
         raise SystemExit("Set IC_SSL_CHECKPOINT to the epoch_005 checkpoint directory.")
 
     glyphs = load_glyphs(PRESET_XML)
-    page = np.array(Image.open(SOURCE_PAGE).convert("L"))
+    page = np.array(Image.open(SOURCE_PAGE).convert("RGB"))
 
     matched = match_glyphs_to_source_pages(
         glyphs, [page], binarize_threshold=BINARIZE_THRESHOLD

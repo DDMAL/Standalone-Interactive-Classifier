@@ -56,11 +56,16 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _attach_real_crops(glyphs, page_gray: np.ndarray):
-    """Slice the real page at each glyph's bbox and attach image_gray_b64."""
+def _attach_real_crops(glyphs, page_color: np.ndarray):
+    """Slice the real page at each glyph's bbox and attach image_gray_b64.
+
+    ``page_color`` is RGB, matching what production ingest now stores
+    (the DINO SimCLR checkpoint was trained on real colour crops, not
+    greyscale-replicated-to-RGB ones -- see ``ic_core.ingest._load_page_color``).
+    """
     out = []
     for g in glyphs:
-        crop = page_gray[g.uly : g.uly + g.nrows, g.ulx : g.ulx + g.ncols]
+        crop = page_color[g.uly : g.uly + g.nrows, g.ulx : g.ulx + g.ncols]
         out.append(replace(g, image_gray_b64=grayscale_array_to_png_base64(crop)))
     return out
 
@@ -74,9 +79,9 @@ def real_glyphs():
     assert len(glyphs) > 20, "expected a real, non-trivial glyph set"
 
     with Image.open(PAGE_PATH) as im:
-        page_gray = np.asarray(im.convert("L"))
+        page_color = np.asarray(im.convert("RGB"))
 
-    return _attach_real_crops(glyphs, page_gray)
+    return _attach_real_crops(glyphs, page_color)
 
 
 def test_ssl_fusion_classifier_end_to_end(real_glyphs):

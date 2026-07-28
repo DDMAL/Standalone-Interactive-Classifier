@@ -326,6 +326,7 @@ def ingest_page_json(
         window_size=window_size,
         k=k,
     )
+    color_page = _load_page_color(page_image) if store_real_crop else None
 
     return [
         _crop_to_glyph(
@@ -336,7 +337,7 @@ def ingest_page_json(
             height=int(round(a["bbox"][3])),
             glyph_id=_normalise_uuid(a["id"]),
             category=_MOTHRA_CLASS_TO_CATEGORY.get(a.get("classId"), CATEGORY_NEUMES),
-            grey_page=grey_page if store_real_crop else None,
+            color_page=color_page,
         )
         for a in annotations
     ]
@@ -377,6 +378,7 @@ def ingest_page_yolo(
         window_size=window_size,
         k=k,
     )
+    color_page = _load_page_color(page_image) if store_real_crop else None
     img_h, img_w = mask.shape
 
     glyphs: list[Glyph] = []
@@ -390,7 +392,7 @@ def ingest_page_yolo(
                 height=height,
                 glyph_id=None,  # fresh UUID — YOLO has none to inherit
                 category=_MOTHRA_CLASS_TO_CATEGORY.get(int(_class)+1, CATEGORY_NEUMES),
-                grey_page=grey_page if store_real_crop else None,
+                color_page=color_page,
             )
         )
     return glyphs
@@ -436,6 +438,20 @@ def _load_page(page_image: bytes) -> np.ndarray:
         return np.asarray(grey)
 
 
+def _load_page_color(page_image: bytes) -> np.ndarray:
+    """Load the page image as an 8-bit RGB ``numpy.ndarray``.
+
+    Used only for the ``store_real_crop`` path -- the SSL feature
+    extractor's DINO SimCLR checkpoint was trained on real colour
+    manuscript photographs (see ``prepare_ssl_crops.py``), so the
+    real-pixel crop it consumes at inference must preserve colour
+    too, not the greyscale-then-fake-RGB-replicated image
+    :func:`_load_page` produces for binarisation.
+    """
+    with PILImage.open(io.BytesIO(page_image)) as im:
+        return np.asarray(im.convert("RGB"))
+
+
 def _crop_to_glyph(
     page_mask: np.ndarray,
     *,
@@ -445,7 +461,7 @@ def _crop_to_glyph(
     height: int,
     glyph_id: str | None,
     category: str = CATEGORY_NEUMES,
-    grey_page: np.ndarray | None = None,
+    color_page: np.ndarray | None = None,
 ) -> Glyph:
     """Slice ``page_mask[uly:uly+h, ulx:ulx+w]`` and wrap it as a Glyph.
 
@@ -460,9 +476,12 @@ def _crop_to_glyph(
     detector occasionally rounds outward), but its actual footprint
     is whatever fell inside the page.
 
-    ``grey_page``, if given, is sliced with the same clamped bbox and
-    stored on the glyph as ``image_gray_b64`` -- see ``ingest_page``'s
-    ``store_real_crop`` argument.
+    ``color_page``, if given, is an ``(H, W, 3)`` RGB array sliced with
+    the same clamped bbox and stored on the glyph as ``image_gray_b64``
+    -- see ``ingest_page``'s ``store_real_crop`` argument and
+    :func:`_load_page_color`. Named for historical reasons (the field
+    predates colour support); it holds real colour pixels, not a
+    greyscale crop.
     """
     img_h, img_w = page_mask.shape
 
@@ -486,12 +505,12 @@ def _crop_to_glyph(
         nrows, ncols = mask.shape
 
     image_gray_b64 = None
-    if grey_page is not None:
+    if color_page is not None:
         if x1 <= x0 or y1 <= y0:
-            grey_crop = np.full((1, 1), 255, dtype=np.uint8)
+            color_crop = np.full((1, 1, 3), 255, dtype=np.uint8)
         else:
-            grey_crop = grey_page[y0:y1, x0:x1]
-        image_gray_b64 = grayscale_array_to_png_base64(grey_crop)
+            color_crop = color_page[y0:y1, x0:x1]
+        image_gray_b64 = grayscale_array_to_png_base64(color_crop)
 
     return Glyph.new(
         id=glyph_id,

@@ -78,18 +78,19 @@ def main() -> None:
     if not checkpoint:
         raise SystemExit("Set IC_SSL_CHECKPOINT to the epoch_005 checkpoint directory.")
 
-    pages = [np.array(Image.open(p).convert("L")) for p in SOURCE_PAGES]
+    pages = [np.array(Image.open(p).convert("RGB")) for p in SOURCE_PAGES]
+    grey_pages = [np.array(Image.open(p).convert("L")) for p in SOURCE_PAGES]
 
     glyphs = []
     unmatched = 0
     for uly, ulx, nrows, ncols, rle in _parse_preset_glyphs(PRESET_XML):
         mask = _decode_rle_mask(rle, nrows, ncols)
         best_page, best_match = None, 0.0
-        for page in pages:
+        for page, grey_page in zip(pages, grey_pages):
             if uly + nrows > page.shape[0] or ulx + ncols > page.shape[1]:
                 continue
-            crop = page[uly : uly + nrows, ulx : ulx + ncols]
-            match = ((crop <= BINARIZE_THRESHOLD).astype(int) == mask).mean()
+            grey_crop = grey_page[uly : uly + nrows, ulx : ulx + ncols]
+            match = ((grey_crop <= BINARIZE_THRESHOLD).astype(int) == mask).mean()
             if match > best_match:
                 best_match, best_page = match, page
         if best_match < 0.98:

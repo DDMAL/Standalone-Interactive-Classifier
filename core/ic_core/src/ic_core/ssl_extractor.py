@@ -67,7 +67,8 @@ def crop_glyph_to_square(glyph: Glyph, padding: int = 4) -> Image.Image:
             "SSL feature extractor on this glyph."
         )
     arr = png_base64_to_array(glyph.image_gray_b64)
-    img = Image.fromarray(arr, mode="L").convert("RGB")
+    mode = "L" if arr.ndim == 2 else "RGB"
+    img = Image.fromarray(arr, mode=mode).convert("RGB")
     side = max(img.width, img.height, 16) + 2 * padding
     return ImageOps.pad(img, (side, side), color=(255, 255, 255))
 

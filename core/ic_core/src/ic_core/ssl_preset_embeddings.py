@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Sequence
 
 import numpy as np
+from PIL import Image as PILImage
 
 from ic_core.glyph import Glyph
 from ic_core.image import grayscale_array_to_png_base64
@@ -108,13 +109,22 @@ def match_glyphs_to_source_pages(
     binarising that crop the same way ``ic_core.ingest`` does by default
     and comparing it pixel-for-pixel against the glyph's own mask
     (``glyph.to_array()``). If some page agrees on at least ``threshold``
-    of pixels, that page's *real* (non-binarised) crop is attached as the
-    glyph's ``image_gray_b64``, unlocking it for the ``ssl_fusion``
+    of pixels, that page's *real* (non-binarised, colour) crop is attached
+    as the glyph's ``image_gray_b64``, unlocking it for the ``ssl_fusion``
     backend. This is exactly how ``Hufnagel.ssl_embeddings.npz`` was
     generated (see ``core/scripts/generate_hufnagel_ssl_embeddings.py``),
     generalised so an uploaded GameraXML training file can work with
     ssl_fusion as long as its original source page(s) are uploaded
     alongside it.
+
+    ``page_arrays`` should be ``(H, W, 3)`` RGB arrays -- the DINO SimCLR
+    checkpoint the ssl_fusion backend uses was trained on real colour
+    manuscript photographs, so the crop attached here must preserve
+    colour too. Mask verification still happens on a greyscale
+    (luminance) view of each page internally; only the attached crop
+    itself is colour. ``(H, W)`` greyscale arrays are also accepted for
+    backward compatibility, but lose the colour information the model
+    was trained on.
 
     Glyphs with no page clearing the threshold are returned unchanged (no
     crop attached) -- callers already treat a glyph with neither
@@ -122,14 +132,25 @@ def match_glyphs_to_source_pages(
     a partial match across a page pool degrades gracefully rather than
     failing outright.
     """
+    # Grey views used only for mask verification, computed once per page via
+    # PIL's actual convert("L") -- matching this pixel-for-pixel against
+    # ic_core.ingest's own greyscale conversion matters, since a manual
+    # luma-weight formula rounds slightly differently and can drop
+    # otherwise-correct matches right at `threshold`.
+    grey_pages = [
+        page if page.ndim == 2
+        else np.asarray(PILImage.fromarray(page.astype(np.uint8), mode="RGB").convert("L"))
+        for page in page_arrays
+    ]
+
     out = []
     for g in glyphs:
         mask = g.to_array()
         best_page, best_match = None, 0.0
-        for page in page_arrays:
+        for page, grey_page in zip(page_arrays, grey_pages):
             if g.uly + g.nrows > page.shape[0] or g.ulx + g.ncols > page.shape[1]:
                 continue
-            crop = page[g.uly : g.uly + g.nrows, g.ulx : g.ulx + g.ncols]
+            crop = grey_page[g.uly : g.uly + g.nrows, g.ulx : g.ulx + g.ncols]
             match = ((crop <= binarize_threshold) == mask).mean()
             if match > best_match:
                 best_match, best_page = match, page

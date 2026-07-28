@@ -370,7 +370,7 @@ async def _parse_training_files(
     for img in training_images or []:
         try:
             page_arrays.append(
-                np.array(Image.open(io.BytesIO(await img.read())).convert("L"))
+                np.array(Image.open(io.BytesIO(await img.read())).convert("RGB"))
             )
         except Exception as e:
             raise ValueError(f"{img.filename!r} is not a readable image: {e}") from e
