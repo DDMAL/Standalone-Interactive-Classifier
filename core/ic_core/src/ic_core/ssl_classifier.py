@@ -8,16 +8,31 @@ requires ``scikit-learn`` (and, transitively via
 which are core dependencies of this package -- install them via the
 ``ssl`` extra (``pip install ic-core[ssl]``) before using this module.
 
-Model selection summary (see the accompanying paper/report for the
-full methodology): DINO SimCLR checkpoint at epoch 5, final-layer
+Model selection summary: DINO SimCLR checkpoint at epoch 5, final-layer
 CLS+mean pooling, fused with 29-dim handcrafted features via weighted
-concatenation (HC block scaled by ``hc_weight=3.0`` before
-concatenation, to correct for the 768:29 dimensionality imbalance
-between the two feature blocks), classified with an RBF-kernel SVM
-(``C=3.0``) -- re-selected via leave-one-manuscript-out cross-validation
-across the full production corpus (Hufnagel, Antiphonal, NZ-Wt MSR-03,
-and McGill MS234; nothing held out, since this is the deployed config
-rather than the paper's honest-generalization estimate).
+concatenation (HC block scaled by ``hc_weight=4.0`` before
+concatenation, correcting for the 768:29 dimensionality imbalance
+between the two blocks), classified with a linear-kernel SVM
+(``C=1.0``).
+
+Real-pixel crops (``Glyph.image_gray_b64``, despite the name) are
+colour, not greyscale -- the checkpoint was trained on real colour
+manuscript photographs (see ``prepare_ssl_crops.py``), and feeding it
+a greyscale-then-channel-replicated image is a different input
+distribution than what it saw during pretraining. See
+``ic_core.ingest._load_page_color``.
+
+Re-selected via leave-one-manuscript-out cross-validation across
+Hufnagel, MS234, and Antiphonal+NZ-Wt MSR-03 (each held out in turn,
+trained on the other two), plus a single-manuscript stress test
+(training on only 2 pages of one manuscript, testing on its third
+page) -- both with real colour crops. An RBF kernel was deployed here
+previously; it collapses onto majority classes whenever trained on a
+single small/imbalanced manuscript (the common real case: a user
+selecting one training preset), and this linear config beat it on
+every re-test, including being the first configuration tested to
+beat the plain handcrafted-feature kNN baseline on the
+single-manuscript stress test (79.4% vs. 77.0%).
 
 Exposes the same public shape as
 :class:`ic_core.classifier.InteractiveClassifier` --
@@ -41,8 +56,8 @@ from ic_core.glyph import Glyph
 
 #: Selected via cross-validation -- see module docstring. Not re-tuned
 #: per deployment; override via the constructor if you have reason to.
-DEFAULT_HC_WEIGHT: float = 3.0
-DEFAULT_C: float = 3.0
+DEFAULT_HC_WEIGHT: float = 4.0
+DEFAULT_C: float = 1.0
 
 
 def _require_sklearn():
@@ -57,7 +72,7 @@ def _require_sklearn():
 
 
 class SSLFusionClassifier:
-    """SSL+HC fused features, classified with an RBF-kernel SVM.
+    """SSL+HC fused features, classified with a linear-kernel SVM.
 
     Args:
         checkpoint: Path to the DINO SimCLR fine-tuned checkpoint
@@ -229,7 +244,7 @@ class SSLFusionClassifier:
         # used elsewhere in this codebase's classifier wrappers.
         counts = Counter(y.tolist())
         min_class_count = min(counts.values())
-        base = SVC(C=self.C, kernel="rbf", class_weight="balanced")
+        base = SVC(C=self.C, kernel="linear", class_weight="balanced")
         if min_class_count < 2:
             clf = base
             self._calibrated = False
