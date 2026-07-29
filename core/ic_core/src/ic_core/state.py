@@ -41,7 +41,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Iterable
+from typing import Iterable, Literal
 
 import numpy as np
 
@@ -262,7 +262,12 @@ class Session:
     # CLASSIFYING operations
     # ------------------------------------------------------------------
 
-    def classify(self, *, k: int = DEFAULT_K) -> None:
+    def classify(
+        self,
+        *,
+        k: int = DEFAULT_K,
+        backend: Literal["knn", "ssl_fusion"] = "knn",
+    ) -> None:
         """Run a full classify round and replace ``glyphs`` with the result.
 
         Mirrors the legacy ``CLASSIFYING`` stage (wrapper.py lines
@@ -272,11 +277,20 @@ class Session:
 
         Args:
             k: Neighbour count. Defaults to 1 (parity with Gamera).
+                Ignored when ``backend="ssl_fusion"``.
+            backend: ``"knn"`` (default) uses the handcrafted-feature
+                kNN classifier -- byte-identical to this parameter not
+                existing. ``"ssl_fusion"`` uses the optional SSL+HC
+                fused linear-kernel SVM classifier, calibrated via
+                ``CalibratedClassifierCV`` (see ``ic_core.ssl_classifier``);
+                requires the ``ssl`` extra to be installed and
+                ``IC_SSL_CHECKPOINT`` to be set, and requires glyphs to
+                have been ingested with ``store_real_crop=True``.
 
         Raises:
             StateTransitionError: If called outside ``CLASSIFYING``.
             ValueError: If the training pool is empty (propagated
-                from :class:`ic_core.classifier.InteractiveClassifier`).
+                from the classifier's ``.fit()``).
         """
         self._require_state(ClassifierState.CLASSIFYING)
 
@@ -307,7 +321,14 @@ class Session:
         ]
 
         if neumes:
-            new_neumes, _ = run_correction_stage(neumes, neume_training, k=k)
+            if backend == "knn":
+                new_neumes, _ = run_correction_stage(neumes, neume_training, k=k)
+            else:
+                from ic_core.ssl_classifier import default_ssl_classifier_factory
+                new_neumes, _ = run_correction_stage(
+                    neumes, neume_training,
+                    classifier_factory=default_ssl_classifier_factory,
+                )
             # Ascending-confidence ordering is algorithm semantic #3, so the
             # frontend's review queue starts at the least-certain neume.
             neumes = sort_by_confidence_ascending(new_neumes)

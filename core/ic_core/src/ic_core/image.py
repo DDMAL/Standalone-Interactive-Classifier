@@ -46,3 +46,38 @@ def array_to_png_base64(arr: np.ndarray) -> str:
     buf = BytesIO()
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def grayscale_array_to_png_base64(arr: np.ndarray) -> str:
+    """Encode a real-pixel crop as a base64 PNG.
+
+    Unlike :func:`array_to_png_base64`, this does *not* treat the input
+    as a boolean foreground mask -- it preserves real pixel intensities
+    (texture, shading, and colour), which the SSL feature-extraction
+    backend needs and the binary RLE mask cannot provide.
+
+    Accepts either an ``(H, W)`` 8-bit greyscale array or an
+    ``(H, W, 3)`` 8-bit RGB array -- the SSL extractor's training data
+    is real colour manuscript photographs, so callers should prefer
+    passing colour crops (see ``ic_core.ingest``'s ``store_real_crop``)
+    rather than converting to greyscale before this call.
+    """
+    mode = "L" if arr.ndim == 2 else "RGB"
+    img = PILImage.fromarray(arr.astype(np.uint8), mode=mode)
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def png_base64_to_array(data: str) -> np.ndarray:
+    """Inverse of :func:`grayscale_array_to_png_base64`.
+
+    Preserves whatever the encoded PNG actually is -- returns an
+    ``(H, W, 3)`` array for a colour crop or ``(H, W)`` for a
+    greyscale one, rather than forcing everything to greyscale.
+    """
+    raw = base64.b64decode(data)
+    with PILImage.open(BytesIO(raw)) as img:
+        if img.mode == "L":
+            return np.asarray(img)
+        return np.asarray(img.convert("RGB"))

@@ -40,6 +40,7 @@ What's deliberately missing in v1
 from __future__ import annotations
 
 import csv
+import io
 import json
 import os
 import re
@@ -48,11 +49,13 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
+import numpy as np
 from fastapi import Depends, FastAPI, File, Form, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from lxml import etree
+from PIL import Image
 
 from ic_api.schemas import (
     ClassifyRequest,
@@ -64,6 +67,7 @@ from ic_api.schemas import (
     SessionDTO,
     SessionSummaryDTO,
     SplitRequest,
+    TrainingPresetDTO,
     UpdateGlyphRequest,
     glyph_to_dto,
     session_to_dto,
@@ -78,6 +82,12 @@ from ic_core.ingest import (
 from ic_core.classifier import UNCLASSIFIED, filter_parts
 from ic_core.glyph import CATEGORY_NEUMES
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
+from ic_core.ssl_preset_embeddings import (
+    attach_ssl_embeddings,
+    has_ssl_embeddings,
+    load_ssl_embeddings,
+    match_glyphs_to_source_pages,
+)
 from ic_core.state import Session, StateTransitionError
 
 
@@ -310,24 +320,84 @@ def _resolve_class_names(
     return parsed_names
 
 
-async def _parse_training_files(training_files) -> list:
+async def _parse_training_files(
+    training_files, training_embeddings=None, training_images=None
+) -> list:
     """Concatenate glyphs from uploaded GameraXML (.xml) training sets.
 
     Returns an empty list when no files were given. Raises ``ValueError``
     (→ 400) on a non-``.xml`` name or invalid XML, before any page work so
     a bad file fails fast.
+
+    ``training_embeddings`` and ``training_images`` are the same escape
+    hatch presets get (see ``ic_core.ssl_preset_embeddings``), open to any
+    uploaded training set: an uploaded GameraXML file only ever carries a
+    binary mask, so it's unusable by the ``ssl_fusion`` backend unless one
+    of these is supplied alongside it.
+
+    * ``training_embeddings``: precomputed ``.ssl_embeddings.npz`` files,
+      matched to a ``training_files`` entry by filename stem (e.g.
+      ``foo.ssl_embeddings.npz`` or ``foo.npz`` pairs with ``foo.xml``).
+    * ``training_images``: the original source page image(s) the XML's
+      glyphs were cropped from. Pooled across every uploaded XML and
+      matched per-glyph by bounding box + mask agreement (see
+      :func:`ic_core.ssl_preset_embeddings.match_glyphs_to_source_pages`)
+      -- no filename convention needed, at the cost of a per-glyph
+      brute-force match against every provided image.
+
+    A file matched by embeddings takes priority over the image pool if
+    both happen to be provided for the same stem.
     """
     if not training_files:
         return []
+
+    embeddings_by_stem: dict[str, np.ndarray] = {}
+    for ef in training_embeddings or []:
+        stem = Path(ef.filename or "").name
+        if stem.endswith(".ssl_embeddings.npz"):
+            stem = stem[: -len(".ssl_embeddings.npz")]
+        else:
+            stem = Path(stem).stem
+        try:
+            with np.load(io.BytesIO(await ef.read())) as data:
+                embeddings_by_stem[stem] = data["embeddings"]
+        except (OSError, ValueError, KeyError) as e:
+            raise ValueError(
+                f"{ef.filename!r} is not a valid .ssl_embeddings.npz file: {e}"
+            ) from e
+
+    page_arrays: list[np.ndarray] = []
+    for img in training_images or []:
+        try:
+            page_arrays.append(
+                np.array(Image.open(io.BytesIO(await img.read())).convert("RGB"))
+            )
+        except Exception as e:
+            raise ValueError(f"{img.filename!r} is not a readable image: {e}") from e
+
     training_glyphs: list = []
     for tf in training_files:
         name = tf.filename or ""
         if not name.lower().endswith(".xml"):
             raise ValueError(f"{name!r} is not a .xml file.")
         try:
-            training_glyphs.extend(load_glyphs_bytes(await tf.read()))
+            glyphs = load_glyphs_bytes(await tf.read())
         except etree.XMLSyntaxError as e:
             raise ValueError(f"{name!r} is not valid XML: {e}") from e
+
+        stem = Path(name).stem
+        if stem in embeddings_by_stem:
+            embeddings = embeddings_by_stem[stem]
+            if len(embeddings) != len(glyphs):
+                raise ValueError(
+                    f"{name!r} has {len(glyphs)} glyphs but its companion "
+                    f"embeddings file has {len(embeddings)} vectors."
+                )
+            glyphs = attach_ssl_embeddings(glyphs, embeddings)
+        elif page_arrays:
+            glyphs = match_glyphs_to_source_pages(glyphs, page_arrays)
+
+        training_glyphs.extend(glyphs)
     return training_glyphs
 
 
@@ -351,16 +421,28 @@ def _parse_training_presets(training_presets: str | None) -> list:
     for name in names:
         path = resolve_preset(name)
         try:
-            preset_glyphs.extend(load_glyphs_bytes(path.read_bytes()))
+            glyphs = load_glyphs_bytes(path.read_bytes())
         except OSError as e:
              raise ValueError(f"Could not read preset {name!r}: {e}") from e
         except etree.XMLSyntaxError as e:
             raise ValueError(f"Preset {name!r} is not valid XML: {e}") from e
+        # Presets shipping a companion .ssl_embeddings.npz (currently just
+        # Hufnagel.xml -- see ic_core.ssl_preset_embeddings) get those
+        # vectors attached so the ssl_fusion backend can train on them
+        # without a live crop. Presets without one are unaffected: their
+        # glyphs are unusable by ssl_fusion, same as before this existed.
+        embeddings = load_ssl_embeddings(path)
+        if embeddings is not None:
+            glyphs = attach_ssl_embeddings(glyphs, embeddings)
+        preset_glyphs.extend(glyphs)
     return preset_glyphs
 
 
 async def _training_glyphs_by_source(
-    training_files, training_presets
+    training_files,
+    training_presets,
+    training_embeddings=None,
+    training_images=None,
 ) -> tuple[list, list]:
     """Load preset + uploaded training glyphs, kept separate by source.
 
@@ -371,7 +453,7 @@ async def _training_glyphs_by_source(
     """
     return (
         _parse_training_presets(training_presets),
-        await _parse_training_files(training_files),
+        await _parse_training_files(training_files, training_embeddings, training_images),
     )
 
 
@@ -403,6 +485,7 @@ def _finalize_session(
     glyphs = ingest_page(
         page_bytes, annotations_bytes,
         format=annotations_format, method=binarization_method,
+        store_real_crop=True,
     )
     training_glyphs = [*preset_glyphs, *uploaded_glyphs]
     # Keep the full-page mask so manual grouping can recover ink that falls
@@ -560,16 +643,28 @@ async def _value_error_handler(_request, exc: ValueError) -> JSONResponse:
 # ---------------------------------------------------------------------------
 
 
-@app.get("/training-presets", response_model=list[str])
-def get_training_presets() -> list[str]:
-    """List the built-in training-set preset filenames available for selection.
+@app.get("/training-presets", response_model=list[TrainingPresetDTO])
+def get_training_presets() -> list[TrainingPresetDTO]:
+    """List the built-in training-set presets available for selection.
 
     These are the GameraXML (.xml) files under ``core/data/presets``. The
     frontend renders them as checkboxes on the upload screen; the chosen
     filenames are passed back as the ``training_presets`` field of
     :func:`create_session` and concatenated into the training pool.
+
+    ``ssl_compatible`` reflects whether a preset ships a companion
+    ``.ssl_embeddings.npz`` file (see ``ic_core.ssl_preset_embeddings``) --
+    the frontend uses it to restrict preset selection to compatible ones
+    when the user picks the ``ssl_fusion`` classify backend, since a
+    preset without embeddings only carries a binary mask that backend
+    can't use.
     """
-    return list_presets()
+    return [
+        TrainingPresetDTO(
+            name=name, ssl_compatible=has_ssl_embeddings(resolve_preset(name))
+        )
+        for name in list_presets()
+    ]
 
 
 @app.get("/vocabularies", response_model=list[str])
@@ -655,6 +750,33 @@ async def create_session(
             ),
         ),
     ] = None,
+    training_embeddings: Annotated[
+        list[UploadFile] | None,
+        File(
+            description=(
+                "Optional precomputed SSL embeddings (.npz, one vector per "
+                "glyph in document order) for an uploaded training_files "
+                "entry, matched by filename stem (e.g. foo.ssl_embeddings.npz "
+                "or foo.npz pairs with foo.xml). Lets that file's glyphs be "
+                "used with the 'ssl_fusion' classify backend without a live "
+                "crop -- see GET /training-presets for the same idea applied "
+                "to built-in presets."
+            ),
+        ),
+    ] = None,
+    training_images: Annotated[
+        list[UploadFile] | None,
+        File(
+            description=(
+                "Optional original source page image(s) an uploaded "
+                "training_files entry's glyphs were cropped from. Pooled "
+                "across every uploaded training file and matched per-glyph "
+                "by bounding box + mask agreement -- no filename convention "
+                "needed. Also unlocks the 'ssl_fusion' classify backend for "
+                "that training data, as an alternative to training_embeddings."
+            ),
+        ),
+    ] = None,
     vocabulary: Annotated[
         str | None,
         Form(
@@ -688,7 +810,7 @@ async def create_session(
     """
     parsed_names = _resolve_class_names(class_names, vocabulary)
     preset_glyphs, uploaded_glyphs = await _training_glyphs_by_source(
-        training_files, training_presets
+        training_files, training_presets, training_embeddings, training_images
     )
 
     page_bytes = await page_image.read()
@@ -823,6 +945,25 @@ async def create_session_from_staging(
             ),
         ),
     ] = None,
+    training_embeddings: Annotated[
+        list[UploadFile] | None,
+        File(
+            description=(
+                "Optional precomputed SSL embeddings (.npz) for a "
+                "training_files entry, matched by filename stem. See "
+                "POST /sessions for details."
+            ),
+        ),
+    ] = None,
+    training_images: Annotated[
+        list[UploadFile] | None,
+        File(
+            description=(
+                "Optional source page image(s) for a training_files entry's "
+                "glyphs, matched by bbox + mask. See POST /sessions for details."
+            ),
+        ),
+    ] = None,
     vocabulary: Annotated[
         str | None, Form(description="Optional vocabulary CSV filename.")
     ] = None,
@@ -840,7 +981,7 @@ async def create_session_from_staging(
         raise KeyError(f"Unknown staging id: {staging_id!r}")
     parsed_names = _resolve_class_names(class_names, vocabulary)
     preset_glyphs, uploaded_glyphs = await _training_glyphs_by_source(
-        training_files, training_presets
+        training_files, training_presets, training_embeddings, training_images
     )
     return _finalize_session(
         store,
@@ -980,7 +1121,7 @@ def delete_session(session_id: str, store: Store) -> Response:
 def classify(session_id: str, body: ClassifyRequest, store: Store) -> SessionDTO:
     """Re-train and re-classify every non-manual glyph in one round."""
     with store.session(session_id) as session:
-        session.classify(k=body.k)
+        session.classify(k=body.k, backend=body.backend)
         return session_to_dto(session)
 
 
@@ -1009,6 +1150,7 @@ def rebinarize(
             session.annotations_bytes,
             format=session.annotations_format,
             method=body.method,
+            store_real_crop=True,
         )
         page_mask = binarize_page(session.page_bytes, method=body.method)
         session.rebinarize(glyphs, page_mask=page_mask, method=body.method)
@@ -1183,6 +1325,82 @@ def save_session(session_id: str, store: Store) -> SessionDTO:
         return session_to_dto(session)
 
 
+def _export_selection_tags(
+    page: bool, manual_neumes: bool, preset_training: bool, uploaded_training: bool
+) -> list[str]:
+    """Filename tags for the export sections a caller picked -- shared
+    between the GameraXML and SSL-embeddings export endpoints so a pair
+    downloaded with the same flags gets matching, self-describing names.
+    """
+    return [
+        name
+        for flag, name in (
+            (page, "page"),
+            (manual_neumes, "manual-neumes"),
+            (preset_training, "preset"),
+            (uploaded_training, "uploaded"),
+        )
+        if flag
+    ]
+
+
+def _select_export_glyphs(
+    session,
+    page: bool,
+    manual_neumes: bool,
+    preset_training: bool,
+    uploaded_training: bool,
+) -> list:
+    """Concatenate the session's export sections, de-duplicated by glyph id.
+
+    Shared by :func:`complete_session` and :func:`export_session_embeddings`
+    so a companion ``.ssl_embeddings.npz`` downloaded with the same section
+    flags as a GameraXML export lines up with it row-for-row: both iterate
+    the same underlying (hygiene-applied) glyph lists in the same order,
+    and neither reorders or sorts.
+
+    Export-time hygiene is applied to the *selected* glyphs only, so the
+    live session itself is left untouched (and re-editable): strip
+    transient ``_group``/``_delete`` parts, and drop UNCLASSIFIED training
+    entries that snuck in via the original training XML.
+    """
+    page_glyphs = filter_parts(session.glyphs)
+    training_glyphs = [
+        g for g in filter_parts(session.training_glyphs) if g.class_name != UNCLASSIFIED
+    ]
+
+    selected: list = []
+    seen: set[str] = set()
+
+    def add(glyphs) -> None:
+        for g in glyphs:
+            if g.id not in seen:
+                seen.add(g.id)
+                selected.append(g)
+
+    if page:
+        add(page_glyphs)
+    if manual_neumes:
+        add(
+            g
+            for g in page_glyphs
+            if g.category == CATEGORY_NEUMES and g.id_state_manual
+        )
+    if preset_training:
+        add(
+            g
+            for g in training_glyphs
+            if g.id in session.preset_training_ids
+        )
+    if uploaded_training:
+        add(
+            g
+            for g in training_glyphs
+            if g.id in session.uploaded_training_ids
+        )
+    return selected
+
+
 @app.post("/sessions/{session_id}/complete")
 def complete_session(
     session_id: str,
@@ -1225,59 +1443,15 @@ def complete_session(
             "Select at least one section to include in the export."
         )
     with store.session(session_id) as session:
-        # Export-time hygiene applied to the *exported* glyphs only, so the
-        # live session is left untouched (and re-editable). Mirrors the
-        # cleanup ``Session.complete`` used to do in-place: strip transient
-        # ``_group`` / ``_delete`` parts, and drop UNCLASSIFIED training
-        # entries that snuck in via the original training XML.
-        page_glyphs = filter_parts(session.glyphs)
-        training_glyphs = [
-            g
-            for g in filter_parts(session.training_glyphs)
-            if g.class_name != UNCLASSIFIED
-        ]
-        selected: list = []
-        seen: set[str] = set()
-
-        def add(glyphs) -> None:
-            for g in glyphs:
-                if g.id not in seen:
-                    seen.add(g.id)
-                    selected.append(g)
-
-        if page:
-            add(page_glyphs)
-        if manual_neumes:
-            add(
-                g
-                for g in page_glyphs
-                if g.category == CATEGORY_NEUMES and g.id_state_manual
-            )
-        if preset_training:
-            add(
-                g
-                for g in training_glyphs
-                if g.id in session.preset_training_ids
-            )
-        if uploaded_training:
-            add(
-                g
-                for g in training_glyphs
-                if g.id in session.uploaded_training_ids
-            )
+        selected = _select_export_glyphs(
+            session, page, manual_neumes, preset_training, uploaded_training
+        )
         payload = dumps_glyphs(selected)
         # Tag the filename with the chosen sections so a user exporting
         # several variants from one session gets self-describing files.
-        tags = [
-            name
-            for flag, name in (
-                (page, "page"),
-                (manual_neumes, "manual-neumes"),
-                (preset_training, "preset"),
-                (uploaded_training, "uploaded"),
-            )
-            if flag
-        ]
+        tags = _export_selection_tags(
+            page, manual_neumes, preset_training, uploaded_training
+        )
         # Prefer the original bbox document's name so a user exporting
         # several pages gets self-describing files; fall back to the
         # opaque session id when no usable source name was captured.
@@ -1288,6 +1462,70 @@ def complete_session(
     return Response(
         content=payload,
         media_type="application/xml",
+        headers={"Content-Disposition": filename},
+    )
+
+
+@app.post("/sessions/{session_id}/export-embeddings")
+def export_session_embeddings(
+    session_id: str,
+    store: Store,
+    page: bool = False,
+    manual_neumes: bool = False,
+    preset_training: bool = False,
+    uploaded_training: bool = False,
+) -> Response:
+    """Stream back a companion SSL embeddings (.npz) file for the selected
+    glyphs -- the 'ssl_fusion' backend's counterpart to :func:`complete_session`.
+
+    Uses the exact same section flags, in the same order, as
+    :func:`complete_session` (see :func:`_select_export_glyphs`), so
+    downloading both with matching flags produces a GameraXML file and a
+    ``.ssl_embeddings.npz`` that line up row-for-row -- re-uploading that
+    pair later (see POST /sessions' ``training_embeddings``) makes this
+    exact training set usable by ssl_fusion without a live crop or model
+    pass, the same escape hatch built-in presets get.
+
+    Unlike ``complete``, this does **not** transition the session to
+    ``EXPORT`` -- it's a read-only side channel, so it can be downloaded
+    independently of, before, or after completing the session.
+
+    Requires the server to have the ``ssl`` extra installed and
+    ``IC_SSL_CHECKPOINT`` configured, and every selected glyph to carry
+    either a precomputed ``ssl_embedding`` or a real-pixel crop
+    (``image_gray_b64``) -- else 400 with a message naming the gap (e.g.
+    "deselect the preset-training section, it has no embeddings").
+    """
+    if not (page or manual_neumes or preset_training or uploaded_training):
+        raise ValueError(
+            "Select at least one section to include in the export."
+        )
+    checkpoint = os.environ.get("IC_SSL_CHECKPOINT")
+    if not checkpoint:
+        raise ValueError(
+            "IC_SSL_CHECKPOINT is not configured on this server -- SSL "
+            "embeddings can't be extracted."
+        )
+    from ic_core.ssl_extractor import extract_ssl_embeddings
+
+    with store.session(session_id) as session:
+        selected = _select_export_glyphs(
+            session, page, manual_neumes, preset_training, uploaded_training
+        )
+        embeddings = extract_ssl_embeddings(selected, checkpoint)
+        buf = io.BytesIO()
+        np.savez_compressed(buf, embeddings=embeddings.astype(np.float32))
+        tags = _export_selection_tags(
+            page, manual_neumes, preset_training, uploaded_training
+        )
+        stem = session.source_name or session.id
+        filename = (
+            f'attachment; filename="ic-session-{stem}-{"-".join(tags)}'
+            '.ssl_embeddings.npz"'
+        )
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/octet-stream",
         headers={"Content-Disposition": filename},
     )
 

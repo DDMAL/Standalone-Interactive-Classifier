@@ -71,6 +71,7 @@ export function SplitDialog({
   const classify = useClassify(sessionId);
   const classifyReset = classify.reset;
   const knnK = useUiStore((s) => s.knnK);
+  const classifierBackend = useUiStore((s) => s.classifierBackend);
   const pending = split.isPending || classify.isPending;
 
   // Suppress page-level keyboard shortcuts while the dialog is open so an
@@ -214,7 +215,7 @@ export function SplitDialog({
     if (rects.length === 0 || pending) return;
     try {
       await split.mutateAsync({ glyphId: glyph.id, regions: buildRegions() });
-      await classify.mutateAsync(knnK);
+      await classify.mutateAsync({ k: knnK, backend: classifierBackend });
       onOpenChange(false);
     } catch {
       // error state shown inline; dialog stays open so the user can adjust

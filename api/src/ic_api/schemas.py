@@ -104,6 +104,21 @@ class SessionDTO(BaseModel):
     )
 
 
+class TrainingPresetDTO(BaseModel):
+    """One entry of GET /training-presets."""
+
+    name: str = Field(..., description="Preset filename, as passed back in training_presets.")
+    ssl_compatible: bool = Field(
+        ...,
+        description=(
+            "Whether this preset ships precomputed SSL embeddings, "
+            "letting it be selected as training data for the 'ssl_fusion' "
+            "classify backend. Presets without embeddings only carry a "
+            "binary mask and cannot be used by that backend."
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Request bodies — write paths
 # ---------------------------------------------------------------------------
@@ -112,7 +127,16 @@ class SessionDTO(BaseModel):
 class ClassifyRequest(BaseModel):
     """POST /sessions/{id}/classify body."""
 
-    k: int = Field(default=3, ge=1, description="Neighbour count; default 3.")
+    k: int = Field(default=3, ge=1, description="Neighbour count; default 3. Ignored when backend='ssl_fusion'.")
+    backend: Literal["knn", "ssl_fusion"] = Field(
+        default="knn",
+        description=(
+            "'knn' (default): handcrafted-feature k-nearest-neighbours "
+            "classifier. 'ssl_fusion': optional SSL+handcrafted fused "
+            "logistic-regression classifier; requires the server to have "
+            "the ssl extra installed and IC_SSL_CHECKPOINT configured."
+        ),
+    )
 
 
 class RebinarizeRequest(BaseModel):

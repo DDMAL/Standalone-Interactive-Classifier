@@ -21,6 +21,15 @@ export const CATEGORY_DEFAULT_OPEN: Record<GlyphCategory, boolean> = {
   Staves: false,
 };
 
+/** One entry of GET /training-presets. */
+export interface TrainingPresetDTO {
+  name: string;
+  /** Whether this preset ships precomputed SSL embeddings (see the API's
+   *  ic_core.ssl_preset_embeddings) and can be used as training data for
+   *  the "ssl_fusion" classify backend. */
+  ssl_compatible: boolean;
+}
+
 export interface GlyphDTO {
   id: string;
   class_name: string;

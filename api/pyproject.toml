@@ -21,6 +21,12 @@ dependencies = [
     "ic-core",
 ]
 
+[project.optional-dependencies]
+# Mirrors ic-core's own "ssl" extra: only needed to serve the optional
+# ssl_fusion classifier backend (POST /sessions/{id}/classify with
+# backend="ssl_fusion"). The default "knn" backend needs none of this.
+ssl = ["ic-core[ssl]"]
+
 [project.scripts]
 ic-api = "ic_api.main:run"
 

@@ -1,6 +1,7 @@
 import { getStaging } from "@/api/sessions";
 import { SessionResumeList } from "@/components/SessionResumeList";
 import { Button } from "@/components/ui/Button";
+import { CLASSIFIER_BACKENDS } from "@/constants/classifierBackends";
 import { useAutoExport } from "@/hooks/useAutoExport";
 import {
   useCreateSession,
@@ -8,9 +9,53 @@ import {
 } from "@/hooks/useCreateSession";
 import { useTrainingPresets } from "@/hooks/useTrainingPresets";
 import { useVocabularies, useVocabularyClasses } from "@/hooks/useVocabularies";
+import { useUiStore } from "@/store/uiStore";
 import type { AnnotationFormat } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useState } from "react";
+import { clsx } from "clsx";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+
+/** Adds newly-picked files to the existing selection (deduped by name+size)
+ *  instead of replacing it — so picking files across multiple dialogs
+ *  accumulates, matching what the chip list with per-file removal implies. */
+function mergeFiles(existing: File[], picked: File[]): File[] {
+  const seen = new Set(existing.map((f) => `${f.name}:${f.size}`));
+  return [
+    ...existing,
+    ...picked.filter((f) => !seen.has(`${f.name}:${f.size}`)),
+  ];
+}
+
+/** Selected-file chips with a per-file remove button, for a multi-file input. */
+function FileChipList({
+  files,
+  onRemove,
+}: {
+  files: File[];
+  onRemove: (index: number) => void;
+}) {
+  if (files.length === 0) return null;
+  return (
+    <ul className="mt-1 flex flex-wrap gap-1">
+      {files.map((f, i) => (
+        <li
+          key={`${f.name}:${f.size}:${i}`}
+          className="flex items-center gap-1 rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700"
+        >
+          {f.name}
+          <button
+            type="button"
+            onClick={() => onRemove(i)}
+            aria-label={`Remove ${f.name}`}
+            className="text-slate-500 hover:text-red-600"
+          >
+            ×
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 interface UploadViewProps {
   // When set, the page image + bboxes have been staged by an embedding host
@@ -24,7 +69,28 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const [pageImage, setPageImage] = useState<File | null>(null);
   const [annotations, setAnnotations] = useState<File | null>(null);
   const [format, setFormat] = useState<AnnotationFormat>("json");
+  const pageImageInputRef = useRef<HTMLInputElement>(null);
+  const annotationsInputRef = useRef<HTMLInputElement>(null);
+
+  function clearPageImage() {
+    setPageImage(null);
+    if (pageImageInputRef.current) pageImageInputRef.current.value = "";
+  }
+
+  function clearAnnotations() {
+    setAnnotations(null);
+    if (annotationsInputRef.current) annotationsInputRef.current.value = "";
+  }
   const [trainingFiles, setTrainingFiles] = useState<File[]>([]);
+  // Only meaningful (and only shown) when the ssl_fusion model is selected:
+  // an uploaded GameraXML training file carries just a binary mask, same as
+  // a preset, so it needs one of these companions to be usable by that
+  // backend — see ic_core.ssl_preset_embeddings.
+  const [trainingEmbeddings, setTrainingEmbeddings] = useState<File[]>([]);
+  const [trainingImages, setTrainingImages] = useState<File[]>([]);
+  const trainingFilesInputRef = useRef<HTMLInputElement>(null);
+  const trainingEmbeddingsInputRef = useRef<HTMLInputElement>(null);
+  const trainingImagesInputRef = useRef<HTMLInputElement>(null);
   const [selectedPresets, setSelectedPresets] = useState<string[]>([]);
   const [vocabulary, setVocabulary] = useState("");
   const create = useCreateSession();
@@ -33,6 +99,34 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const presets = useTrainingPresets();
   const vocabularies = useVocabularies();
   const vocabClasses = useVocabularyClasses(vocabulary);
+  const classifierBackend = useUiStore((s) => s.classifierBackend);
+  const setClassifierBackend = useUiStore((s) => s.setClassifierBackend);
+
+  // ssl_fusion needs precomputed SSL embeddings (or the file's original
+  // source image(s), matched by bbox + mask) for any training data to be
+  // usable — a preset without embeddings can't provide either, so
+  // switching drops any now-unusable preset selection. Uploaded files stay
+  // selected: the companion embeddings/images inputs below cover them.
+  function handleBackendChange(backend: "knn" | "ssl_fusion") {
+    if (backend === classifierBackend) return;
+    setClassifierBackend(backend);
+    if (backend === "ssl_fusion") {
+      const compatibleNames = new Set(
+        (presets.data ?? []).filter((p) => p.ssl_compatible).map((p) => p.name),
+      );
+      setSelectedPresets((prev) => prev.filter((n) => compatibleNames.has(n)));
+    }
+  }
+
+  const sslFusionSelected = classifierBackend === "ssl_fusion";
+  // With ssl_fusion selected, an uploaded training file needs a companion
+  // embeddings or source-image upload to be usable — block submission
+  // until that's satisfied rather than silently ignoring the upload.
+  const uploadNeedsSslCompanion =
+    sslFusionSelected &&
+    trainingFiles.length > 0 &&
+    trainingEmbeddings.length === 0 &&
+    trainingImages.length === 0;
 
   function togglePreset(name: string, checked: boolean) {
     setSelectedPresets((prev) =>
@@ -46,7 +140,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     queryKey: ["staging", stagedId],
     queryFn: () => getStaging(stagedId as string),
     enabled: !!stagedId,
-    staleTime: Infinity,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 
   const active = stagedId ? createFromStaging : create;
@@ -71,16 +165,26 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
+  // Shared by handleSubmit/handleAutoExport's 4 call sites (staging vs
+  // upload × start vs auto-export) so the training-data fields can't drift
+  // out of sync as new ones get added later.
+  function buildTrainingArgs() {
+    return {
+      trainingFiles: trainingFiles.length > 0 ? trainingFiles : undefined,
+      trainingEmbeddings:
+        trainingEmbeddings.length > 0 ? trainingEmbeddings : undefined,
+      trainingImages: trainingImages.length > 0 ? trainingImages : undefined,
+      trainingPresets:
+        selectedPresets.length > 0 ? selectedPresets : undefined,
+    };
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    const training = trainingFiles.length > 0 ? trainingFiles : undefined;
-    const presetNames =
-      selectedPresets.length > 0 ? selectedPresets : undefined;
     if (stagedId) {
       createFromStaging.mutate({
         stagingId: stagedId,
-        trainingFiles: training,
-        trainingPresets: presetNames,
+        ...buildTrainingArgs(),
         vocabulary: vocabulary || undefined,
       });
       return;
@@ -90,8 +194,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
       pageImage,
       annotations,
       annotationsFormat: format,
-      trainingFiles: training,
-      trainingPresets: presetNames,
+      ...buildTrainingArgs(),
       vocabulary: vocabulary || undefined,
     });
   }
@@ -101,16 +204,12 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   // the host's encode queue; standalone, it downloads the GameraXML. Shares
   // the same inputs as start.
   function handleAutoExport() {
-    const training = trainingFiles.length > 0 ? trainingFiles : undefined;
-    const presetNames =
-      selectedPresets.length > 0 ? selectedPresets : undefined;
     if (stagedId) {
       autoExport.mutate({
         kind: "staging",
         args: {
           stagingId: stagedId,
-          trainingFiles: training,
-          trainingPresets: presetNames,
+          ...buildTrainingArgs(),
           vocabulary: vocabulary || undefined,
         },
       });
@@ -123,8 +222,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
         pageImage,
         annotations,
         annotationsFormat: format,
-        trainingFiles: training,
-        trainingPresets: presetNames,
+        ...buildTrainingArgs(),
         vocabulary: vocabulary || undefined,
       },
     });
@@ -135,7 +233,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const embedded = window.parent !== window;
   const anyPending = active.isPending || autoExport.isPending;
   const inputsMissing = stagedId ? !staging.data : !pageImage || !annotations;
-  const submitDisabled = anyPending || inputsMissing;
+  const submitDisabled = anyPending || inputsMissing || uploadNeedsSslCompanion;
   // Queueing/auto-export always runs a classify round, which needs a non-empty
   // training pool — so grey it out until the user picks a preset or uploads a set.
   const autoExportDisabled = submitDisabled || totalTrainingSets === 0;
@@ -182,29 +280,57 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
             </div>
           ) : (
             <>
-              <label className="block text-sm">
+              <div className="text-sm">
                 <span className="mb-1 block font-medium text-slate-700">
                   Page image
                 </span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => setPageImage(e.target.files?.[0] ?? null)}
-                  className="block w-full text-sm"
-                />
-              </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={pageImageInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setPageImage(e.target.files?.[0] ?? null)}
+                    className="block w-full text-sm"
+                  />
+                  {pageImage && (
+                    <button
+                      type="button"
+                      onClick={clearPageImage}
+                      aria-label="Remove page image"
+                      className="shrink-0 text-slate-500 hover:text-red-600"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
 
-              <label className="block text-sm">
+              <div className="text-sm">
                 <span className="mb-1 block font-medium text-slate-700">
                   Annotations file
                 </span>
-                <input
-                  type="file"
-                  accept=".json,.txt"
-                  onChange={(e) => setAnnotations(e.target.files?.[0] ?? null)}
-                  className="block w-full text-sm"
-                />
-              </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    ref={annotationsInputRef}
+                    type="file"
+                    accept=".json,.txt"
+                    onChange={(e) =>
+                      setAnnotations(e.target.files?.[0] ?? null)
+                    }
+                    className="block w-full text-sm"
+                  />
+                  {annotations && (
+                    <button
+                      type="button"
+                      onClick={clearAnnotations}
+                      aria-label="Remove annotations file"
+                      className="shrink-0 text-slate-500 hover:text-red-600"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
 
               <label className="block text-sm">
                 <span className="mb-1 block font-medium text-slate-700">
@@ -223,6 +349,36 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
               </label>
             </>
           )}
+
+          <div className="space-y-2 text-sm">
+            <span className="block font-medium text-slate-700">Model</span>
+            <div className="flex overflow-hidden rounded border border-slate-300 w-fit">
+              {CLASSIFIER_BACKENDS.map(({ value, label, title }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => handleBackendChange(value)}
+                  title={title}
+                  className={clsx(
+                    "px-3 py-1 text-xs font-medium transition-colors",
+                    value === classifierBackend
+                      ? "bg-blue-600 text-white"
+                      : "bg-white text-slate-700 hover:bg-slate-100",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {sslFusionSelected && (
+              <span className="block text-xs font-normal text-slate-400">
+                Only presets with precomputed SSL embeddings can be used as
+                training data with this model. Uploaded GameraXML files need a
+                companion embeddings or source-image upload to qualify (see
+                below).
+              </span>
+            )}
+          </div>
 
           <div className="space-y-2 text-sm">
             <span className="block font-medium text-slate-700">
@@ -246,16 +402,31 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                 </span>
               ) : (
                 <div className="space-y-1">
-                  {(presets.data ?? []).map((name) => (
-                    <label key={name} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedPresets.includes(name)}
-                        onChange={(e) => togglePreset(name, e.target.checked)}
-                      />
-                      <span className="text-slate-700">{name}</span>
-                    </label>
-                  ))}
+                  {(presets.data ?? []).map(({ name, ssl_compatible }) => {
+                    const disabled = sslFusionSelected && !ssl_compatible;
+                    return (
+                      <label
+                        key={name}
+                        className={clsx(
+                          "flex items-center gap-2",
+                          disabled && "cursor-not-allowed opacity-50",
+                        )}
+                        title={
+                          disabled
+                            ? "No precomputed SSL embeddings — can't be used with the Pre-trained + LR model."
+                            : undefined
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedPresets.includes(name)}
+                          disabled={disabled}
+                          onChange={(e) => togglePreset(name, e.target.checked)}
+                        />
+                        <span className="text-slate-700">{name}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -265,24 +436,98 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                 Upload
               </span>
               <input
+                ref={trainingFilesInputRef}
                 type="file"
                 accept=".xml"
                 multiple
-                onChange={(e) =>
-                  setTrainingFiles(Array.from(e.target.files ?? []))
-                }
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files ?? []);
+                  e.target.value = "";
+                  setTrainingFiles((prev) => mergeFiles(prev, picked));
+                }}
                 className="block w-full text-sm"
+              />
+              <FileChipList
+                files={trainingFiles}
+                onRemove={(i) =>
+                  setTrainingFiles((prev) => prev.filter((_, j) => j !== i))
+                }
               />
             </label>
 
-            {trainingFiles.length > 0 && (
-              <ul className="space-y-0.5 text-xs text-slate-500">
-                {trainingFiles.map((f, i) => (
-                  <li key={`${f.name}-${i}`} className="truncate">
-                    {f.name}
-                  </li>
-                ))}
-              </ul>
+            {sslFusionSelected && trainingFiles.length > 0 && (
+              <div className="space-y-2 rounded border border-slate-200 bg-slate-50 p-2">
+                <span className="block text-xs font-medium text-slate-600">
+                  An uploaded GameraXML file only carries a binary mask — the
+                  Pre-trained + LR model needs one of these to use it:
+                </span>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-slate-600">
+                    SSL embeddings (.npz)
+                  </span>
+                  <input
+                    ref={trainingEmbeddingsInputRef}
+                    type="file"
+                    accept=".npz"
+                    multiple
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files ?? []);
+                      e.target.value = "";
+                      setTrainingEmbeddings((prev) => mergeFiles(prev, picked));
+                    }}
+                    className="block w-full text-sm"
+                  />
+                  <FileChipList
+                    files={trainingEmbeddings}
+                    onRemove={(i) =>
+                      setTrainingEmbeddings((prev) =>
+                        prev.filter((_, j) => j !== i),
+                      )
+                    }
+                  />
+                  <span className="mt-1 block text-xs font-normal text-slate-400">
+                    One precomputed vector per glyph, matched to a training file
+                    by filename stem (foo.ssl_embeddings.npz or foo.npz pairs
+                    with foo.xml).
+                  </span>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-slate-600">
+                    or source image(s)
+                  </span>
+                  <input
+                    ref={trainingImagesInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => {
+                      const picked = Array.from(e.target.files ?? []);
+                      e.target.value = "";
+                      setTrainingImages((prev) => mergeFiles(prev, picked));
+                    }}
+                    className="block w-full text-sm"
+                  />
+                  <FileChipList
+                    files={trainingImages}
+                    onRemove={(i) =>
+                      setTrainingImages((prev) =>
+                        prev.filter((_, j) => j !== i),
+                      )
+                    }
+                  />
+                  <span className="mt-1 block text-xs font-normal text-slate-400">
+                    The original page(s) the training file's glyphs were cropped
+                    from — matched per-glyph by bounding box + mask, no filename
+                    convention needed.
+                  </span>
+                </label>
+                {uploadNeedsSslCompanion && (
+                  <span className="block text-xs font-normal text-red-600">
+                    Add embeddings or source image(s) above, or remove the
+                    uploaded training file(s), to continue.
+                  </span>
+                )}
+              </div>
             )}
 
             <span className="block text-xs font-normal text-slate-400">

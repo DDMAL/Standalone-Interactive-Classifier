@@ -61,6 +61,27 @@ class Glyph:
         default=None, compare=False, repr=False
     )
     feature_version: str | None = field(default=None, compare=False, repr=False)
+    # Optional real-pixel (greyscale) crop, base64-encoded PNG, sliced from
+    # the source page at ingest time. ``None`` unless the caller opted in
+    # via ``ingest_page(..., store_real_crop=True)`` -- the binary
+    # ``image_rle`` mask above is otherwise the only image data a glyph
+    # carries, which is sufficient for the handcrafted-feature kNN
+    # classifier but not for the optional SSL-based classifier backend
+    # (see ``ic_core.ssl_classifier``), which needs real texture/shading,
+    # not a binary silhouette. Excluded from equality/repr for the same
+    # reason as ``feature_vector`` -- it's a large, derived cache value.
+    image_gray_b64: str | None = field(default=None, compare=False, repr=False)
+    # Optional precomputed SSL feature vector (see
+    # ``ic_core.ssl_preset_embeddings``). Lets a built-in training preset
+    # ship a companion embeddings file -- generated once, offline, from the
+    # preset's original source page(s) -- so the ``ssl_fusion`` classifier
+    # backend can use that preset's glyphs without either a live
+    # ``image_gray_b64`` crop or a fresh model inference pass per session.
+    # ``None`` for every glyph outside that attachment path. Excluded from
+    # equality/repr for the same reason as ``feature_vector``.
+    ssl_embedding: tuple[float, ...] | None = field(
+        default=None, compare=False, repr=False
+    )
 
     @classmethod
     def new(
@@ -79,6 +100,8 @@ class Glyph:
         id: str | None = None,
         feature_vector: np.ndarray | None = None,
         feature_version: str | None = None,
+        image_gray_b64: str | None = None,
+        ssl_embedding: tuple[float, ...] | None = None,
     ) -> "Glyph":
         return cls(
             id=id if id is not None else uuid.uuid4().hex,
@@ -94,6 +117,8 @@ class Glyph:
             is_training=is_training,
             feature_vector=feature_vector,
             feature_version=feature_version,
+            image_gray_b64=image_gray_b64,
+            ssl_embedding=ssl_embedding,
         )
 
     def is_manual_id(self) -> bool:

@@ -4,6 +4,13 @@ import { create } from "zustand";
  * original page crop. A display preference, not session state. */
 export type GlyphImageMode = "binarized" | "original";
 
+/** Which classifier the next classify round uses. "knn" (default) is the
+ * handcrafted-feature k-nearest-neighbours classifier -- unchanged
+ * behaviour. "ssl_fusion" is the optional SSL+handcrafted fused
+ * logistic-regression classifier; requires the server to have the ssl
+ * extra installed and IC_SSL_CHECKPOINT configured. */
+export type ClassifierBackend = "knn" | "ssl_fusion";
+
 export interface UndoEntry {
   description: string;
   snapshots: { id: string; class_name: string; id_state_manual: boolean }[];
@@ -65,6 +72,12 @@ interface UiState {
   knnK: number;
   setKnnK: (k: number) => void;
 
+  // Which classifier backend to use on the next classify round. See
+  // ClassifierBackend. User-selectable from the toolbar; persists as a
+  // preference, defaults to "knn" so behaviour is unchanged out of the box.
+  classifierBackend: ClassifierBackend;
+  setClassifierBackend: (backend: ClassifierBackend) => void;
+
   // Whether the glyph grid shows binarized masks or original page crops.
   // A display preference; like knnK it persists across session changes.
   glyphImageMode: GlyphImageMode;
@@ -116,6 +129,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   classTreeCollapsed: false,
   trainingPanelExpanded: false,
   knnK: 3,
+  classifierBackend: "knn",
   glyphImageMode: "binarized",
   undoStack: [],
 
@@ -140,6 +154,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   collapseTrainingPanel: () => set({ trainingPanelExpanded: false }),
 
   setKnnK: (k) => set({ knnK: k }),
+
+  setClassifierBackend: (backend) => set({ classifierBackend: backend }),
 
   setGlyphImageMode: (mode) => set({ glyphImageMode: mode }),
 
