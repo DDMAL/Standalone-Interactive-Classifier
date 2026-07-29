@@ -58,7 +58,22 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Iterable, Protocol, Sequence
+
+
+class TrainableClassifier(Protocol):
+    """Structural contract for a ``classifier_factory`` result.
+
+    Both :class:`InteractiveClassifier` and
+    :class:`ic_core.ssl_classifier.SSLFusionClassifier` satisfy this
+    without sharing a base class -- lets a type checker verify callers
+    that reuse the returned classifier (e.g. to call ``.predict_many``
+    again) without widening the contract to ``object``.
+    """
+
+    def fit(self, training_glyphs: Sequence["Glyph"]) -> "TrainableClassifier": ...
+
+    def predict_many(self, glyphs: Sequence["Glyph"]) -> list["Prediction"]: ...
 
 import numpy as np
 
@@ -497,8 +512,8 @@ def run_correction_stage(
     training_glyphs: Sequence[Glyph] | None = None,
     *,
     k: int = DEFAULT_K,
-    classifier_factory: Callable[[], object] | None = None,
-) -> tuple[list[Glyph], object]:
+    classifier_factory: Callable[[], TrainableClassifier] | None = None,
+) -> tuple[list[Glyph], TrainableClassifier]:
     """End-to-end equivalent of the legacy ``run_correction_stage``.
 
     Trains a fresh classifier on ``manual(glyphs) ∪ training_glyphs``

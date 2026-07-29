@@ -126,6 +126,16 @@ class SSLFusionClassifier:
     def classes(self) -> tuple[str, ...]:
         return self._classes
 
+    @property
+    def is_calibrated(self) -> bool:
+        """Whether ``predict_many`` returns real probabilities.
+
+        ``False`` when the last :meth:`fit` had a training class with
+        fewer than 2 examples -- calibration was skipped and every
+        prediction gets a fixed confidence of 1.0 instead.
+        """
+        return self._calibrated
+
     # ------------------------------------------------------------------
     # Feature extraction
     # ------------------------------------------------------------------
@@ -157,11 +167,21 @@ class SSLFusionClassifier:
         precomputed = [g for g in glyphs if g.ssl_embedding is not None]
         live = [g for g in glyphs if g.ssl_embedding is None]
         if precomputed and live:
-            X_ssl = np.empty((len(glyphs), len(precomputed[0].ssl_embedding)))
+            precomputed_dim = len(precomputed[0].ssl_embedding)
+            live_features = self._ssl_features(live)
+            if live_features.shape[1] != precomputed_dim:
+                raise ValueError(
+                    f"Live-extracted SSL features are {live_features.shape[1]}-dim "
+                    f"but precomputed ssl_embedding vectors are {precomputed_dim}-dim "
+                    "-- the configured checkpoint doesn't match the one the "
+                    "precomputed embeddings (e.g. a preset's .ssl_embeddings.npz) "
+                    "were generated with."
+                )
+            X_ssl = np.empty((len(glyphs), precomputed_dim))
             idx_precomputed = [i for i, g in enumerate(glyphs) if g.ssl_embedding is not None]
             idx_live = [i for i, g in enumerate(glyphs) if g.ssl_embedding is None]
             X_ssl[idx_precomputed] = self._ssl_features(precomputed)
-            X_ssl[idx_live] = self._ssl_features(live)
+            X_ssl[idx_live] = live_features
         else:
             X_ssl = self._ssl_features(glyphs)
 
@@ -263,10 +283,29 @@ class SSLFusionClassifier:
         return self.predict_many([glyph])[0]
 
     def predict_many(self, glyphs: Sequence[Glyph]) -> list[Prediction]:
-        """Classify a batch of glyphs in one feature-extraction pass."""
+        """Classify a batch of glyphs in one feature-extraction pass.
+
+        Raises:
+            ValueError: If any glyph has neither a precomputed
+                ``ssl_embedding`` nor a real-pixel crop
+                (``image_gray_b64``) -- unlike :meth:`fit`, which can
+                silently drop unusable training glyphs, every glyph
+                passed here must yield a prediction, so this raises
+                immediately with the offending glyph ids rather than
+                failing deep inside feature extraction.
+        """
         self._require_trained()
         if not glyphs:
             return []
+
+        unusable = [g.id for g in glyphs if g.ssl_embedding is None and g.image_gray_b64 is None]
+        if unusable:
+            raise ValueError(
+                f"{len(unusable)} of {len(glyphs)} glyph(s) have neither a "
+                f"precomputed ssl_embedding nor a real-pixel crop "
+                f"(image_gray_b64), so ssl_fusion cannot classify them: "
+                f"{unusable[:10]}{'...' if len(unusable) > 10 else ''}"
+            )
 
         X = self._fused_features(glyphs, fit_scalers=False)
         classes = self._clf.classes_

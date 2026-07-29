@@ -80,8 +80,25 @@ def attach_ssl_embeddings(
     any reordering).
 
     Raises:
-        ValueError: If the lengths don't match.
+        ValueError: If the lengths don't match, or if ``embeddings`` isn't
+            a 2-D array of finite floats -- this is user-uploadable (a
+            companion ``.ssl_embeddings.npz`` file), so a malformed or
+            corrupted upload must fail here with a clear message rather
+            than surface as an opaque numpy/sklearn error deep inside
+            :class:`~ic_core.ssl_classifier.SSLFusionClassifier`.
     """
+    embeddings = np.asarray(embeddings)
+    if embeddings.ndim != 2 or not np.issubdtype(embeddings.dtype, np.floating):
+        raise ValueError(
+            f"embeddings must be a 2-D array of floats, got shape "
+            f"{embeddings.shape} and dtype {embeddings.dtype} -- the "
+            ".ssl_embeddings.npz file is malformed."
+        )
+    if not np.isfinite(embeddings).all():
+        raise ValueError(
+            "embeddings contains NaN or infinite values -- the "
+            ".ssl_embeddings.npz file is corrupted."
+        )
     if len(glyphs) != len(embeddings):
         raise ValueError(
             f"Glyph count ({len(glyphs)}) does not match embeddings count "

@@ -158,7 +158,9 @@ class ViTExtractor:
             else:
                 raise ValueError(f"Unknown method '{method}' in method.json.")
 
-            state = torch.load(self.checkpoint / "backbone.pt", map_location="cpu")
+            state = torch.load(
+                self.checkpoint / "backbone.pt", map_location="cpu", weights_only=True
+            )
             backbone.load_state_dict(state)
             self._model = backbone
         else:

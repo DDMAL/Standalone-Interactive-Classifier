@@ -167,10 +167,10 @@ def test_fits_with_one_example_per_class(real_glyphs):
              for g in real_glyphs[2:5]]
 
     new_glyphs, classifier = run_correction_stage(
-        query, two_glyphs, classifier_factory=SSLFusionClassifier
+        query, two_glyphs, classifier_factory=lambda: SSLFusionClassifier(checkpoint=_SSL_CHECKPOINT)
     )
 
-    assert classifier._calibrated is False
+    assert classifier.is_calibrated is False
     for g in new_glyphs:
         assert g.class_name in ("solo.a", "solo.b")
         assert g.confidence == 1.0
@@ -193,8 +193,8 @@ def test_fits_with_few_examples_per_class_shrinks_cv(real_glyphs):
     ]
 
     new_glyphs, classifier = run_correction_stage(
-        query, training, classifier_factory=SSLFusionClassifier
+        query, training, classifier_factory=lambda: SSLFusionClassifier(checkpoint=_SSL_CHECKPOINT)
     )
 
-    assert classifier._calibrated is True
+    assert classifier.is_calibrated is True
     assert len(new_glyphs) == len(query)

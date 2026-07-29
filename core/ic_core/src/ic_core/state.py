@@ -281,11 +281,11 @@ class Session:
             backend: ``"knn"`` (default) uses the handcrafted-feature
                 kNN classifier -- byte-identical to this parameter not
                 existing. ``"ssl_fusion"`` uses the optional SSL+HC
-                fused logistic-regression classifier (see
-                ``ic_core.ssl_classifier``); requires the ``ssl``
-                extra to be installed and ``IC_SSL_CHECKPOINT`` to be
-                set, and requires glyphs to have been ingested with
-                ``store_real_crop=True``.
+                fused linear-kernel SVM classifier, calibrated via
+                ``CalibratedClassifierCV`` (see ``ic_core.ssl_classifier``);
+                requires the ``ssl`` extra to be installed and
+                ``IC_SSL_CHECKPOINT`` to be set, and requires glyphs to
+                have been ingested with ``store_real_crop=True``.
 
         Raises:
             StateTransitionError: If called outside ``CLASSIFYING``.
