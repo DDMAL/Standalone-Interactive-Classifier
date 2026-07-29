@@ -104,7 +104,15 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
       glyphId: glyph.id,
       patch: { class_name: name, id_state_manual: true },
     });
-    await classify.mutateAsync({ k: knnK, backend: classifierBackend });
+    // The label update above already persisted server-side -- don't let a
+    // reclassify failure skip the cache refresh and undo entry below (react
+    // query's mutation state still reflects the failure via classify.isError,
+    // shown in the JSX below, so nothing is silently swallowed).
+    try {
+      await classify.mutateAsync({ k: knnK, backend: classifierBackend });
+    } catch {
+      // handled via classify.isError in the render below
+    }
     queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
     pushUndo({ description: "Apply to 1 neume", snapshots: [snapshot] });
   }

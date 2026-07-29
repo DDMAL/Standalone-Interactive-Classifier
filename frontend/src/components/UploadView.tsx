@@ -165,21 +165,26 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
+  // Shared by handleSubmit/handleAutoExport's 4 call sites (staging vs
+  // upload × start vs auto-export) so the training-data fields can't drift
+  // out of sync as new ones get added later.
+  function buildTrainingArgs() {
+    return {
+      trainingFiles: trainingFiles.length > 0 ? trainingFiles : undefined,
+      trainingEmbeddings:
+        trainingEmbeddings.length > 0 ? trainingEmbeddings : undefined,
+      trainingImages: trainingImages.length > 0 ? trainingImages : undefined,
+      trainingPresets:
+        selectedPresets.length > 0 ? selectedPresets : undefined,
+    };
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    const training = trainingFiles.length > 0 ? trainingFiles : undefined;
-    const embeddings =
-      trainingEmbeddings.length > 0 ? trainingEmbeddings : undefined;
-    const images = trainingImages.length > 0 ? trainingImages : undefined;
-    const presetNames =
-      selectedPresets.length > 0 ? selectedPresets : undefined;
     if (stagedId) {
       createFromStaging.mutate({
         stagingId: stagedId,
-        trainingFiles: training,
-        trainingEmbeddings: embeddings,
-        trainingImages: images,
-        trainingPresets: presetNames,
+        ...buildTrainingArgs(),
         vocabulary: vocabulary || undefined,
       });
       return;
@@ -189,10 +194,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
       pageImage,
       annotations,
       annotationsFormat: format,
-      trainingFiles: training,
-      trainingEmbeddings: embeddings,
-      trainingImages: images,
-      trainingPresets: presetNames,
+      ...buildTrainingArgs(),
       vocabulary: vocabulary || undefined,
     });
   }
@@ -202,21 +204,12 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   // the host's encode queue; standalone, it downloads the GameraXML. Shares
   // the same inputs as start.
   function handleAutoExport() {
-    const training = trainingFiles.length > 0 ? trainingFiles : undefined;
-    const embeddings =
-      trainingEmbeddings.length > 0 ? trainingEmbeddings : undefined;
-    const images = trainingImages.length > 0 ? trainingImages : undefined;
-    const presetNames =
-      selectedPresets.length > 0 ? selectedPresets : undefined;
     if (stagedId) {
       autoExport.mutate({
         kind: "staging",
         args: {
           stagingId: stagedId,
-          trainingFiles: training,
-          trainingEmbeddings: embeddings,
-          trainingImages: images,
-          trainingPresets: presetNames,
+          ...buildTrainingArgs(),
           vocabulary: vocabulary || undefined,
         },
       });
@@ -229,10 +222,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
         pageImage,
         annotations,
         annotationsFormat: format,
-        trainingFiles: training,
-        trainingEmbeddings: embeddings,
-        trainingImages: images,
-        trainingPresets: presetNames,
+        ...buildTrainingArgs(),
         vocabulary: vocabulary || undefined,
       },
     });

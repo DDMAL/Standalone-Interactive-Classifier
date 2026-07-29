@@ -72,14 +72,24 @@ export function useUpdateGlyphsPerGlyph(sessionId: string) {
         if (r.status === "fulfilled") applied += 1;
         else failed.push({ glyphId: assignments[i].id, error: r.reason });
       });
+      let classifyError: unknown;
       if (applied > 0) {
-        await classify(
-          sessionId,
-          useUiStore.getState().knnK,
-          useUiStore.getState().classifierBackend,
-        );
+        try {
+          await classify(
+            sessionId,
+            useUiStore.getState().knnK,
+            useUiStore.getState().classifierBackend,
+          );
+        } catch (error) {
+          // The label updates above already persisted server-side --
+          // invalidate below regardless of whether reclassify succeeded,
+          // so the UI doesn't go stale on a classify failure. Surface the
+          // error afterwards rather than swallowing it.
+          classifyError = error;
+        }
       }
       queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
+      if (classifyError) throw classifyError;
       return { applied, failed };
     },
   });
@@ -103,14 +113,22 @@ export function useUpdateGlyphs(sessionId: string) {
         if (r.status === "fulfilled") applied += 1;
         else failed.push({ glyphId: glyphIds[i], error: r.reason });
       });
+      let classifyError: unknown;
       if (reclassify && applied > 0) {
-        await classify(
-          sessionId,
-          useUiStore.getState().knnK,
-          useUiStore.getState().classifierBackend,
-        );
+        try {
+          await classify(
+            sessionId,
+            useUiStore.getState().knnK,
+            useUiStore.getState().classifierBackend,
+          );
+        } catch (error) {
+          // See useUpdateGlyphsPerGlyph above -- persisted labels shouldn't
+          // go stale in the UI just because reclassify failed afterwards.
+          classifyError = error;
+        }
       }
       queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) });
+      if (classifyError) throw classifyError;
       return { applied, failed };
     },
   });

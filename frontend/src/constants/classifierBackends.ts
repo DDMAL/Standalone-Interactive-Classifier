@@ -14,13 +14,14 @@ export const CLASSIFIER_BACKENDS: {
   },
   {
     value: "ssl_fusion",
-    label: "Pre-trained + LR",
+    label: "Pre-trained + SVM",
     title:
       "Optional: self-supervised (SSL) features fused with handcrafted " +
-      "features, classified with logistic regression. Requires the server " +
+      "features, classified with a linear-kernel SVM. Requires the server " +
       "to have the ssl extra installed and a fine-tuned checkpoint " +
-      "configured. Training data must carry precomputed SSL embeddings — " +
-      "only presets marked accordingly qualify; uploaded GameraXML files " +
-      "and incompatible presets can't be used with this model.",
+      "configured. Training data must carry precomputed SSL embeddings or " +
+      "a real-pixel crop — presets marked SSL-compatible qualify " +
+      "automatically, and uploaded GameraXML files qualify when paired " +
+      "with a companion embeddings file or their original source image(s).",
   },
 ];

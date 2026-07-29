@@ -29,9 +29,15 @@ function reclassifyIfSslFusionChosen(
 ) {
   const backend = useUiStore.getState().classifierBackend;
   if (backend === "ssl_fusion" && hasTrainingData) {
-    classify(sessionId, useUiStore.getState().knnK, backend).then(() =>
-      queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) }),
-    );
+    classify(sessionId, useUiStore.getState().knnK, backend)
+      .then(() => queryClient.invalidateQueries({ queryKey: sessionKey(sessionId) }))
+      .catch((error) => {
+        // Fire-and-forget: the session itself was already created successfully
+        // with the default kNN classification, so a failed re-run here (e.g.
+        // ssl_fusion's training-data requirements not met) shouldn't surface
+        // as an unhandled rejection -- just leave the kNN result in place.
+        console.error("ssl_fusion reclassify after session creation failed:", error);
+      });
   }
 }
 
