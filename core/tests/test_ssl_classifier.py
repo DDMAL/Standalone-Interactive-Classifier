@@ -198,3 +198,38 @@ def test_fits_with_few_examples_per_class_shrinks_cv(real_glyphs):
 
     assert classifier.is_calibrated is True
     assert len(new_glyphs) == len(query)
+
+
+def test_predict_many_rejects_glyphs_with_no_usable_features(real_glyphs):
+    """A glyph with neither ssl_embedding nor image_gray_b64 must raise a
+    clear, actionable error before reaching feature extraction -- not an
+    opaque failure deep inside crop_glyph_to_square.
+    """
+    training = [
+        replace(real_glyphs[0], class_name="a", id_state_manual=True),
+        replace(real_glyphs[1], class_name="b", id_state_manual=True),
+    ]
+    classifier = SSLFusionClassifier(checkpoint=_SSL_CHECKPOINT).fit(training)
+
+    crop_less = replace(real_glyphs[2], image_gray_b64=None, ssl_embedding=None)
+    with pytest.raises(ValueError, match="neither a precomputed ssl_embedding"):
+        classifier.predict_many([real_glyphs[3], crop_less])
+
+
+def test_fused_features_rejects_mismatched_precomputed_and_live_dimensions(real_glyphs):
+    """A mixed precomputed/live batch where the two blocks disagree on
+    width must fail with a message naming the checkpoint/preset mismatch,
+    not a bare numpy broadcast error.
+    """
+    training = [
+        replace(real_glyphs[0], class_name="a", id_state_manual=True),
+        replace(real_glyphs[1], class_name="b", id_state_manual=True),
+    ]
+    classifier = SSLFusionClassifier(checkpoint=_SSL_CHECKPOINT).fit(training)
+
+    live_glyph = real_glyphs[2]
+    assert live_glyph.ssl_embedding is None and live_glyph.image_gray_b64 is not None
+    wrong_dim_glyph = replace(real_glyphs[3], ssl_embedding=tuple([0.0] * 3))
+
+    with pytest.raises(ValueError, match="doesn't match"):
+        classifier.predict_many([live_glyph, wrong_dim_glyph])

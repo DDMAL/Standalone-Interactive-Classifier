@@ -89,6 +89,23 @@ def test_ssl_fusion_classifier_trains_on_preset_embeddings_alone():
         assert g.class_name != UNCLASSIFIED
 
 
+def test_attach_ssl_embeddings_rejects_non_2d_array():
+    """embeddings.npz is user-uploadable -- a malformed file must fail
+    clearly here, not surface as an opaque numpy/sklearn error later.
+    """
+    glyphs = load_glyphs(PRESET_XML)[:3]
+    with pytest.raises(ValueError, match="2-D array of floats"):
+        attach_ssl_embeddings(glyphs, np.zeros(3 * 768, dtype=np.float32))
+
+
+def test_attach_ssl_embeddings_rejects_non_finite_values():
+    glyphs = load_glyphs(PRESET_XML)[:3]
+    embeddings = np.zeros((3, 768), dtype=np.float32)
+    embeddings[1, 0] = np.nan
+    with pytest.raises(ValueError, match="NaN or infinite"):
+        attach_ssl_embeddings(glyphs, embeddings)
+
+
 def test_match_glyphs_to_source_pages_recovers_every_hufnagel_glyph():
     """Same recovery this preset's embeddings were generated from (see
     core/scripts/generate_hufnagel_ssl_embeddings.py), exercised as the
