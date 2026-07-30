@@ -80,6 +80,35 @@ from ic_core.glyph import CATEGORY_NEUMES
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
 from ic_core.state import Session, StateTransitionError
 
+# ---------------------------------------------------------------------------
+# Starlette 1.x caps each multipart part at 1 MB by default, which is too
+# small for high-res page scans.  FastAPI calls request.form() without a
+# max_part_size argument, so we raise the default here to avoid spurious 413s.
+# Override with the MAX_UPLOAD_BYTES env var when needed.
+# ---------------------------------------------------------------------------
+_MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+
+from starlette import requests as _starlette_requests  # noqa: E402
+
+_orig_get_form = _starlette_requests.Request._get_form
+
+
+async def _patched_get_form(
+    self: _starlette_requests.Request,
+    *,
+    max_files: int | float = 1000,
+    max_fields: int | float = 1000,
+    max_part_size: int = _MAX_UPLOAD_BYTES,
+) -> _starlette_requests.FormData:
+    return await _orig_get_form(
+        self,
+        max_files=max_files,
+        max_fields=max_fields,
+        max_part_size=max_part_size,
+    )
+
+
+_starlette_requests.Request._get_form = _patched_get_form  # type: ignore[method-assign]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1194,11 +1223,12 @@ def complete_session(
 ) -> Response:
     """Stream back the GameraXML export for the session.
 
-    Exporting does **not** finalise the session — it stays in
-    ``CLASSIFYING`` and fully editable, so the user can keep correcting
-    and re-export as many times as they like (and resume the page
-    later). The returned XML is a snapshot of the current working set,
-    the canonical artefact for downstream MEI pipelines.
+    The first call transitions the session from ``CLASSIFYING`` to
+    ``EXPORT`` (idempotent: subsequent calls are no-ops on the state
+    machine). Once in ``EXPORT``, further mutations return 409 but
+    re-export is always allowed. The returned XML is a snapshot of the
+    current working set, the canonical artefact for downstream MEI
+    pipelines.
 
     The caller picks which sections to fold into a single GameraXML
     document via independent boolean flags (the export screen's
@@ -1225,15 +1255,14 @@ def complete_session(
             "Select at least one section to include in the export."
         )
     with store.session(session_id) as session:
-        # Export-time hygiene applied to the *exported* glyphs only, so the
-        # live session is left untouched (and re-editable). Mirrors the
-        # cleanup ``Session.complete`` used to do in-place: strip transient
-        # ``_group`` / ``_delete`` parts, and drop UNCLASSIFIED training
-        # entries that snuck in via the original training XML.
-        page_glyphs = filter_parts(session.glyphs)
+        # Finalise the session (CLASSIFYING → EXPORT) on the first export.
+        # Idempotent: already-EXPORT sessions are a no-op, so repeated
+        # exports work fine.  After this call, mutations raise 409.
+        session.complete()
+        page_glyphs = session.glyphs
         training_glyphs = [
             g
-            for g in filter_parts(session.training_glyphs)
+            for g in session.training_glyphs
             if g.class_name != UNCLASSIFIED
         ]
         selected: list = []
