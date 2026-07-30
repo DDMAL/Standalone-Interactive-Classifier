@@ -8,12 +8,10 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const styles: Record<Variant, string> = {
-  primary:
-    "bg-mothra-cyan text-white hover:bg-mothra-cyan-dark disabled:bg-mothra-cyan/50",
+  primary: "bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300",
   secondary:
-    "bg-mothra-cyan-faint text-mothra-teal hover:bg-mothra-cyan-muted disabled:opacity-50",
-  ghost:
-    "bg-transparent text-mothra-teal hover:bg-mothra-cyan-faint disabled:opacity-50",
+    "bg-slate-200 text-slate-800 hover:bg-slate-300 disabled:opacity-50",
+  ghost: "bg-transparent text-slate-700 hover:bg-slate-100 disabled:opacity-50",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(

@@ -2,8 +2,6 @@
 
 A modern rewrite of the **Interactive Classifier** — a tool for interactively classifying chant-manuscript neumes using a k-Nearest Neighbors model.
 
-The Interactive Classifier lives here: https://ic.simssa.ca/.
-
 This project replaces the legacy Rodan job (Django + Celery + Gamera + Backbone.Marionette) at [`/Rodan-lite/backend/django/code/jobs/interactive_classifier/`] with a non-Django Python service, a React + Vite frontend, and no Gamera dependency.
 
 ## Key differences from the legacy IC

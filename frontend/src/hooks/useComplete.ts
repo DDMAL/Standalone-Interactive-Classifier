@@ -10,16 +10,17 @@ import type { SessionDTO } from "@/types/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 /**
- * Commits any soft-deleted glyphs to the backend, then exports the
- * GameraXML for the session and downloads it. Deletes run in parallel;
+ * Commits any soft-deleted glyphs to the backend, then completes the
+ * session and downloads the GameraXML response. Deletes run in parallel;
  * the put-back affordance is gone once this kicks off.
  *
  * Pass an {@link ExportSelection} to choose which sections (page, manual
  * neumes, preset/uploaded training) get folded into the exported XML.
  *
- * Exporting no longer finalises the session — the backend leaves it
- * editable — so we stay on the edit view after the download. The user can
- * keep correcting and export again as many times as they like.
+ * Completing moves the session into the terminal EXPORT state, which is
+ * read-only — no further classifying is possible. So once the download
+ * fires we clear the session and drop back to the main page rather than
+ * leaving the user on an edit view that can only 409.
  */
 export function useComplete(sessionId: string) {
   const queryClient = useQueryClient();
@@ -46,6 +47,7 @@ export function useComplete(sessionId: string) {
     },
     onSuccess: ({ blob, filename }) => {
       downloadBlob(blob, filename);
+      useUiStore.getState().clearSession();
     },
   });
 }
