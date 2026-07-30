@@ -75,45 +75,6 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
 
   const active = stagedId ? createFromStaging : create;
 
-  // Pre-load the bundled Hufnagel sample page so the form is ready to submit
-  // without picking files. Skipped in the staged (mothra) flow, where the page
-  // is supplied upstream. `prev ?? file` avoids clobbering anything the user
-  // selected before the async fetch resolved.
-  useEffect(() => {
-    if (stagedId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const [img, ann] = await Promise.all([
-          fetchAsFile(SAMPLE_IMAGE_URL, SAMPLE_IMAGE_NAME, "image/png"),
-          fetchAsFile(
-            SAMPLE_ANNOTATIONS_URL,
-            SAMPLE_ANNOTATIONS_NAME,
-            "application/json",
-          ),
-        ]);
-        if (cancelled) return;
-        setPageImage((prev) => prev ?? img);
-        setAnnotations((prev) => prev ?? ann);
-      } catch {
-        // The sample is a convenience default; on failure just leave the
-        // inputs empty for the user to fill in.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [stagedId]);
-
-  // Default-select the Hufnagel preset once the list has loaded, if present.
-  // Gated on an empty selection so it does not fight a user's own choice, and
-  // keyed on the loaded data so unchecking it does not re-add it.
-  const presetNames = presets.data;
-  useEffect(() => {
-    if (!presetNames?.includes(DEFAULT_PRESET)) return;
-    setSelectedPresets((prev) => (prev.length === 0 ? [DEFAULT_PRESET] : prev));
-  }, [presetNames]);
-
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const training = trainingFiles.length > 0 ? trainingFiles : undefined;
