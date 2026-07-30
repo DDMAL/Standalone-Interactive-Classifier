@@ -43,7 +43,7 @@ interface UiState {
   pendingFocusGlyphId: string | null;
 
   // Soft-deleted ids — hidden from the grid/overlay/lasso but recoverable
-  // via restoreGlyph. Committed to the backend at Complete & Export time.
+  // via restoreGlyph. Committed to the backend at export time.
   deletedGlyphIds: Set<string>;
 
   // Whether the left-rail class tree is collapsed. Page-specific; resets

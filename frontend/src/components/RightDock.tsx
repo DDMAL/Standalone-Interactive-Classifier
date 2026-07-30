@@ -76,7 +76,7 @@ function TrainingHandle({
       type="button"
       onClick={onExpand}
       title="Show training data"
-      className="flex w-9 shrink-0 flex-col items-center gap-2 border-l border-slate-200 bg-white py-3 text-slate-500 transition-colors hover:bg-slate-50 hover:text-blue-600"
+      className="flex w-9 shrink-0 flex-col items-center gap-2 border-l border-slate-200 bg-white py-3 text-slate-500 transition-colors hover:bg-slate-50 hover:text-mothra-cyan"
     >
       <span aria-hidden className="text-xs">
         ◀
