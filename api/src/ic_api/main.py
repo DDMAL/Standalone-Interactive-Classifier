@@ -79,6 +79,35 @@ from ic_core.glyph import CATEGORY_NEUMES
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
 from ic_core.state import Session, StateTransitionError
 
+# ---------------------------------------------------------------------------
+# Starlette 1.x caps each multipart part at 1 MB by default, which is too
+# small for high-res page scans.  FastAPI calls request.form() without a
+# max_part_size argument, so we raise the default here to avoid spurious 413s.
+# Override with the MAX_UPLOAD_BYTES env var when needed.
+# ---------------------------------------------------------------------------
+_MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+
+from starlette import requests as _starlette_requests  # noqa: E402
+
+_orig_get_form = _starlette_requests.Request._get_form
+
+
+async def _patched_get_form(
+    self: _starlette_requests.Request,
+    *,
+    max_files: int | float = 1000,
+    max_fields: int | float = 1000,
+    max_part_size: int = _MAX_UPLOAD_BYTES,
+) -> _starlette_requests.FormData:
+    return await _orig_get_form(
+        self,
+        max_files=max_files,
+        max_fields=max_fields,
+        max_part_size=max_part_size,
+    )
+
+
+_starlette_requests.Request._get_form = _patched_get_form  # type: ignore[method-assign]
 
 # ---------------------------------------------------------------------------
 # Helpers
