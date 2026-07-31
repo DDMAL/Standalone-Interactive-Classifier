@@ -21,8 +21,6 @@ const SAMPLE_IMAGE_URL = "/samples/image_hfn_sample.png";
 const SAMPLE_IMAGE_NAME = "image_hfn_sample.png";
 const SAMPLE_ANNOTATIONS_URL = "/samples/image_hfn_sample_annotations.json";
 const SAMPLE_ANNOTATIONS_NAME = "image_hfn_sample_annotations.json";
-// Preset checked by default on load, when the API offers it.
-const DEFAULT_PRESET = "Hufnagel.xml";
 
 /** Fetch a bundled asset and wrap it as a File for the upload form. */
 async function fetchAsFile(
@@ -59,9 +57,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const vocabClasses = useVocabularyClasses(vocabulary);
 
   function togglePreset(name: string, checked: boolean) {
-    setSelectedPresets((prev) =>
-      checked ? [...prev, name] : prev.filter((n) => n !== name),
-    );
+    setSelectedPresets(checked ? [name] : []);
   }
 
   const totalTrainingSets = selectedPresets.length + trainingFiles.length;
@@ -70,12 +66,12 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     queryKey: ["staging", stagedId],
     queryFn: () => getStaging(stagedId as string),
     enabled: !!stagedId,
-    staleTime: Infinity,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 
   const active = stagedId ? createFromStaging : create;
 
-    // Pre-load the bundled Hufnagel sample page so the form is ready to submit
+  // Pre-load the bundled Hufnagel sample page so the form is ready to submit
   // without picking files. Skipped in the staged (mothra) flow, where the page
   // is supplied upstream. `prev ?? file` avoids clobbering anything the user
   // selected before the async fetch resolved.
@@ -105,15 +101,6 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     };
   }, [stagedId]);
 
-  // Default-select the Hufnagel preset once the list has loaded, if present.
-  // Gated on an empty selection so it does not fight a user's own choice, and
-  // keyed on the loaded data so unchecking it does not re-add it.
-  const presetNames = presets.data;
-  useEffect(() => {
-    if (!presetNames?.includes(DEFAULT_PRESET)) return;
-    setSelectedPresets((prev) => (prev.length === 0 ? [DEFAULT_PRESET] : prev));
-  }, [presetNames]);
-  
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     const training = trainingFiles.length > 0 ? trainingFiles : undefined;
