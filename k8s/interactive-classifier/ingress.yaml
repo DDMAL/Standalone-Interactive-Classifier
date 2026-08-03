@@ -5,6 +5,19 @@ metadata:
   namespace: interactive-classifier
   labels:
     app: ic
+  annotations:
+    # Enforce the 64 MiB request-body limit on the traefik controller that
+    # actually serves this Ingress. See middleware.yaml for the buffering
+    # config; the value must be `<namespace>-<name>@kubernetescrd`.
+    #
+    # Page-scan uploads are multi-MB multipart bodies, and an nginx proxy in
+    # front of ic.simssa.ca currently rejects anything over its default
+    # client_max_body_size of 1 MB with a 413 before the request reaches
+    # uvicorn (verified: a 1048576-byte body reaches the app, 1048577 bytes
+    # returns nginx's own 413 page). If that nginx is a host-level proxy
+    # rather than an ingress controller, it needs `client_max_body_size 64m;`
+    # in its own server block — no annotation here can reach it.
+    traefik.ingress.kubernetes.io/router.middlewares: interactive-classifier-ic-body-limit@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:
