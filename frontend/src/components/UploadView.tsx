@@ -12,6 +12,20 @@ import type { AnnotationFormat } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 
+/**
+ * Coerce an untrusted preset list down to the one-preset invariant.
+ *
+ * Presets are mutually exclusive, so a selection is at most one name. The
+ * picker enforces that by construction, but the host prefill below is data
+ * from another window, so it gets normalised the same way rather than trusted:
+ * non-strings are dropped (they would serialise into `training_presets` as
+ * garbage) and anything past the first name is discarded, which is exactly
+ * what checking that first box would have produced.
+ */
+function normalizePresets(names: unknown[]): string[] {
+  return names.filter((n): n is string => typeof n === "string").slice(0, 1);
+}
+
 interface UploadViewProps {
   // When set, the page image + bboxes have been staged by an embedding host
   // (mothra). The page/annotation inputs are replaced by a read-only summary
@@ -34,10 +48,12 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const vocabularies = useVocabularies();
   const vocabClasses = useVocabularyClasses(vocabulary);
 
+  // Presets are mutually exclusive: checking one unchecks the rest. The state
+  // stays an array because the API takes a list (`training_presets`) and an
+  // uploaded set can still be combined with a preset — only preset-vs-preset
+  // is exclusive.
   function togglePreset(name: string, checked: boolean) {
-    setSelectedPresets((prev) =>
-      checked ? [...prev, name] : prev.filter((n) => n !== name),
-    );
+    setSelectedPresets(checked ? [name] : []);
   }
 
   const totalTrainingSets = selectedPresets.length + trainingFiles.length;
@@ -46,7 +62,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     queryKey: ["staging", stagedId],
     queryFn: () => getStaging(stagedId as string),
     enabled: !!stagedId,
-    staleTime: Infinity,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 
   const active = stagedId ? createFromStaging : create;
@@ -61,8 +77,19 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
       if (e.source !== window.parent) return;
       const data = e.data;
       if (data?.type !== "ic:prefill-training") return;
-      if (Array.isArray(data.presets))
-        setSelectedPresets((prev) => (prev.length ? prev : data.presets));
+      if (Array.isArray(data.presets)) {
+        const presets = normalizePresets(data.presets);
+        // A host pushing more than one preset is out of sync with this build
+        // (they used to be additive); say so, since a silent truncation looks
+        // like the selection was simply lost.
+        if (data.presets.length > presets.length) {
+          const kept = presets.length === 0 ? "none" : `"${presets[0]}"`;
+          console.warn(
+            `ic: host prefilled ${data.presets.length} training presets, but presets are mutually exclusive — keeping ${kept}.`,
+          );
+        }
+        setSelectedPresets((prev) => (prev.length ? prev : presets));
+      }
       if (Array.isArray(data.files))
         setTrainingFiles((prev) => (prev.length ? prev : data.files));
     }
