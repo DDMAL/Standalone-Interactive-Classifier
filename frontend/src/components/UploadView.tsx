@@ -12,18 +12,26 @@ import type { AnnotationFormat } from "@/types/api";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 
-/**
- * Coerce an untrusted preset list down to the one-preset invariant.
- *
- * Presets are mutually exclusive, so a selection is at most one name. The
- * picker enforces that by construction, but the host prefill below is data
- * from another window, so it gets normalised the same way rather than trusted:
- * non-strings are dropped (they would serialise into `training_presets` as
- * garbage) and anything past the first name is discarded, which is exactly
- * what checking that first box would have produced.
- */
-function normalizePresets(names: unknown[]): string[] {
-  return names.filter((n): n is string => typeof n === "string").slice(0, 1);
+// Default sample page, bundled under frontend/public/samples (the Hufnagel
+// test pair from core/data/test). It ships inside the frontend so it is
+// fetchable both from the Vite dev server and the single-origin production
+// build, where the API serves the built assets. Pre-loading it lets the user
+// start a session in one click; either file can still be replaced.
+const SAMPLE_IMAGE_URL = "/samples/image_hfn_sample.png";
+const SAMPLE_IMAGE_NAME = "image_hfn_sample.png";
+const SAMPLE_ANNOTATIONS_URL = "/samples/image_hfn_sample_annotations.json";
+const SAMPLE_ANNOTATIONS_NAME = "image_hfn_sample_annotations.json";
+
+/** Fetch a bundled asset and wrap it as a File for the upload form. */
+async function fetchAsFile(
+  url: string,
+  name: string,
+  type: string,
+): Promise<File> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to load ${name}`);
+  const blob = await res.blob();
+  return new File([blob], name, { type });
 }
 
 interface UploadViewProps {
@@ -67,36 +75,35 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
 
   const active = stagedId ? createFromStaging : create;
 
-  // Embedded in a host (mothra): the host may have picked a training set at the
-  // batch level. Announce readiness, then adopt whatever it pushes back so the
-  // user doesn't re-select the same training set on every page — but never
-  // clobber a selection already made here.
+  // Pre-load the bundled Hufnagel sample page so the form is ready to submit
+  // without picking files. Skipped in the staged (mothra) flow, where the page
+  // is supplied upstream. `prev ?? file` avoids clobbering anything the user
+  // selected before the async fetch resolved.
   useEffect(() => {
-    if (window.parent === window) return; // standalone — nothing to sync
-    function onMessage(e: MessageEvent) {
-      if (e.source !== window.parent) return;
-      const data = e.data;
-      if (data?.type !== "ic:prefill-training") return;
-      if (Array.isArray(data.presets)) {
-        const presets = normalizePresets(data.presets);
-        // A host pushing more than one preset is out of sync with this build
-        // (they used to be additive); say so, since a silent truncation looks
-        // like the selection was simply lost.
-        if (data.presets.length > presets.length) {
-          const kept = presets.length === 0 ? "none" : `"${presets[0]}"`;
-          console.warn(
-            `ic: host prefilled ${data.presets.length} training presets, but presets are mutually exclusive — keeping ${kept}.`,
-          );
-        }
-        setSelectedPresets((prev) => (prev.length ? prev : presets));
+    if (stagedId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [img, ann] = await Promise.all([
+          fetchAsFile(SAMPLE_IMAGE_URL, SAMPLE_IMAGE_NAME, "image/png"),
+          fetchAsFile(
+            SAMPLE_ANNOTATIONS_URL,
+            SAMPLE_ANNOTATIONS_NAME,
+            "application/json",
+          ),
+        ]);
+        if (cancelled) return;
+        setPageImage((prev) => prev ?? img);
+        setAnnotations((prev) => prev ?? ann);
+      } catch {
+        // The sample is a convenience default; on failure just leave the
+        // inputs empty for the user to fill in.
       }
-      if (Array.isArray(data.files))
-        setTrainingFiles((prev) => (prev.length ? prev : data.files));
-    }
-    window.addEventListener("message", onMessage);
-    window.parent.postMessage({ type: "ic:ready" }, "*");
-    return () => window.removeEventListener("message", onMessage);
-  }, []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [stagedId]);
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -123,10 +130,8 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     });
   }
 
-  // One-click shortcut: create the session and run a classify round over the
-  // page — no session view. Embedded in a host (mothra), it hands the page to
-  // the host's encode queue; standalone, it downloads the GameraXML. Shares
-  // the same inputs as start.
+  // One-click shortcut: create the session, run a classify round, and download
+  // the page as GameraXML — no session view. Shares the same inputs as start.
   function handleAutoExport() {
     const training = trainingFiles.length > 0 ? trainingFiles : undefined;
     const presetNames =
@@ -157,14 +162,11 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
     });
   }
 
-  // Embedded in a host (mothra) via iframe → "queue page" semantics; standalone
-  // → "auto-export" (download). Drives the button's wording only.
-  const embedded = window.parent !== window;
   const anyPending = active.isPending || autoExport.isPending;
   const inputsMissing = stagedId ? !staging.data : !pageImage || !annotations;
   const submitDisabled = anyPending || inputsMissing;
-  // Queueing/auto-export always runs a classify round, which needs a non-empty
-  // training pool — so grey it out until the user picks a preset or uploads a set.
+  // Auto-export always runs a classify round, which needs a non-empty training
+  // pool — so grey it out until the user picks a preset or uploads a set.
   const autoExportDisabled = submitDisabled || totalTrainingSets === 0;
 
   return (
@@ -219,6 +221,11 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                   onChange={(e) => setPageImage(e.target.files?.[0] ?? null)}
                   className="block w-full text-sm"
                 />
+                {pageImage && (
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Loaded: {pageImage.name}
+                  </span>
+                )}
               </label>
 
               <label className="block text-sm">
@@ -231,6 +238,11 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                   onChange={(e) => setAnnotations(e.target.files?.[0] ?? null)}
                   className="block w-full text-sm"
                 />
+                {annotations && (
+                  <span className="mt-1 block text-xs text-slate-500">
+                    Loaded: {annotations.name}
+                  </span>
+                )}
               </label>
 
               <label className="block text-sm">
@@ -302,16 +314,6 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
               />
             </label>
 
-            {trainingFiles.length > 0 && (
-              <ul className="space-y-0.5 text-xs text-slate-500">
-                {trainingFiles.map((f, i) => (
-                  <li key={`${f.name}-${i}`} className="truncate">
-                    {f.name}
-                  </li>
-                ))}
-              </ul>
-            )}
-
             <span className="block text-xs font-normal text-slate-400">
               {totalTrainingSets > 0
                 ? `${totalTrainingSets} training ${
@@ -381,7 +383,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
               {(autoExport.error as Error).message}
             </p>
           )}
-          {autoExport.isSuccess && !embedded && (
+          {autoExport.isSuccess && (
             <p className="text-sm text-green-600">
               Exported {autoExport.data}.
             </p>
@@ -396,21 +398,11 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
               className="flex-1"
               title={
                 totalTrainingSets === 0
-                  ? embedded
-                    ? "Add a preset or upload a training set to enable queuing"
-                    : "Add a preset or upload a training set to enable auto-export"
-                  : embedded
-                    ? "Classify the page with the training set and add it straight to the encode queue"
-                    : "Create the session, run one classification round, and download the page as GameraXML"
+                  ? "Add a preset or upload a training set to enable auto-export"
+                  : "Create the session, run one classification round, and download the page as GameraXML"
               }
             >
-              {autoExport.isPending
-                ? embedded
-                  ? "Queuing…"
-                  : "Auto-exporting…"
-                : embedded
-                  ? "Queue page"
-                  : "Auto-export"}
+              {autoExport.isPending ? "Auto-exporting…" : "Auto-export"}
             </Button>
             <Button type="submit" disabled={submitDisabled} className="flex-1">
               {active.isPending ? "Uploading…" : "Start session"}

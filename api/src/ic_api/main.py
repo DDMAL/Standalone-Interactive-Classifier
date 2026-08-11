@@ -75,7 +75,6 @@ from ic_core.ingest import (
     binarize_page,
     ingest_page,
 )
-from ic_core.classifier import UNCLASSIFIED, filter_parts
 from ic_core.glyph import CATEGORY_NEUMES
 from ic_core.io_xml import dumps_glyphs, load_glyphs_bytes
 from ic_core.state import Session, StateTransitionError
@@ -888,9 +887,7 @@ async def create_session_from_staging(
 
 
 @app.get("/sessions", response_model=list[SessionSummaryDTO])
-def list_sessions(
-    store: Store, project_id: int | None = None
-) -> list[SessionSummaryDTO]:
+def list_sessions(store: Store) -> list[SessionSummaryDTO]:
     """List stored sessions as lightweight summaries, most-recent first.
 
     Powers the standalone frontend's "resume a saved session" list: the
@@ -900,18 +897,10 @@ def list_sessions(
     user pick. Summaries omit glyph masks and the page image; the client
     fetches the full session via :func:`get_session` on open.
 
-    When ``project_id`` is given, only sessions staged for that project are
-    returned — this is how mothra's per-project "saved sessions" management
-    view scopes the otherwise-global list so it never surfaces (or lets a
-    user delete) another project's sessions.
-
     Against the in-memory store this reflects only sessions created since
     the last restart; against the persistent store it spans restarts and
     carries an ``updated_at`` timestamp.
     """
-    summaries = store.list_sessions()
-    if project_id is not None:
-        summaries = [s for s in summaries if s.project_id == project_id]
     return [
         SessionSummaryDTO(
             id=s.id,
@@ -922,7 +911,7 @@ def list_sessions(
             project_id=s.project_id,
             image_id=s.image_id,
         )
-        for s in summaries
+        for s in store.list_sessions()
     ]
 
 
@@ -1221,14 +1210,11 @@ def complete_session(
     preset_training: bool = False,
     uploaded_training: bool = False,
 ) -> Response:
-    """Stream back the GameraXML export for the session.
+    """Finalise the session and stream back the GameraXML export.
 
-    The first call transitions the session from ``CLASSIFYING`` to
-    ``EXPORT`` (idempotent: subsequent calls are no-ops on the state
-    machine). Once in ``EXPORT``, further mutations return 409 but
-    re-export is always allowed. The returned XML is a snapshot of the
-    current working set, the canonical artefact for downstream MEI
-    pipelines.
+    The session transitions to ``EXPORT`` (terminal). The frontend
+    should treat the returned XML as the canonical artefact for
+    downstream MEI pipelines.
 
     The caller picks which sections to fold into a single GameraXML
     document via independent boolean flags (the export screen's
@@ -1246,25 +1232,15 @@ def complete_session(
     glyph twice). At least one flag must be set, else 400.
 
     Response body is ``application/xml``, not JSON, because the XML
-    *is* the deliverable. The session remains in the store, still
-    editable, so the caller can re-export or ``DELETE`` it explicitly
-    once they've saved the file.
+    *is* the deliverable. The session remains in the store so the
+    caller can ``DELETE`` it explicitly once they've saved the file.
     """
     if not (page or manual_neumes or preset_training or uploaded_training):
         raise ValueError(
             "Select at least one section to include in the export."
         )
     with store.session(session_id) as session:
-        # Finalise the session (CLASSIFYING → EXPORT) on the first export.
-        # Idempotent: already-EXPORT sessions are a no-op, so repeated
-        # exports work fine.  After this call, mutations raise 409.
         session.complete()
-        page_glyphs = session.glyphs
-        training_glyphs = [
-            g
-            for g in session.training_glyphs
-            if g.class_name != UNCLASSIFIED
-        ]
         selected: list = []
         seen: set[str] = set()
 
@@ -1275,23 +1251,23 @@ def complete_session(
                     selected.append(g)
 
         if page:
-            add(page_glyphs)
+            add(session.glyphs)
         if manual_neumes:
             add(
                 g
-                for g in page_glyphs
+                for g in session.glyphs
                 if g.category == CATEGORY_NEUMES and g.id_state_manual
             )
         if preset_training:
             add(
                 g
-                for g in training_glyphs
+                for g in session.training_glyphs
                 if g.id in session.preset_training_ids
             )
         if uploaded_training:
             add(
                 g
-                for g in training_glyphs
+                for g in session.training_glyphs
                 if g.id in session.uploaded_training_ids
             )
         payload = dumps_glyphs(selected)

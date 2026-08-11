@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 
-import { SessionResumeList } from "@/components/SessionResumeList";
 import { SessionView } from "@/components/SessionView";
 import { UploadView } from "@/components/UploadView";
 import { useUiStore } from "@/store/uiStore";
@@ -21,8 +20,6 @@ import { useUiStore } from "@/store/uiStore";
 const params = new URLSearchParams(window.location.search);
 const deepLinkSessionId = params.get("session");
 const stagedId = params.get("staged") ?? undefined;
-const manage = params.get("manage") === "1";
-const manageProjectId = params.get("project_id");
 
 export default function App() {
   const sessionId = useUiStore((s) => s.sessionId);

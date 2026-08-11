@@ -1,58 +1,53 @@
-# syntax=docker/dockerfile:1
+# Single-image deploy for the Interactive Classifier demo.
 #
-# Single-origin production image for the Interactive Classifier.
+# One container serves both the API (FastAPI) and the built frontend from the
+# same origin, so there is no CORS and no separate API URL to configure (the
+# frontend client falls back to same-origin requests in production — see
+# frontend/src/api/client.ts). Build context must be the repo root because the
+# API package depends on the sibling core/ic_core package via a relative path.
 #
-# Stage 1 builds the React/Vite frontend into static assets; stage 2 installs
-# the FastAPI service and drops those assets into api/src/ic_api/static/, where
-# main.py mounts them (see the StaticFiles mount near the bottom of main.py).
-# The result serves both the API and the SPA from one origin on port 8000.
-#
-# Build context is the `ic/` directory:
-#   docker build -t ic .
-#   docker run --rm -p 8000:8000 ic
+#   docker build -t ic-demo .
+#   docker run -p 8000:8000 ic-demo   # then open http://localhost:8000
 
 # ---------------------------------------------------------------------------
-# Stage 1 — build the frontend (outputs to /build/dist)
+# Stage 1 — build the React/Vite frontend into static assets
 # ---------------------------------------------------------------------------
-FROM node:22-alpine AS frontend
-WORKDIR /build
-
-# Install deps first so this layer is cached unless the lockfile changes.
+FROM node:20-slim AS frontend
+WORKDIR /build/frontend
+# Install deps first (cached unless the lockfile changes). The build runs a
+# TypeScript type-check, so dev dependencies are required — a full `npm ci`.
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
-
-# Build: `tsc --noEmit && vite build`. devDependencies (typescript, vite) are
-# present because `npm ci` installs them by default.
 COPY frontend/ ./
-RUN npm run build
+RUN npm run build   # → /build/frontend/dist
 
 # ---------------------------------------------------------------------------
-# Stage 2 — Python API serving the built SPA
+# Stage 2 — Python runtime: API + core library, plus the built frontend
 # ---------------------------------------------------------------------------
-# Bundles a recent uv with Python 3.12. Pin a specific uv version (e.g.
-# ghcr.io/astral-sh/uv:0.11-python3.12-bookworm-slim) for reproducible builds.
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS api
+FROM python:3.11-slim AS runtime
+
+# uv for dependency management (matches local dev tooling).
+COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /usr/local/bin/uv
+
+ENV UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1
 
 WORKDIR /app
-
-# `ic-api` depends on `ic-core` via the sibling path `../core/ic_core`
-# (see api/pyproject.toml [tool.uv.sources]), so both packages must be present
-# with their relative layout preserved.
+# Preserve the repo layout so api's relative dependency on ../core/ic_core
+# resolves and the IC_TRAIN_DIR env below points at a real directory.
 COPY core/ ./core/
 COPY api/ ./api/
 
+# Install the API and its editable core dependency into a project venv.
 WORKDIR /app/api
-# Install into the project venv from the committed lockfile, excluding dev deps.
 RUN uv sync --frozen --no-dev
 
-# Drop the built frontend where main.py expects it. This dir is gitignored;
-# the COPY above does not include it (the build context excludes it too).
-COPY --from=frontend /build/dist/ ./src/ic_api/static/
+# Drop the built frontend where main.py mounts it (api/src/ic_api/static).
+COPY --from=frontend /build/frontend/dist /app/api/src/ic_api/static
 
-# uvicorn must bind all interfaces inside the container; run() reads these.
+# Bind to all interfaces and honour the platform-provided $PORT (Render, etc.).
+# IC_TRAIN_DIR points at the committed vocabulary CSVs served by /vocabularies.
 ENV HOST=0.0.0.0 \
-    PORT=8000
+    IC_TRAIN_DIR=/app/core/data/train
 EXPOSE 8000
-
-# --no-sync: the venv is already synced above, so skip the implicit re-sync.
-CMD ["uv", "run", "--no-sync", "ic-api"]
+CMD ["uv", "run", "ic-api"]

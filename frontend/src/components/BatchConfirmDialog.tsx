@@ -191,8 +191,8 @@ export function BatchConfirmDialog({
                     className={clsx(
                       "px-2 py-0.5 text-xs font-medium transition-colors",
                       value === glyphImageMode
-                        ? "bg-mothra-cyan text-white"
-                        : "bg-white text-slate-700 hover:bg-mothra-cyan-faint",
+                        ? "bg-blue-600 text-white"
+                        : "bg-white text-slate-700 hover:bg-slate-100",
                     )}
                   >
                     {label}

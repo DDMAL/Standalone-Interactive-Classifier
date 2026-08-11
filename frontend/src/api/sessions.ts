@@ -95,16 +95,8 @@ export const listVocabularies = () => http.get<string[]>("/vocabularies");
 export const getVocabularyClasses = (name: string) =>
   http.get<string[]>(`/vocabularies/${encodeURIComponent(name)}/classes`);
 
-/**
- * List stored sessions as lightweight summaries, most-recent first. Pass
- * ``projectId`` to scope the list to one mothra project (used by the
- * per-project "saved sessions" management view); omit it for the global list
- * that backs standalone IC's resume picker.
- */
-export const listSessions = (projectId?: number) =>
-  http.get<SessionSummary[]>(
-    projectId == null ? "/sessions" : `/sessions?project_id=${projectId}`,
-  );
+/** List stored sessions as lightweight summaries, most-recent first. */
+export const listSessions = () => http.get<SessionSummary[]>("/sessions");
 
 export const getSession = (id: string) =>
   http.get<SessionDTO>(`/sessions/${id}`);
