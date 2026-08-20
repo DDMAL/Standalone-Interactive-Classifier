@@ -887,7 +887,9 @@ async def create_session_from_staging(
 
 
 @app.get("/sessions", response_model=list[SessionSummaryDTO])
-def list_sessions(store: Store) -> list[SessionSummaryDTO]:
+def list_sessions(
+    store: Store, project_id: int | None = None
+) -> list[SessionSummaryDTO]:
     """List stored sessions as lightweight summaries, most-recent first.
 
     Powers the standalone frontend's "resume a saved session" list: the
@@ -897,10 +899,18 @@ def list_sessions(store: Store) -> list[SessionSummaryDTO]:
     user pick. Summaries omit glyph masks and the page image; the client
     fetches the full session via :func:`get_session` on open.
 
+    When ``project_id`` is given, only sessions staged for that project are
+    returned — this is how mothra's per-project "saved sessions" management
+    view scopes the otherwise-global list so it never surfaces (or lets a
+    user delete) another project's sessions.
+
     Against the in-memory store this reflects only sessions created since
     the last restart; against the persistent store it spans restarts and
     carries an ``updated_at`` timestamp.
     """
+    summaries = store.list_sessions()
+    if project_id is not None:
+        summaries = [s for s in summaries if s.project_id == project_id]
     return [
         SessionSummaryDTO(
             id=s.id,
@@ -911,7 +921,7 @@ def list_sessions(store: Store) -> list[SessionSummaryDTO]:
             project_id=s.project_id,
             image_id=s.image_id,
         )
-        for s in store.list_sessions()
+        for s in summaries
     ]
 
 

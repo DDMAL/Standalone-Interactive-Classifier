@@ -589,6 +589,26 @@ def test_list_sessions_returns_created_sessions(client):
     assert row["updated_at"] is None
 
 
+def test_list_sessions_scopes_to_project_id(client):
+    # mothra's per-project "saved sessions" view passes ?project_id=<id>; it
+    # must never surface another project's (or an unkeyed) session.
+    mine = client.post(
+        "/sessions/from-staging",
+        data={"staging_id": _stage(client, project_id=11, image_id="img-mine")},
+    ).json()["id"]
+    client.post(
+        "/sessions/from-staging",
+        data={"staging_id": _stage(client, project_id=12, image_id="img-other")},
+    )
+    _create_session(client)  # unkeyed, from IC's own upload path
+
+    scoped = client.get("/sessions", params={"project_id": 11})
+    assert scoped.status_code == 200
+    assert [row["id"] for row in scoped.json()] == [mine]
+    # Omitting the param keeps the global list all three belong to.
+    assert len(client.get("/sessions").json()) == 3
+
+
 def test_list_sessions_drops_deleted_session(client):
     sid = _create_session(client)
     assert client.delete(f"/sessions/{sid}").status_code == 204

@@ -52,20 +52,42 @@ export function SessionResumeList({
   onResume,
 }: SessionResumeListProps = {}) {
   const setSession = useUiStore((s) => s.setSession);
-  const { data, isLoading, isError } = useSessionList();
+  const { data, isLoading, isError } = useSessionList(projectId);
   const deleteSessionMut = useDeleteSession();
   const clearSessionsMut = useClearSessions();
   // Collapsed by default so the create form is front-and-centre; the user
-  // expands the rail when they want to resume a saved session.
+  // expands the rail when they want to resume a saved session. Ignored in
+  // standalone-page mode, which is always open.
   const [expanded, setExpanded] = useState(false);
   // The session awaiting delete confirmation, or null when the prompt is shut.
   const [deleteTarget, setDeleteTarget] = useState<SessionSummary | null>(null);
   // Whether the "clear all" confirmation prompt is open.
   const [clearOpen, setClearOpen] = useState(false);
 
-  if (isLoading || isError) return null;
   const sessions = data ?? [];
-  if (sessions.length === 0) return null;
+
+  // The create-screen rail renders nothing while loading/erroring/empty so
+  // first-time users just see the upload form. The management page instead
+  // shows an explicit state — otherwise it'd be a blank modal.
+  if (isLoading || isError || sessions.length === 0) {
+    if (!standalonePage) return null;
+    return (
+      <aside className="flex h-full w-full max-w-3xl flex-col rounded-lg border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-4 py-3">
+          <h2 className="text-sm font-semibold text-slate-800">
+            Saved sessions
+          </h2>
+        </div>
+        <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-slate-400">
+          {isLoading
+            ? "Loading saved sessions…"
+            : isError
+              ? "Couldn't load saved sessions."
+              : "No saved sessions for this project yet."}
+        </div>
+      </aside>
+    );
+  }
 
   const inProgress = sessions.filter((s) => s.state !== "export");
   const completed = sessions.filter((s) => s.state === "export");
@@ -78,12 +100,21 @@ export function SessionResumeList({
   }
 
   function handleConfirmClear() {
+    // The global DELETE /sessions wipes *every* project's sessions, so in the
+    // per-project view scope "clear all" to just the listed ids by deleting
+    // each individually. Standalone IC (no projectId) keeps the bulk wipe.
+    if (projectId != null) {
+      Promise.allSettled(
+        sessions.map((s) => deleteSessionMut.mutateAsync(s.id)),
+      ).then(() => setClearOpen(false));
+      return;
+    }
     clearSessionsMut.mutate(undefined, {
       onSettled: () => setClearOpen(false),
     });
   }
 
-  if (!expanded) {
+  if (!standalonePage && !expanded) {
     return (
       <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-3 border-r border-slate-200 bg-white py-3">
         <button
@@ -107,10 +138,17 @@ export function SessionResumeList({
   }
 
   return (
-    <aside className="flex h-full w-80 shrink-0 flex-col border-r border-slate-200 bg-white">
+    <aside
+      className={clsx(
+        "flex h-full flex-col bg-white",
+        standalonePage
+          ? "w-full max-w-3xl rounded-lg border border-slate-200"
+          : "w-80 shrink-0 border-r border-slate-200",
+      )}
+    >
       <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
         <h2 className="text-sm font-semibold text-slate-800">
-          Resume a saved session
+          {standalonePage ? "Saved sessions" : "Resume a saved session"}
         </h2>
         <div className="flex items-center gap-1">
           <button
@@ -122,16 +160,18 @@ export function SessionResumeList({
           >
             Clear all
           </button>
-          <button
-            type="button"
-            onClick={() => setExpanded(false)}
-            title="Collapse"
-            aria-label="Collapse saved sessions"
-            aria-expanded={true}
-            className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-          >
-            <ChevronLeftIcon />
-          </button>
+          {!standalonePage && (
+            <button
+              type="button"
+              onClick={() => setExpanded(false)}
+              title="Collapse"
+              aria-label="Collapse saved sessions"
+              aria-expanded={true}
+              className="rounded p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <ChevronLeftIcon />
+            </button>
+          )}
         </div>
       </div>
       <div className="flex-1 space-y-5 overflow-y-auto p-3">
@@ -174,7 +214,11 @@ export function SessionResumeList({
         description="This permanently removes every saved session and all of their glyphs. This cannot be undone."
         confirmLabel="Delete all"
         destructive
-        pending={clearSessionsMut.isPending}
+        pending={
+          projectId != null
+            ? deleteSessionMut.isPending
+            : clearSessionsMut.isPending
+        }
         onConfirm={handleConfirmClear}
       />
     </aside>
