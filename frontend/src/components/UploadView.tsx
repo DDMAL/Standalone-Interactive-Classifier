@@ -56,6 +56,10 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
   const vocabularies = useVocabularies();
   const vocabClasses = useVocabularyClasses(vocabulary);
 
+  // Presets are mutually exclusive: checking one unchecks the rest. The state
+  // stays an array because the API takes a list (`training_presets`) and an
+  // uploaded set can still be combined with a preset — only preset-vs-preset
+  // is exclusive.
   function togglePreset(name: string, checked: boolean) {
     setSelectedPresets(checked ? [name] : []);
   }

@@ -87,11 +87,26 @@ export function Toolbar({
   };
 
   // Switching the method re-binarises the page and rebuilds every glyph
-  // mask. No-op when the active method is re-clicked or a switch is in
-  // flight. Manual groups/splits reset; labels are kept (see the hook).
-  const handleMethodChange = (method: BinarizationMethod) => {
+  // mask. No-op when the active method is re-clicked or a round is already
+  // in flight. Manual groups/splits reset; labels are kept (see the hook).
+  //
+  // Rebinarising carries the prior auto labels forward verbatim, but they
+  // were derived from the *old* masks — so chain a classify round to refresh
+  // them from the new pixels, the same way changing k does. Skipped when the
+  // training pool is too small for the current k, which is also the case the
+  // backend rejects. `trainingSize` counts training-set glyphs, which the
+  // re-ingest leaves untouched, so the closure value is still accurate after
+  // the await.
+  const handleMethodChange = async (method: BinarizationMethod) => {
     if (method === binarizationMethod || rebinarize.isPending) return;
-    rebinarize.mutate(method);
+    if (classify.isPending) return;
+    try {
+      await rebinarize.mutateAsync(method);
+      if (isKAvailable(knnK)) await classify.mutateAsync(knnK);
+    } catch {
+      // Both mutations surface their own error state; catching here only
+      // keeps the rejection from going unhandled.
+    }
   };
 
   return (
@@ -110,7 +125,7 @@ export function Toolbar({
       <div className="flex items-center gap-2">
         <div
           className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
-          title="Page binarisation. Switching rebuilds glyph masks; manual groups/splits reset, labels are kept. Re-run classify to refresh auto labels."
+          title="Page binarisation. Switching rebuilds glyph masks and re-runs classify so auto labels match the new masks; manual groups/splits reset, manual labels are kept."
         >
           <span className="text-xs font-medium text-slate-600">Binarize</span>
           <div className="flex overflow-hidden rounded border border-slate-300">
@@ -119,7 +134,7 @@ export function Toolbar({
                 key={value}
                 type="button"
                 onClick={() => handleMethodChange(value)}
-                disabled={rebinarize.isPending}
+                disabled={rebinarize.isPending || classify.isPending}
                 className={clsx(
                   "px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
                   value === binarizationMethod
