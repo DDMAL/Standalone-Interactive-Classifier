@@ -55,6 +55,7 @@ from ic_core.classifier import (
 from ic_core.features import ensure_features
 from ic_core.glyph import CATEGORY_NEUMES, Glyph
 from ic_core.grouping import manual_group as union_glyphs
+from ic_core.image import array_to_rle
 from ic_core.splitting import manual_split as split_glyph
 
 # ---------------------------------------------------------------------------
@@ -318,53 +319,93 @@ class Session:
 
     def rebinarize(
         self,
-        glyphs: Iterable[Glyph],
         *,
-        page_mask: np.ndarray | None,
+        page_mask: np.ndarray,
         method: str,
     ) -> None:
-        """Swap in a freshly re-binarised glyph set, keeping user labels.
+        """Re-derive every glyph's mask under a new binarisation method.
 
         Used when the user changes the binarisation method on the working
-        page. ``glyphs`` is the result of re-running ingest on the same
-        page + bboxes under the new ``method`` — a base glyph set with the
-        detector's original ids (stable for MOTHRA JSON) and no labels. We
-        carry each prior glyph's label and category override onto its
-        re-binarised counterpart by id, so the user's classification work
-        survives the switch; the new masks replace the old.
+        page. Every mask in a session is, by construction, a slice of the
+        full-page mask at the glyph's bbox:
 
-        What does *not* survive: manual groups and splits — their glyphs
-        carry fresh ids absent from the base set, so they fall away (the
-        user picks a method first, then re-derives those). Auto labels are
-        carried as-is but are stale under the new masks; a classify round
-        refreshes them from the new pixels.
+        * an ingested glyph is literally ``page_mask[bbox]``
+          (:func:`ic_core.ingest._crop_to_glyph`);
+        * a split child is its parent's mask restricted to a sub-rectangle
+          of the parent's bbox, which is the same pixels
+          (:func:`ic_core.splitting.manual_split`);
+        * a manual group is the OR of its members plus page-mask fill for
+          the gaps between them (:func:`ic_core.grouping.manual_group`).
+
+        So switching method needs nothing but the new page mask: re-slice
+        each glyph's own bbox out of it. Ids, labels, manual flags,
+        categories and working-set order are all untouched, which means
+        **everything the user built survives** — manual labels as before,
+        and now manual splits and groups too, including nested ones
+        (a group of split children, a split of a group), because a derived
+        glyph is re-derived from its bbox exactly like any other.
+
+        This replaces an earlier implementation that re-ran ingest and
+        carried labels onto the fresh base set by id. Split children and
+        grouped glyphs hold *fresh* ids that no re-ingest can produce, so
+        they silently vanished and the pre-split parent came back — the
+        inconsistency this method now removes. Re-running ingest was also
+        redundant: the bboxes come from the annotation document, which
+        never changes, so a re-ingest could only ever reproduce the same
+        boxes over the same page.
+
+        Two side effects of dropping the re-ingest, both improvements:
+        glyphs the user *deleted* no longer come back, and sessions
+        ingested from YOLO annotations keep their labels (YOLO carries no
+        ids, so every re-ingest minted fresh UUIDs and the old
+        carry-by-id matched nothing — a switch wiped every label).
+
+        Feature caches are dropped, since the pixels they describe have
+        changed; the next classify round recomputes them. Auto labels are
+        kept but are stale under the new masks, so the caller normally
+        chains a classify round (the frontend's toolbar does).
 
         Args:
-            glyphs: Re-binarised base glyph set (from a fresh ingest).
-            page_mask: Full-page mask under the new method, for grouping.
-            method: The method that produced ``glyphs`` / ``page_mask``.
+            page_mask: Full-page mask under the new method. Must cover the
+                same page rectangle as the one it replaces — it is the same
+                page, re-binarised.
+            method: The method that produced ``page_mask``.
 
         Raises:
             StateTransitionError: If called outside ``CLASSIFYING``.
         """
         self._require_state(ClassifierState.CLASSIFYING)
-        prior = {g.id: g for g in self.glyphs}
-        carried: list[Glyph] = []
-        for g in glyphs:
-            old = prior.get(g.id)
-            if old is not None:
-                # Restore a user category move first (classify_* leave
-                # category untouched), then re-apply the prior label onto
-                # the fresh, cache-less glyph so its features recompute
-                # from the new mask on the next classify round.
-                if old.category != g.category:
-                    g = replace(g, category=old.category)
-                if old.id_state_manual:
-                    g = g.classify_manual(old.class_name)
-                elif old.class_name != UNCLASSIFIED:
-                    g = g.classify_automatic(old.class_name, old.confidence)
-            carried.append(g)
-        self.glyphs = carried
+        height, width = page_mask.shape
+        rebuilt: list[Glyph] = []
+        for g in self.glyphs:
+            # Clamp to the page rectangle the same way ingest does. The
+            # stored mask already starts at max(0, ulx) for a bbox the
+            # detector rounded past the page edge, so measuring the extent
+            # from there (rather than from the declared, possibly negative,
+            # origin) keeps repeated switches idempotent instead of
+            # shaving a few columns off such a glyph every time.
+            x0 = max(0, g.ulx)
+            y0 = max(0, g.uly)
+            x1 = min(width, x0 + g.ncols)
+            y1 = min(height, y0 + g.nrows)
+            if x1 <= x0 or y1 <= y0:
+                # Bbox falls entirely outside the page — same degenerate
+                # case ingest handles with a 1x1 blank rather than raising.
+                mask = np.zeros((1, 1), dtype=bool)
+            else:
+                mask = page_mask[y0:y1, x0:x1]
+            nrows, ncols = mask.shape
+            rebuilt.append(
+                replace(
+                    g,
+                    image_rle=array_to_rle(mask),
+                    ncols=int(ncols),
+                    nrows=int(nrows),
+                    feature_vector=None,
+                    feature_version=None,
+                )
+            )
+        self.glyphs = rebuilt
         self.page_mask = page_mask
         self.binarization_method = method
 

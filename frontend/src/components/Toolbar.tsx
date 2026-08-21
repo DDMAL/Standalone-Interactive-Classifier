@@ -87,7 +87,8 @@ export function Toolbar({
 
   // Switching the method re-binarises the page and rebuilds every glyph
   // mask. No-op when the active method is re-clicked or a round is already
-  // in flight. Manual groups/splits reset; labels are kept (see the hook).
+  // in flight. Labels, manual splits and manual groups are all kept — the
+  // masks are re-derived per glyph bbox, so ids survive (see the hook).
   //
   // Rebinarising carries the prior auto labels forward verbatim, but they
   // were derived from the *old* masks — so chain a classify round to refresh
@@ -116,7 +117,7 @@ export function Toolbar({
       <div className="flex items-center gap-2">
         <div
           className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
-          title="Page binarisation. Switching rebuilds glyph masks and re-runs classify so auto labels match the new masks; manual groups/splits reset, manual labels are kept."
+          title="Page binarisation. Switching rebuilds glyph masks and re-runs classify so auto labels match the new masks. Manual labels, splits and groups are kept."
         >
           <span className="text-xs font-medium text-slate-600">Binarize</span>
           <div className="flex overflow-hidden rounded border border-slate-300">

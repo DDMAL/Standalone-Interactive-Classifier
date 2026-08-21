@@ -88,6 +88,34 @@ def _create_session(client: TestClient) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+
+def test_healthz_reports_the_live_store_backend(client):
+    # The probe exists to answer "is this deployment persisting sessions?"
+    # from outside the process — the mothra deployments select the backend
+    # purely by whether DATABASE_URL is set, and an in-memory store means a
+    # restart drops every session.
+    body = client.get("/healthz").json()
+    assert body["status"] == "ok"
+    assert body["store"]["backend"] in {"in-memory", "postgres"}
+    assert isinstance(body["store"]["persistent"], bool)
+
+
+def test_healthz_counts_sessions_held_by_this_process(client):
+    before = client.get("/healthz").json()["sessions"]
+    _create_session(client)
+    assert client.get("/healthz").json()["sessions"] == before + 1
+
+
+def test_healthz_does_not_require_a_session(client):
+    # Probes must not depend on any session existing, and must stay cheap —
+    # k8s hits this on an interval.
+    assert client.get("/healthz").status_code == 200
+
+
+# ---------------------------------------------------------------------------
 # Session lifecycle
 # ---------------------------------------------------------------------------
 
@@ -1140,6 +1168,92 @@ def test_rebinarize_keeps_manual_labels(client):
     moved = next(g for g in after["glyphs"] if g["id"] == gid)
     assert moved["class_name"] == "neume.A"
     assert moved["id_state_manual"] is True
+
+
+def test_rebinarize_keeps_split_children_and_their_labels(client):
+    # The reported inconsistency: manual *labels* survived a binarization
+    # change, but a split did not — the children vanished and the parent the
+    # user had taken apart came back, so the same action lost work or didn't
+    # depending on which kind of work it was.
+    sid = _create_session(client)
+    parent = client.get(f"/sessions/{sid}").json()["glyphs"][0]
+    ulx, uly, ncols, nrows = (
+        parent["ulx"], parent["uly"], parent["ncols"], parent["nrows"]
+    )
+    half = max(1, ncols // 2)
+    children = client.post(
+        f"/sessions/{sid}/glyphs/{parent['id']}/split",
+        json={
+            "regions": [
+                [ulx, uly, half, nrows],
+                [ulx + half, uly, ncols - half, nrows],
+            ]
+        },
+    ).json()
+    assert len(children) == 2
+    client.post(
+        f"/sessions/{sid}/glyphs/{children[0]['id']}",
+        json={"class_name": "neume.split-a", "id_state_manual": True},
+    )
+
+    after = client.post(
+        f"/sessions/{sid}/binarization", json={"method": "sauvola"}
+    ).json()
+
+    ids = {g["id"] for g in after["glyphs"]}
+    assert parent["id"] not in ids, "the split parent must not reappear"
+    assert {c["id"] for c in children} <= ids, "both children must survive"
+    kept = next(g for g in after["glyphs"] if g["id"] == children[0]["id"])
+    assert kept["class_name"] == "neume.split-a"
+    assert kept["id_state_manual"] is True
+    # The child keeps its own footprint, not the parent's.
+    assert kept["ncols"] == children[0]["ncols"]
+
+
+def test_rebinarize_keeps_grouped_glyphs(client):
+    sid = _create_session(client)
+    glyphs = client.get(f"/sessions/{sid}").json()["glyphs"]
+    pair = [glyphs[0]["id"], glyphs[1]["id"]]
+    grouped = client.post(
+        f"/sessions/{sid}/group",
+        json={"glyph_ids": pair, "class_name": "neume.grouped"},
+    ).json()
+
+    after = client.post(
+        f"/sessions/{sid}/binarization", json={"method": "otsu"}
+    ).json()
+
+    ids = {g["id"] for g in after["glyphs"]}
+    assert grouped["id"] in ids
+    assert not set(pair) & ids, "grouped members must not reappear"
+    kept = next(g for g in after["glyphs"] if g["id"] == grouped["id"])
+    assert kept["class_name"] == "neume.grouped"
+
+
+def test_rebinarize_twice_is_stable(client):
+    # Switching back and forth must not erode the working set — an early
+    # version of the re-slice shaved columns off edge-clamped glyphs on
+    # every switch.
+    sid = _create_session(client)
+    first = client.post(
+        f"/sessions/{sid}/binarization", json={"method": "otsu"}
+    ).json()
+    client.post(f"/sessions/{sid}/binarization", json={"method": "sauvola"})
+    third = client.post(
+        f"/sessions/{sid}/binarization", json={"method": "otsu"}
+    ).json()
+
+    def boxes(dto):
+        return [
+            (g["id"], g["ulx"], g["uly"], g["ncols"], g["nrows"])
+            for g in dto["glyphs"]
+        ]
+
+    assert boxes(third) == boxes(first)
+    # Same method, same page: the masks must come back identical too.
+    assert [g["image_b64"] for g in third["glyphs"]] == [
+        g["image_b64"] for g in first["glyphs"]
+    ]
 
 
 def test_rebinarize_rejects_unknown_method(client):
