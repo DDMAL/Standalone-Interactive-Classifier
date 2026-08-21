@@ -32,6 +32,7 @@ cache is dropped and lazily recomputed after a hydrate.
 """
 from __future__ import annotations
 
+import sys
 import threading
 from contextlib import contextmanager
 from typing import Iterator
@@ -142,6 +143,11 @@ class PersistentSessionStore:
         self._registry_lock = threading.Lock()
         self._cache: dict[str, Session] = {}
         self._locks: dict[str, threading.Lock] = {}
+        # session id -> (project_id, image_id) for sessions created in this
+        # process, so :meth:`create` can evict the one a new session for the
+        # same page supersedes. Ids created by another process aren't here;
+        # the DELETE in :meth:`_insert` covers that side.
+        self._keys: dict[str, tuple[int, str]] = {}
 
     # -- connection pool ---------------------------------------------------
 
@@ -205,6 +211,23 @@ class PersistentSessionStore:
                 raise KeyError(f"Session id collision: {session.id!r}")
             self._cache[session.id] = session
             self._locks[session.id] = threading.Lock()
+            # Starting a new session for a page supersedes the old one:
+            # :meth:`_insert` deletes its row, so it must leave the hot cache
+            # too. Otherwise the superseded session stays reachable and
+            # writable in this process — its flushes updating zero rows — and
+            # only turns into "Unknown session id" at the next restart, long
+            # after the work that was silently going nowhere.
+            if project_id is not None and image_id is not None:
+                superseded = [
+                    sid
+                    for sid, key in self._keys.items()
+                    if key == (project_id, image_id) and sid != session.id
+                ]
+                for sid in superseded:
+                    self._cache.pop(sid, None)
+                    self._locks.pop(sid, None)
+                    self._keys.pop(sid, None)
+                self._keys[session.id] = (project_id, image_id)
         self._insert(session, project_id, image_id)
 
     def get(self, session_id: str) -> Session:
@@ -248,6 +271,7 @@ class PersistentSessionStore:
         with self._registry_lock:
             in_cache = self._cache.pop(session_id, None) is not None
             self._locks.pop(session_id, None)
+            self._keys.pop(session_id, None)
         with self._conn() as (con, cur):
             cur.execute("DELETE FROM ic_sessions WHERE id=%s", (session_id,))
             deleted = cur.rowcount
@@ -265,6 +289,7 @@ class PersistentSessionStore:
         with self._registry_lock:
             self._cache.clear()
             self._locks.clear()
+            self._keys.clear()
         with self._conn() as (con, cur):
             cur.execute("DELETE FROM ic_sessions")
             deleted = cur.rowcount
@@ -402,6 +427,20 @@ class PersistentSessionStore:
                     session.id,
                 ),
             )
+            if cur.rowcount == 0:
+                # The row is gone — most likely a newer session for the same
+                # (project_id, image_id) superseded this one (see _insert).
+                # Every mutation this session accumulates from here is being
+                # discarded, so say so rather than returning as though the
+                # write landed. The request itself still succeeds: failing it
+                # would not bring the row back.
+                print(
+                    f"[ic_api.db_store] flush for session {session.id!r} "
+                    "updated 0 rows — that row no longer exists, so this "
+                    "session is no longer being persisted. It was most "
+                    "likely superseded by a newer session for the same page.",
+                    file=sys.stderr,
+                )
             con.commit()
 
     def _hydrate(self, session_id: str) -> Session:

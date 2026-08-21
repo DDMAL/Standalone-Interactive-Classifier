@@ -1,4 +1,5 @@
 import { ClassTreePanel } from "@/components/ClassTreePanel";
+import { Button } from "@/components/ui/Button";
 import { GlyphGrid } from "@/components/GlyphGrid";
 import { PageImagePane } from "@/components/PageImagePane";
 import { RightDock } from "@/components/RightDock";
@@ -11,13 +12,20 @@ import { useZoomPan } from "@/hooks/useZoomPan";
 import { byConfidenceAsc, trainingPoolSize } from "@/lib/format";
 import { actionForKey, isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
 import { isModalOpen, useUiStore } from "@/store/uiStore";
+import { ApiError } from "@/types/api";
 import { useEffect, useMemo, useRef } from "react";
+
+// Whether an embedding host deep-linked us straight into a session id
+// (?session=<id>), as mothra's IC stage does. Read once at module scope,
+// mirroring App.tsx — the query string does not change under us.
+const isDeepLinked = new URLSearchParams(window.location.search).has("session");
 
 export function SessionView({ sessionId }: { sessionId: string }) {
   const { data: session, isLoading, isError, error } = useSession(sessionId);
   const selectedGlyphIds = useUiStore((s) => s.selectedGlyphIds);
   const primaryGlyphId = useUiStore((s) => s.primaryGlyphId);
   const clearSelection = useUiStore((s) => s.clearSelection);
+  const clearSession = useUiStore((s) => s.clearSession);
   const setBboxesHidden = useUiStore((s) => s.setBboxesHidden);
   const zoomPan = useZoomPan();
   const undoApply = useUndoApply(sessionId);
@@ -142,10 +150,50 @@ export function SessionView({ sessionId }: { sessionId: string }) {
     };
   }, [setBboxesHidden]);
 
+  // Whether the server has forgotten this session entirely (see the branch
+  // below). `code` is the API's own error code; the status check covers a
+  // 404 that arrives without one.
+  const isSessionGone =
+    error instanceof ApiError &&
+    (error.status === 404 || error.code === "not_found");
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-slate-500">
         Loading…
+      </div>
+    );
+  }
+  // A 404 here does not mean "bad request" — it means the server no longer
+  // has this session, so every other action (classify, export, relabel) will
+  // fail identically and there is nothing to retry. Causes: the API process
+  // restarted while running the in-memory session store, which drops the
+  // whole registry (GET /healthz reports which store is live), or a newer
+  // session superseded this one for the same page. The raw backend string
+  // ("Unknown session id: '...'") reads like a malformed request, so say what
+  // actually happened instead.
+  if (isSessionGone) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <p className="text-base font-semibold text-slate-800">
+          This session is no longer on the server
+        </p>
+        <p className="max-w-md text-sm text-slate-600">
+          The classifier service restarted, or this page was reopened in
+          another session. Classifying done in this session was not saved.
+        </p>
+        {/* Deep-linked (the host opened us on a specific session id) means
+            there is no upload screen to fall back to — clearing the session
+            would leave a blank frame — so the way out is on the host's side.
+            Standalone, dropping the session lands on the upload / resume
+            screen, which is exactly where the user needs to be. */}
+        {isDeepLinked ? (
+          <p className="max-w-md text-sm text-slate-500">
+            Close the classifier and reopen this page to start a new session.
+          </p>
+        ) : (
+          <Button onClick={clearSession}>Start over</Button>
+        )}
       </div>
     );
   }

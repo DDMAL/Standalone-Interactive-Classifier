@@ -18,6 +18,7 @@ comfortably — a 1000-glyph session is on the order of a few MB.
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -256,23 +257,62 @@ def build_default_store() -> SessionStore:
     it here is cheap and never blocks import on the network. If importing
     the backend fails (e.g. psycopg2 missing), we fall back to in-memory
     and warn rather than refusing to boot.
+
+    Both branches announce themselves on stderr. Which backend is live
+    decides whether a restart costs a hiccup or every in-flight session, and
+    a deployment that *meant* to set ``DATABASE_URL`` but didn't used to look
+    identical to one that never wanted persistence — the in-memory choice
+    was silent. :data:`store_backend_info` exposes the same fact over HTTP
+    (``GET /healthz``) so the running deployment can be checked without log
+    access.
     """
+    global _backend_name, _backend_persistent
     dsn = os.environ.get("IC_DATABASE_URL") or os.environ.get("DATABASE_URL")
     if dsn:
         try:
             from ic_api.db_store import PersistentSessionStore
 
-            return PersistentSessionStore(dsn)
+            store = PersistentSessionStore(dsn)
+            _backend_name, _backend_persistent = "postgres", True
+            print(
+                "[ic_api.store] session store: postgres (sessions survive a "
+                "restart).",
+                file=sys.stderr,
+            )
+            return store
         except Exception as exc:  # pragma: no cover - defensive
-            import sys
-
             print(
                 "[ic_api.store] DATABASE_URL is set but the Postgres store "
                 f"could not be initialised ({exc}); falling back to the "
                 "in-memory store — sessions will NOT persist across restarts.",
                 file=sys.stderr,
             )
+    else:
+        print(
+            "[ic_api.store] session store: in-memory — neither "
+            "IC_DATABASE_URL nor DATABASE_URL is set, so sessions will NOT "
+            "survive a restart. Set one to persist them.",
+            file=sys.stderr,
+        )
+    _backend_name, _backend_persistent = "in-memory", False
     return InMemorySessionStore()
+
+
+def store_backend_info() -> dict[str, object]:
+    """What :func:`build_default_store` picked, for ``GET /healthz``.
+
+    ``persistent`` is the operationally interesting bit: when it is
+    ``False``, a container restart (an OOM kill, a redeploy, a scale-down)
+    silently drops every live session, and the frontend's next call fails
+    with "Unknown session id".
+    """
+    return {"backend": _backend_name, "persistent": _backend_persistent}
+
+
+#: Which backend :func:`build_default_store` selected, set as a side effect
+#: of the call below and read back by :func:`store_backend_info`.
+_backend_name: str = "unknown"
+_backend_persistent: bool = False
 
 
 #: Default app-wide store. The FastAPI app reaches this through a
