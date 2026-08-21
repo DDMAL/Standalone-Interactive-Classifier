@@ -614,6 +614,56 @@ def test_rebinarize_keeps_grouped_glyphs():
     assert survivor.ncols == 10 and survivor.nrows == 4
 
 
+def test_rebinarize_reproduces_grouped_masks_pixel_for_pixel():
+    """The invariant the bbox re-slice rests on, pinned on ragged ink.
+
+    ``manual_group`` does *not* copy a page-mask slice — it ORs its members'
+    masks and fills only the pixels in the gaps *between* their bboxes. That
+    it nonetheless comes out identical to ``page_mask[union bbox]`` rests on
+    two properties: every member's own mask is the page mask restricted to
+    its bbox (true of ingested glyphs, of split children, and inductively of
+    nested groups), and the gaps between member bboxes are filled from the
+    page. Re-slicing in :meth:`Session.rebinarize` is correct only while
+    both hold, and dropping the gap fill breaks it — verified by mutation.
+    Uses ragged ink rather than an all-ones page, which satisfies pixel
+    equality trivially and would pass no matter what grouping did.
+    """
+    rng = np.random.default_rng(0)
+    page = rng.random((40, 40)) < 0.5
+
+    def sliced(gid, ulx, uly, ncols, nrows):
+        return _make_glyph_with_id(
+            gid, page[uly : uly + nrows, ulx : ulx + ncols], ulx=ulx, uly=uly
+        )
+
+    # Two members with a gap between them: the gap pixels come from the page,
+    # the rest from the members.
+    s = Session()
+    s.ingest([sliced("a", 0, 0, 10, 10), sliced("b", 20, 0, 10, 10)])
+    s.page_mask = page
+    grouped = s.manual_group(["a", "b"], "neume.grouped")
+
+    s.rebinarize(page_mask=page, method="otsu")
+
+    survivor = next(g for g in s.glyphs if g.id == grouped.id)
+    assert np.array_equal(survivor.to_array(), grouped.to_array())
+
+    # The subtle case: a split that deliberately discards its middle, whose
+    # pieces are then grouped back. The discarded pixels fall *inside* the
+    # resulting union bbox — and grouping's own gap fill restores them, so
+    # the re-slice still matches.
+    s2 = Session()
+    s2.ingest([sliced("p", 0, 0, 30, 10)])
+    s2.page_mask = page
+    kids = s2.manual_split("p", [(0, 0, 10, 10), (20, 0, 10, 10)])
+    regrouped = s2.manual_group([k.id for k in kids], "neume.regrouped")
+
+    s2.rebinarize(page_mask=page, method="otsu")
+
+    survivor2 = next(g for g in s2.glyphs if g.id == regrouped.id)
+    assert np.array_equal(survivor2.to_array(), regrouped.to_array())
+
+
 def test_rebinarize_does_not_resurrect_deleted_glyphs():
     page = np.ones((6, 6), dtype=bool)
     s = Session()
