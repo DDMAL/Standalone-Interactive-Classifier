@@ -88,6 +88,79 @@ def _create_session(client: TestClient) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+
+def test_healthz_reports_the_live_store_backend(client):
+    # The probe exists to answer "is this deployment persisting sessions?"
+    # from outside the process — the mothra deployments select the backend
+    # purely by whether DATABASE_URL is set, and an in-memory store means a
+    # restart drops every session.
+    body = client.get("/healthz").json()
+    assert body["status"] == "ok"
+    assert body["store"]["backend"] in {"in-memory", "postgres"}
+    assert isinstance(body["store"]["persistent"], bool)
+
+
+def test_healthz_counts_sessions_held_by_this_process(client):
+    before = client.get("/healthz").json()["sessions"]
+    _create_session(client)
+    assert client.get("/healthz").json()["sessions"] == before + 1
+
+
+def test_healthz_does_not_require_a_session(client):
+    # Probes must not depend on any session existing, and must stay cheap —
+    # k8s hits this on an interval.
+    assert client.get("/healthz").status_code == 200
+
+
+def test_healthz_reachable_is_null_without_a_database(client):
+    # The in-memory store has no database to be unreachable, so `reachable`
+    # must be null rather than a misleading true/false.
+    assert client.get("/healthz").json()["store"]["reachable"] is None
+
+
+def test_healthz_reports_reachable_when_the_database_answers(client, store):
+    # Holding a Postgres store proves nothing — it connects lazily — so the
+    # probe round-trips the DB and reports what it found.
+    class _Reachable(InMemorySessionStore):
+        def ping(self) -> None:
+            return None
+
+    app.dependency_overrides[get_store] = _Reachable
+    try:
+        body = client.get("/healthz").json()
+    finally:
+        app.dependency_overrides[get_store] = lambda: store
+    assert body["store"]["reachable"] is True
+    assert "error" not in body["store"]
+
+
+def test_healthz_reports_unreachable_database_without_failing_the_probe(
+    client, store
+):
+    # The case the `persistent` flag alone can't express: the deployment
+    # believes it configured persistence, but the DSN is wrong or the server
+    # is down. status stays "ok" so wiring this up as a liveness probe can't
+    # turn a DB hiccup into a restart loop.
+    class _Unreachable(InMemorySessionStore):
+        def ping(self) -> None:
+            raise RuntimeError("could not connect to server: Connection refused")
+
+    app.dependency_overrides[get_store] = _Unreachable
+    try:
+        response = client.get("/healthz")
+    finally:
+        app.dependency_overrides[get_store] = lambda: store
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["store"]["reachable"] is False
+    assert "Connection refused" in body["store"]["error"]
+
+
+# ---------------------------------------------------------------------------
 # Session lifecycle
 # ---------------------------------------------------------------------------
 
@@ -1160,6 +1233,92 @@ def test_rebinarize_keeps_manual_labels(client):
     moved = next(g for g in after["glyphs"] if g["id"] == gid)
     assert moved["class_name"] == "neume.A"
     assert moved["id_state_manual"] is True
+
+
+def test_rebinarize_keeps_split_children_and_their_labels(client):
+    # The reported inconsistency: manual *labels* survived a binarization
+    # change, but a split did not — the children vanished and the parent the
+    # user had taken apart came back, so the same action lost work or didn't
+    # depending on which kind of work it was.
+    sid = _create_session(client)
+    parent = client.get(f"/sessions/{sid}").json()["glyphs"][0]
+    ulx, uly, ncols, nrows = (
+        parent["ulx"], parent["uly"], parent["ncols"], parent["nrows"]
+    )
+    half = max(1, ncols // 2)
+    children = client.post(
+        f"/sessions/{sid}/glyphs/{parent['id']}/split",
+        json={
+            "regions": [
+                [ulx, uly, half, nrows],
+                [ulx + half, uly, ncols - half, nrows],
+            ]
+        },
+    ).json()
+    assert len(children) == 2
+    client.post(
+        f"/sessions/{sid}/glyphs/{children[0]['id']}",
+        json={"class_name": "neume.split-a", "id_state_manual": True},
+    )
+
+    after = client.post(
+        f"/sessions/{sid}/binarization", json={"method": "sauvola"}
+    ).json()
+
+    ids = {g["id"] for g in after["glyphs"]}
+    assert parent["id"] not in ids, "the split parent must not reappear"
+    assert {c["id"] for c in children} <= ids, "both children must survive"
+    kept = next(g for g in after["glyphs"] if g["id"] == children[0]["id"])
+    assert kept["class_name"] == "neume.split-a"
+    assert kept["id_state_manual"] is True
+    # The child keeps its own footprint, not the parent's.
+    assert kept["ncols"] == children[0]["ncols"]
+
+
+def test_rebinarize_keeps_grouped_glyphs(client):
+    sid = _create_session(client)
+    glyphs = client.get(f"/sessions/{sid}").json()["glyphs"]
+    pair = [glyphs[0]["id"], glyphs[1]["id"]]
+    grouped = client.post(
+        f"/sessions/{sid}/group",
+        json={"glyph_ids": pair, "class_name": "neume.grouped"},
+    ).json()
+
+    after = client.post(
+        f"/sessions/{sid}/binarization", json={"method": "otsu"}
+    ).json()
+
+    ids = {g["id"] for g in after["glyphs"]}
+    assert grouped["id"] in ids
+    assert not set(pair) & ids, "grouped members must not reappear"
+    kept = next(g for g in after["glyphs"] if g["id"] == grouped["id"])
+    assert kept["class_name"] == "neume.grouped"
+
+
+def test_rebinarize_twice_is_stable(client):
+    # Switching back and forth must not erode the working set — an early
+    # version of the re-slice shaved columns off edge-clamped glyphs on
+    # every switch.
+    sid = _create_session(client)
+    first = client.post(
+        f"/sessions/{sid}/binarization", json={"method": "otsu"}
+    ).json()
+    client.post(f"/sessions/{sid}/binarization", json={"method": "sauvola"})
+    third = client.post(
+        f"/sessions/{sid}/binarization", json={"method": "otsu"}
+    ).json()
+
+    def boxes(dto):
+        return [
+            (g["id"], g["ulx"], g["uly"], g["ncols"], g["nrows"])
+            for g in dto["glyphs"]
+        ]
+
+    assert boxes(third) == boxes(first)
+    # Same method, same page: the masks must come back identical too.
+    assert [g["image_b64"] for g in third["glyphs"]] == [
+        g["image_b64"] for g in first["glyphs"]
+    ]
 
 
 def test_rebinarize_rejects_unknown_method(client):

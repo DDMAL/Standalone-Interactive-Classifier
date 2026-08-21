@@ -68,7 +68,7 @@ from ic_api.schemas import (
     glyph_to_dto,
     session_to_dto,
 )
-from ic_api.store import SessionStore, default_store
+from ic_api.store import SessionStore, default_store, store_backend_info
 from ic_core.ingest import (
     AnnotationFormat,
     BinarizationMethod,
@@ -164,6 +164,60 @@ def get_store() -> SessionStore:
 
 
 Store = Annotated[SessionStore, Depends(get_store)]
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+
+@app.get("/healthz")
+def healthz(store: Store) -> dict[str, object]:
+    """Liveness probe that also reports which session store is live.
+
+    The store backend is the difference between "a restart costs a hiccup"
+    and "a restart costs every session in flight": on the in-memory store,
+    an OOM kill or a redeploy drops the whole registry and the frontend's
+    next call fails with ``Unknown session id``. Deployments select the
+    backend purely by whether ``DATABASE_URL`` / ``IC_DATABASE_URL`` is in
+    the environment, which is easy to omit and, until now, invisible from
+    outside the process. Probing this endpoint answers "is this deployment
+    actually persisting sessions?" without shell or log access.
+
+    ``backend`` / ``persistent`` report what the environment *asked for*.
+    Holding a Postgres store proves nothing on its own — it connects
+    lazily, so a typo'd DSN or an unreachable database looks identical to
+    a working one at construction time. ``reachable`` closes that gap by
+    round-tripping the database (``SELECT 1``, bounded by
+    ``db_store.CONNECT_TIMEOUT_SECONDS``): ``true`` means sessions really
+    are being persisted, ``false`` means the deployment believes it
+    configured persistence but hasn't got it, and ``null`` means the
+    backend has nothing to reach (the in-memory store).
+
+    ``status`` stays ``"ok"`` even when the database is unreachable, so
+    wiring this up as a liveness probe can't turn a DB hiccup into a
+    restart loop — the diagnosis belongs in the payload, not the status
+    code. ``sessions`` counts what this process holds in its registry /
+    hot cache.
+    """
+    info = store_backend_info()
+    # Only the Postgres store defines ping(); the in-memory store has no
+    # database to be unreachable, so `reachable` stays null for it.
+    ping = getattr(store, "ping", None)
+    if ping is None:
+        info["reachable"] = None
+    else:
+        try:
+            ping()
+            info["reachable"] = True
+        except Exception as exc:
+            info["reachable"] = False
+            info["error"] = str(exc).strip().splitlines()[0][:200]
+    try:
+        n_sessions: int | None = len(store)  # type: ignore[arg-type]
+    except TypeError:  # a store without __len__ (e.g. a test double)
+        n_sessions = None
+    return {"status": "ok", "store": info, "sessions": n_sessions}
 
 
 # ---------------------------------------------------------------------------
@@ -1018,28 +1072,30 @@ def rebinarize(
 ) -> SessionDTO:
     """Switch the page's binarisation method and rebuild every glyph mask.
 
-    Re-runs ingest on the session's retained page + bboxes under the new
-    method, then carries forward the user's labels by glyph id (see
-    :meth:`ic_core.state.Session.rebinarize`). Manual groups/splits reset;
-    a classify round refreshes auto labels from the new masks.
+    Re-binarises the retained page and hands the new full-page mask to
+    :meth:`ic_core.state.Session.rebinarize`, which re-slices every glyph's
+    own bbox out of it. Everything the user built survives — labels, manual
+    flags, categories, and manual splits and groups — because a glyph's mask
+    is by construction a slice of the page mask at its bbox. Auto labels
+    carry over but are stale under the new pixels, so callers normally chain
+    a classify round (the frontend's toolbar does).
+
+    Only the page image is needed: the bbox document never changes, so
+    re-running ingest could only reproduce the boxes the session already
+    holds — and doing so used to drop split children and grouped glyphs,
+    whose ids no ingest can produce.
     """
     with store.session(session_id) as session:
-        if session.page_bytes is None or session.annotations_bytes is None:
-            # Sessions created without a page+bbox upload (legacy XML import)
+        if session.page_bytes is None:
+            # Sessions created without a page upload (legacy XML import)
             # have nothing to re-binarise from.
             raise ValueError(
-                "This session has no retained page image and bboxes to "
-                "re-binarise; the method can only be changed on sessions "
-                "created from a page upload."
+                "This session has no retained page image to re-binarise; "
+                "the method can only be changed on sessions created from "
+                "a page upload."
             )
-        glyphs = ingest_page(
-            session.page_bytes,
-            session.annotations_bytes,
-            format=session.annotations_format,
-            method=body.method,
-        )
         page_mask = binarize_page(session.page_bytes, method=body.method)
-        session.rebinarize(glyphs, page_mask=page_mask, method=body.method)
+        session.rebinarize(page_mask=page_mask, method=body.method)
         return session_to_dto(session)
 
 
