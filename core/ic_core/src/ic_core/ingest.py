@@ -131,6 +131,107 @@ DEFAULT_THRESHOLD: int = 127
 SAUVOLA_WINDOW_SIZE: int = 25
 SAUVOLA_K: float = 0.2
 
+#: Working-set budget for one Sauvola strip, in bytes.
+#:
+#: ``threshold_sauvola`` holds roughly six page-sized float64 arrays at once
+#: (a float64 copy of the page, two float64 integral images, then the local
+#: mean, mean-of-squares and std-dev), so its peak cost is ~48 bytes per
+#: *pixel* — over 1.5 GB on a 32 MP folio, which OOM-kills a 1 GiB container.
+#: :func:`_sauvola_mask` splits the page into horizontal strips sized to this
+#: budget instead, making peak memory a function of the budget rather than of
+#: the page. 96 MiB keeps the whole binarisation comfortably inside a few
+#: hundred MB for any page size, at the cost of recomputing a ~26-row halo
+#: per strip (a few percent more arithmetic).
+SAUVOLA_STRIP_BUDGET_BYTES: int = 96 * 1024 * 1024
+
+#: How many bytes per pixel per strip row to assume when sizing a strip —
+#: the ~6 float64 page-sized arrays described above.
+_SAUVOLA_BYTES_PER_PIXEL: int = 8 * 6
+
+
+# ---------------------------------------------------------------------------
+# Memory-bounded threshold helpers
+# ---------------------------------------------------------------------------
+#
+# Both helpers exist purely to keep peak memory off the page-size curve.
+# skimage's thresholding routines are written for images that fit in RAM
+# several times over; a 50 MP folio does not, and IC runs in a 1 GiB
+# container. Neither helper changes the threshold that comes out — the
+# equality is covered by tests in ``core/tests/test_ingest.py``.
+
+
+def _otsu_threshold(page: np.ndarray) -> float:
+    """Otsu's cutoff, without materialising a float copy of the page.
+
+    ``threshold_otsu(image)`` routes the page through ``np.histogram``,
+    which promotes the whole array to float64 — ~400 MB on a 50 MP folio,
+    for a statistic that only needs 256 bin counts. For the 8-bit pages
+    every ingest path produces (:func:`_load_page` returns ``uint8``),
+    ``np.bincount`` gets those counts with no large temporary, and skimage
+    accepts a precomputed histogram via ``hist=``, so the arithmetic that
+    picks the threshold stays skimage's.
+
+    Falls back to passing the array when the dtype isn't ``uint8``, so
+    callers outside the ingest paths keep working.
+    """
+    if page.dtype != np.uint8:
+        return float(threshold_otsu(page))
+    counts = np.bincount(page.reshape(-1), minlength=256)
+    # Bin centres are the intensities themselves, which is what
+    # threshold_otsu assumes when handed (counts, centres).
+    centres = np.arange(256)
+    return float(threshold_otsu(hist=(counts, centres)))
+
+
+def _sauvola_mask(
+    page: np.ndarray,
+    *,
+    window_size: int,
+    k: float,
+    budget_bytes: int = SAUVOLA_STRIP_BUDGET_BYTES,
+) -> np.ndarray:
+    """Sauvola foreground mask computed in horizontal strips.
+
+    Sauvola is a *local* threshold: the value at a pixel depends only on
+    the ``window_size`` neighbourhood around it. So a strip that carries a
+    halo of at least ``window_size // 2 + 1`` rows above and below sees
+    exactly the neighbourhood the full-page pass would have seen, and its
+    interior rows come out bit-identical. Strips at the top and bottom of
+    the page include the real page edge, so skimage's ``reflect`` padding
+    applies there just as it would full-page. ``r`` (the dynamic-range
+    term) is derived from the *dtype*, not the data, so it too is constant
+    across strips.
+
+    The result is the same mask ``threshold_sauvola`` over the whole page
+    would produce, with peak memory set by ``budget_bytes`` instead of by
+    the page area.
+    """
+    height, width = page.shape
+    # +1 covers skimage's asymmetric pad (``w // 2 + 1`` leading rows in
+    # ``_mean_std``); +1 again is cheap insurance against an off-by-one in
+    # a future skimage. test_sauvola_strips_match_whole_page pins the
+    # equality this margin protects.
+    halo = window_size // 2 + 2
+    rows_per_strip = max(1, budget_bytes // (width * _SAUVOLA_BYTES_PER_PIXEL))
+
+    if rows_per_strip + 2 * halo >= height:
+        # Page already fits the budget — take the simple path so small
+        # pages pay nothing for the strip bookkeeping.
+        return page < threshold_sauvola(page, window_size=window_size, k=k)
+
+    mask = np.empty((height, width), dtype=bool)
+    for y0 in range(0, height, rows_per_strip):
+        y1 = min(height, y0 + rows_per_strip)
+        # Widen by the halo, clipped to the page.
+        h0, h1 = max(0, y0 - halo), min(height, y1 + halo)
+        block = page[h0:h1]
+        thresh = threshold_sauvola(block, window_size=window_size, k=k)
+        # Keep only the rows this strip owns; the halo rows exist solely to
+        # give the window real pixels to look at.
+        lo, hi = y0 - h0, y1 - h0
+        mask[y0:y1] = block[lo:hi] < thresh[lo:hi]
+    return mask
+
 
 # ---------------------------------------------------------------------------
 # Public entry points
@@ -171,6 +272,17 @@ def binarize_array(
         so it does *not* commute with cropping — it must be computed on
         the whole page and then sliced, never per crop. ``"global"`` and
         ``"otsu"`` do commute, so all three are handled whole-page here.
+
+    Note:
+        Peak memory is bounded and roughly independent of page area:
+        ``"otsu"`` goes through :func:`_otsu_threshold` (a 256-bin
+        histogram, no float copy of the page) and ``"sauvola"`` through
+        :func:`_sauvola_mask` (horizontal strips with a window-sized
+        halo). Both return exactly what the naive whole-page skimage call
+        returns. This matters because a full-page Sauvola on a 32 MP folio
+        peaks over 1.5 GB, which OOM-kills IC's 1 GiB container mid-request
+        and — on the in-memory session store — takes every live session
+        with it.
     """
     if method == "global":
         return page <= threshold
@@ -179,9 +291,9 @@ def binarize_array(
         # crop has no bimodal histogram, so fall back to the global cutoff.
         if page.min() == page.max():
             return page <= threshold
-        return page <= threshold_otsu(page)
+        return page <= _otsu_threshold(page)
     if method == "sauvola":
-        return page < threshold_sauvola(page, window_size=window_size, k=k)
+        return _sauvola_mask(page, window_size=window_size, k=k)
     raise ValueError(
         f"Unrecognised binarization method {method!r}; "
         "expected 'global', 'otsu', or 'sauvola'"

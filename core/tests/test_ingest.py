@@ -8,6 +8,7 @@ call.
 """
 from __future__ import annotations
 
+import io
 import json
 import uuid
 
@@ -17,6 +18,10 @@ from PIL import Image as PILImage
 
 from ic_core.classifier import UNCLASSIFIED
 from ic_core.ingest import (
+    SAUVOLA_K,
+    SAUVOLA_WINDOW_SIZE,
+    _otsu_threshold,
+    _sauvola_mask,
     _unwrap_page,
     binarize_array,
     binarize_page,
@@ -264,3 +269,76 @@ def test_per_glyph_mask_matches_full_page_mask(method):
         assert np.array_equal(sub, g.to_array())
         checked += 1
     assert checked > 0
+
+
+# ---------------------------------------------------------------------------
+# Memory-bounded threshold helpers
+# ---------------------------------------------------------------------------
+#
+# These exist only to keep peak memory off the page-area curve (a full-page
+# Sauvola on a 32 MP folio peaks over 1.5 GB and OOM-kills IC's 1 GiB
+# container). The whole point is that they change *nothing* about the output,
+# so that equality is what these tests pin.
+
+
+def _naive_sauvola(page):
+    """The straightforward whole-page call these helpers must reproduce."""
+    from skimage.filters import threshold_sauvola
+
+    return page < threshold_sauvola(
+        page, window_size=SAUVOLA_WINDOW_SIZE, k=SAUVOLA_K
+    )
+
+
+def test_sauvola_strips_match_whole_page():
+    # A tiny budget forces many strips over the real test page; every one of
+    # them must agree with the whole-page result, including the rows either
+    # side of each strip seam and the reflect-padded page edges.
+    page = np.asarray(PILImage.open(io.BytesIO(PAGE_BYTES)).convert("L"))
+    got = _sauvola_mask(
+        page,
+        window_size=SAUVOLA_WINDOW_SIZE,
+        k=SAUVOLA_K,
+        budget_bytes=64 * 1024,  # ~1-2 rows per strip: maximum seam exposure
+    )
+    assert np.array_equal(got, _naive_sauvola(page))
+
+
+def test_sauvola_single_strip_path_matches_whole_page():
+    # The other branch: a page that fits the budget skips the strip
+    # bookkeeping entirely and must still match.
+    page = np.asarray(PILImage.open(io.BytesIO(PAGE_BYTES)).convert("L"))
+    got = _sauvola_mask(
+        page, window_size=SAUVOLA_WINDOW_SIZE, k=SAUVOLA_K, budget_bytes=1 << 30
+    )
+    assert np.array_equal(got, _naive_sauvola(page))
+
+
+@pytest.mark.parametrize("shape", [(1, 1), (3, 3), (1, 500), (500, 1), (60, 40)])
+def test_sauvola_strips_handle_degenerate_shapes(shape):
+    # Pages smaller than the window, and single-row/column arrays, must not
+    # crash or diverge — the halo arithmetic has to clamp, not wrap.
+    rng = np.random.default_rng(0)
+    page = rng.integers(0, 256, size=shape, dtype=np.uint8)
+    got = _sauvola_mask(
+        page, window_size=SAUVOLA_WINDOW_SIZE, k=SAUVOLA_K, budget_bytes=4096
+    )
+    assert got.shape == page.shape
+    assert np.array_equal(got, _naive_sauvola(page))
+
+
+def test_otsu_threshold_matches_skimage():
+    from skimage.filters import threshold_otsu
+
+    page = np.asarray(PILImage.open(io.BytesIO(PAGE_BYTES)).convert("L"))
+    assert _otsu_threshold(page) == float(threshold_otsu(page))
+
+
+def test_otsu_threshold_falls_back_for_non_uint8():
+    # The bincount shortcut is uint8-only; other dtypes must still work by
+    # handing the array to skimage.
+    from skimage.filters import threshold_otsu
+
+    rng = np.random.default_rng(1)
+    page = rng.random((64, 64))  # float64
+    assert _otsu_threshold(page) == float(threshold_otsu(page))
