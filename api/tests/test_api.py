@@ -115,6 +115,51 @@ def test_healthz_does_not_require_a_session(client):
     assert client.get("/healthz").status_code == 200
 
 
+def test_healthz_reachable_is_null_without_a_database(client):
+    # The in-memory store has no database to be unreachable, so `reachable`
+    # must be null rather than a misleading true/false.
+    assert client.get("/healthz").json()["store"]["reachable"] is None
+
+
+def test_healthz_reports_reachable_when_the_database_answers(client, store):
+    # Holding a Postgres store proves nothing — it connects lazily — so the
+    # probe round-trips the DB and reports what it found.
+    class _Reachable(InMemorySessionStore):
+        def ping(self) -> None:
+            return None
+
+    app.dependency_overrides[get_store] = _Reachable
+    try:
+        body = client.get("/healthz").json()
+    finally:
+        app.dependency_overrides[get_store] = lambda: store
+    assert body["store"]["reachable"] is True
+    assert "error" not in body["store"]
+
+
+def test_healthz_reports_unreachable_database_without_failing_the_probe(
+    client, store
+):
+    # The case the `persistent` flag alone can't express: the deployment
+    # believes it configured persistence, but the DSN is wrong or the server
+    # is down. status stays "ok" so wiring this up as a liveness probe can't
+    # turn a DB hiccup into a restart loop.
+    class _Unreachable(InMemorySessionStore):
+        def ping(self) -> None:
+            raise RuntimeError("could not connect to server: Connection refused")
+
+    app.dependency_overrides[get_store] = _Unreachable
+    try:
+        response = client.get("/healthz")
+    finally:
+        app.dependency_overrides[get_store] = lambda: store
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["store"]["reachable"] is False
+    assert "Connection refused" in body["store"]["error"]
+
+
 # ---------------------------------------------------------------------------
 # Session lifecycle
 # ---------------------------------------------------------------------------

@@ -50,6 +50,12 @@ from ic_core.state import ClassifierState, Session
 # Schema
 # ---------------------------------------------------------------------------
 
+#: Seconds psycopg2 may spend establishing a connection before giving up.
+#: Without it libpq waits out the OS TCP timeout (minutes), which would let a
+#: single unreachable-database request — or a ``/healthz`` probe — hang a
+#: worker thread far longer than any caller is willing to wait.
+CONNECT_TIMEOUT_SECONDS = 5
+
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS ic_sessions (
     id                    TEXT PRIMARY KEY,
@@ -159,9 +165,29 @@ class PersistentSessionStore:
             with self._pool_lock:
                 if self._pool is None:
                     self._pool = _pg_pool.ThreadedConnectionPool(
-                        minconn=1, maxconn=8, dsn=self._dsn
+                        minconn=1,
+                        maxconn=8,
+                        dsn=self._dsn,
+                        connect_timeout=CONNECT_TIMEOUT_SECONDS,
                     )
         return self._pool
+
+    def ping(self) -> None:
+        """Round-trip the database, raising if it can't be reached.
+
+        The store is constructed without touching the network (the pool is
+        lazy), so holding one proves nothing about whether Postgres is
+        actually reachable or the DSN is even valid. This is how a caller
+        finds out — ``GET /healthz`` uses it so a deployment that *thinks*
+        it configured persistence can tell whether it really has it.
+
+        Deliberately not called at startup: see
+        :func:`ic_api.store.build_default_store`, which must not trade a
+        transient DB blip for a permanent in-memory downgrade.
+        """
+        with self._conn() as (_con, cur):
+            cur.execute("SELECT 1")
+            cur.fetchone()
 
     @contextmanager
     def _conn(self) -> Iterator[tuple]:

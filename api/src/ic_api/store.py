@@ -258,6 +258,21 @@ def build_default_store() -> SessionStore:
     the backend fails (e.g. psycopg2 missing), we fall back to in-memory
     and warn rather than refusing to boot.
 
+    **We deliberately do not verify the DSN here.** This function runs at
+    module import, so a real connection attempt would block startup on the
+    network — and, more importantly, "couldn't reach Postgres right now"
+    must not silently downgrade the process to in-memory for the rest of
+    its life. A database that is briefly unavailable while the app starts
+    is routine (a DB restart, a failover, pod start ordering); trading that
+    blip for a permanent, invisible loss of persistence in a deployment
+    that explicitly asked for it is far worse than the alternative, which
+    is loud request-time errors that heal by themselves once the database
+    is back. So the environment decides the backend, and reachability is
+    reported separately — ``PersistentSessionStore.ping`` is what actually
+    proves the DSN works, surfaced through ``GET /healthz``'s ``reachable``
+    field, which is the honest answer to "is this deployment persisting
+    sessions?" and cannot be answered at import time.
+
     Both branches announce themselves on stderr. Which backend is live
     decides whether a restart costs a hiccup or every in-flight session, and
     a deployment that *meant* to set ``DATABASE_URL`` but didn't used to look
@@ -305,6 +320,13 @@ def store_backend_info() -> dict[str, object]:
     ``False``, a container restart (an OOM kill, a redeploy, a scale-down)
     silently drops every live session, and the frontend's next call fails
     with "Unknown session id".
+
+    Note that both fields describe what the *environment selected*, not a
+    verified working database: the Postgres store connects lazily, so an
+    unreachable server or a typo'd DSN reports ``persistent: True`` here
+    too. ``GET /healthz`` pairs this with a ``reachable`` field from
+    :meth:`ic_api.db_store.PersistentSessionStore.ping` for the verified
+    answer.
     """
     return {"backend": _backend_name, "persistent": _backend_persistent}
 

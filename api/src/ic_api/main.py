@@ -185,12 +185,35 @@ def healthz(store: Store) -> dict[str, object]:
     outside the process. Probing this endpoint answers "is this deployment
     actually persisting sessions?" without shell or log access.
 
-    Kept deliberately cheap — it reports the *selected* backend and does
-    not touch the database, so a probe never fails on a DB hiccup and
-    never adds load. ``sessions`` counts what this process currently
-    holds in its registry / hot cache.
+    ``backend`` / ``persistent`` report what the environment *asked for*.
+    Holding a Postgres store proves nothing on its own — it connects
+    lazily, so a typo'd DSN or an unreachable database looks identical to
+    a working one at construction time. ``reachable`` closes that gap by
+    round-tripping the database (``SELECT 1``, bounded by
+    ``db_store.CONNECT_TIMEOUT_SECONDS``): ``true`` means sessions really
+    are being persisted, ``false`` means the deployment believes it
+    configured persistence but hasn't got it, and ``null`` means the
+    backend has nothing to reach (the in-memory store).
+
+    ``status`` stays ``"ok"`` even when the database is unreachable, so
+    wiring this up as a liveness probe can't turn a DB hiccup into a
+    restart loop — the diagnosis belongs in the payload, not the status
+    code. ``sessions`` counts what this process holds in its registry /
+    hot cache.
     """
     info = store_backend_info()
+    # Only the Postgres store defines ping(); the in-memory store has no
+    # database to be unreachable, so `reachable` stays null for it.
+    ping = getattr(store, "ping", None)
+    if ping is None:
+        info["reachable"] = None
+    else:
+        try:
+            ping()
+            info["reachable"] = True
+        except Exception as exc:
+            info["reachable"] = False
+            info["error"] = str(exc).strip().splitlines()[0][:200]
     try:
         n_sessions: int | None = len(store)  # type: ignore[arg-type]
     except TypeError:  # a store without __len__ (e.g. a test double)
