@@ -143,10 +143,13 @@ class PersistentSessionStore:
         self._registry_lock = threading.Lock()
         self._cache: dict[str, Session] = {}
         self._locks: dict[str, threading.Lock] = {}
-        # session id -> (project_id, image_id) for sessions created in this
-        # process, so :meth:`create` can evict the one a new session for the
-        # same page supersedes. Ids created by another process aren't here;
-        # the DELETE in :meth:`_insert` covers that side.
+        # session id -> (project_id, image_id) for every cached session that
+        # belongs to a page, so :meth:`create` can evict the one a new session
+        # for the same page supersedes. Written by both paths that populate
+        # ``_cache`` — :meth:`create` and the hydrate branch of :meth:`get` —
+        # so a session created before this process started is covered too.
+        # Key-less sessions (IC's own upload screen) are absent by design:
+        # they belong to no page and supersede nothing.
         self._keys: dict[str, tuple[int, str]] = {}
 
     # -- connection pool ---------------------------------------------------
@@ -239,13 +242,19 @@ class PersistentSessionStore:
             sess = self._cache.get(session_id)
         if sess is not None:
             return sess
-        hydrated = self._hydrate(session_id)  # raises KeyError if absent
+        # raises KeyError if absent
+        hydrated, key = self._hydrate(session_id)
         with self._registry_lock:
             existing = self._cache.get(session_id)
             if existing is not None:
-                return existing  # another thread won the race
+                return existing  # another thread won the race (and registered)
             self._cache[session_id] = hydrated
             self._locks.setdefault(session_id, threading.Lock())
+            # Record the page this session belongs to in the same critical
+            # section that caches it, so create() can never see a cached
+            # session whose key it doesn't know about.
+            if key is not None:
+                self._keys[session_id] = key
         return hydrated
 
     @contextmanager
@@ -443,7 +452,18 @@ class PersistentSessionStore:
                 )
             con.commit()
 
-    def _hydrate(self, session_id: str) -> Session:
+    def _hydrate(
+        self, session_id: str
+    ) -> tuple[Session, tuple[int, str] | None]:
+        """Load a session from its row, with the page it belongs to.
+
+        Returns the session and its ``(project_id, image_id)`` — or ``None``
+        for a key-less session (IC's own upload screen). The caller records
+        the key alongside the cache entry so :meth:`create` can evict this
+        session when a newer one supersedes the same page; a hydrated session
+        is otherwise invisible to that check, since it was created before this
+        process started (or by another one).
+        """
         with self._conn() as (con, cur):
             cur.execute(
                 f"SELECT {_COLUMNS} FROM ic_sessions WHERE id=%s", (session_id,)
@@ -451,7 +471,14 @@ class PersistentSessionStore:
             row = cur.fetchone()
         if row is None:
             raise KeyError(f"Unknown session id: {session_id!r}")
-        return _row_to_session(row)
+        # _COLUMNS order: id, project_id, image_id, ...
+        project_id, image_id = row[1], row[2]
+        key = (
+            (project_id, image_id)
+            if project_id is not None and image_id is not None
+            else None
+        )
+        return _row_to_session(row), key
 
 
 # ---------------------------------------------------------------------------

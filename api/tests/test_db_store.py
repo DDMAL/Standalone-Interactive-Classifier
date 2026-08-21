@@ -25,7 +25,9 @@ def store(monkeypatch):
     monkeypatch.setattr(s, "_insert", lambda *a, **k: None)
     monkeypatch.setattr(s, "_flush", lambda *a, **k: None)
     # A cache miss must behave like "the row isn't there" — which is exactly
-    # what a superseded session sees, because _insert deleted its row.
+    # what a superseded session sees, because _insert deleted its row. Tests
+    # that need a *successful* hydrate override this with a stub returning
+    # _hydrate's real shape, ``(session, key)``.
     def _no_row(session_id):
         raise KeyError(f"Unknown session id: {session_id!r}")
 
@@ -70,6 +72,54 @@ def test_keyless_sessions_never_supersede_each_other(store):
 
     assert store.get(a.id) is a
     assert store.get(b.id) is b
+
+
+def test_hydrated_session_is_evicted_when_superseded(store, monkeypatch):
+    # A session that predates this process (a restart, or another replica)
+    # reaches the cache through the hydrate path rather than create(), so it
+    # has to be keyed there too. Otherwise create() can't see it, and it
+    # survives in the cache — writable, flushing into a row _insert deleted —
+    # until the next restart turns it into "Unknown session id".
+    hydrated = _session()
+
+    def _row(session_id):
+        if session_id == hydrated.id:
+            return hydrated, (7, "page-1")
+        raise KeyError(f"Unknown session id: {session_id!r}")
+
+    monkeypatch.setattr(store, "_hydrate", _row)
+
+    assert store.get(hydrated.id) is hydrated
+    assert store._keys[hydrated.id] == (7, "page-1")
+
+    replacement = _session()
+    store.create(replacement, project_id=7, image_id="page-1")
+
+    # Asserted on the cache directly: a get() here would re-hydrate through
+    # the stub above, where the real store would raise on the deleted row.
+    assert hydrated.id not in store._cache
+    assert hydrated.id not in store._keys
+    assert store.get(replacement.id) is replacement
+
+
+def test_hydrated_keyless_session_is_not_keyed(store, monkeypatch):
+    # A session with no (project, image) belongs to no page, so it must not be
+    # recorded — every key-less session would otherwise share one (None, None)
+    # key and supersede the others.
+    keyless = _session()
+
+    monkeypatch.setattr(
+        store,
+        "_hydrate",
+        lambda session_id: (keyless, None),
+    )
+
+    assert store.get(keyless.id) is keyless
+    assert keyless.id not in store._keys
+
+    # And a new page-keyed session must leave it alone.
+    store.create(_session(), project_id=7, image_id="page-1")
+    assert store._cache[keyless.id] is keyless
 
 
 def test_delete_forgets_the_page_key(store, monkeypatch):
