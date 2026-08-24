@@ -734,6 +734,47 @@ def test_complete_returns_xml_and_transitions_to_export(client):
     assert classify_resp.json()["code"] == "state_conflict"
 
 
+def test_complete_with_finalize_false_keeps_the_session_editable(client):
+    # An embedding host (mothra) exports the GameraXML as an *intermediate*
+    # artefact — it feeds its encoder and the user still reopens the page to
+    # correct it. Finalising there would move the session to EXPORT, which
+    # /sessions/lookup refuses to resume, silently stranding every
+    # correction behind the export.
+    staging_id = _stage(client, project_id=11, image_id="img-editable")
+    sid = client.post(
+        "/sessions/from-staging", data={"staging_id": staging_id}
+    ).json()["id"]
+    g = client.get(f"/sessions/{sid}").json()["glyphs"][0]
+    client.post(
+        f"/sessions/{sid}/glyphs/{g['id']}",
+        json={"class_name": "neume.A", "id_state_manual": True},
+    )
+
+    response = client.post(f"/sessions/{sid}/complete?page=true&finalize=false")
+    assert response.status_code == 200, response.text
+    assert response.content.startswith(b"<?xml")
+    assert b'name="neume.A"' in response.content
+
+    # Still CLASSIFYING: mutations work and the page stays resumable.
+    assert client.get(f"/sessions/{sid}").json()["state"] == "classifying"
+    relabel = client.post(
+        f"/sessions/{sid}/glyphs/{g['id']}",
+        json={"class_name": "neume.B", "id_state_manual": True},
+    )
+    assert relabel.status_code == 200, relabel.text
+    found = client.get(
+        "/sessions/lookup",
+        params={"project_id": 11, "image_id": "img-editable"},
+    )
+    assert found.status_code == 200
+    assert found.json()["session_id"] == sid
+
+    # And a later finalising export still transitions it, so the two modes
+    # coexist on one session rather than the flag latching.
+    assert client.post(f"/sessions/{sid}/complete?page=true").status_code == 200
+    assert client.get(f"/sessions/{sid}").json()["state"] == "export"
+
+
 def test_complete_export_filename_derives_from_uploaded_name(client):
     # A real-world upload name carries a directory part, spaces and the
     # .json extension; the export keeps a safe stem of it so the file is

@@ -1276,6 +1276,7 @@ def complete_session(
     manual_neumes: bool = False,
     preset_training: bool = False,
     uploaded_training: bool = False,
+    finalize: bool = True,
 ) -> Response:
     """Stream back the GameraXML export for the session.
 
@@ -1285,6 +1286,18 @@ def complete_session(
     re-export is always allowed. The returned XML is a snapshot of the
     current working set, the canonical artefact for downstream MEI
     pipelines.
+
+    ``finalize=false`` exports *without* that transition: the session
+    stays in ``CLASSIFYING``, editable and resumable, and the
+    export-time hygiene (strip transient ``_group``/``_delete`` parts,
+    drop ``UNCLASSIFIED`` training entries) is applied to the exported
+    copy only, leaving the live session untouched. An embedding host
+    that treats the XML as an intermediate artefact rather than an
+    end-of-life one needs this: mothra hands the export to its MEI
+    encoder but still lets the user reopen the page and correct it
+    afterwards, which a terminal ``EXPORT`` session forbids (see
+    :func:`lookup_session` — a completed session is not resumable, so
+    finalising on export silently discards every correction behind it).
 
     The caller picks which sections to fold into a single GameraXML
     document via independent boolean flags (the export screen's
@@ -1311,16 +1324,27 @@ def complete_session(
             "Select at least one section to include in the export."
         )
     with store.session(session_id) as session:
-        # Finalise the session (CLASSIFYING → EXPORT) on the first export.
-        # Idempotent: already-EXPORT sessions are a no-op, so repeated
-        # exports work fine.  After this call, mutations raise 409.
-        session.complete()
-        page_glyphs = session.glyphs
-        training_glyphs = [
-            g
-            for g in session.training_glyphs
-            if g.class_name != UNCLASSIFIED
-        ]
+        if finalize:
+            # Finalise the session (CLASSIFYING → EXPORT) on the first
+            # export. Idempotent: already-EXPORT sessions are a no-op, so
+            # repeated exports work fine. After this call, mutations raise
+            # 409. Session.complete() does the hygiene pass in place.
+            session.complete()
+            page_glyphs = session.glyphs
+            training_glyphs = [
+                g
+                for g in session.training_glyphs
+                if g.class_name != UNCLASSIFIED
+            ]
+        else:
+            # Same hygiene, applied to the *exported* glyphs only, so the
+            # live session is left in CLASSIFYING and fully re-editable.
+            page_glyphs = filter_parts(session.glyphs)
+            training_glyphs = [
+                g
+                for g in filter_parts(session.training_glyphs)
+                if g.class_name != UNCLASSIFIED
+            ]
         selected: list = []
         seen: set[str] = set()
 
