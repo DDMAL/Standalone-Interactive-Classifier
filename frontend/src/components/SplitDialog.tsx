@@ -1,10 +1,10 @@
+import { useGlyphImageSrc } from "@/components/GlyphImage";
 import { Button } from "@/components/ui/Button";
 import { useClassify } from "@/hooks/useClassify";
 import { useModalGuard } from "@/hooks/useModalGuard";
 import { useSplit } from "@/hooks/useSplit";
 import { rectFromAnchor } from "@/lib/bbox";
 import type { Rect } from "@/lib/bbox";
-import { glyphDataUri } from "@/lib/format";
 import { isEditableTarget } from "@/lib/keymap";
 import { useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
@@ -338,10 +338,12 @@ interface SplitCanvasProps {
  * extends `pad` pixels beyond the image on every side. That margin is
  * what makes drags-starting-outside-the-image work.
  *
- * `image-rendering: pixelated` keeps neume binarisations legible at
- * zoom-in instead of blurring them. A thin slate stroke marks the
- * image bounds so the margin zone reads as "drawable padding" rather
- * than "the image extends here."
+ * The image honours the grid's binarized/original toggle (see
+ * {@link useGlyphImageSrc}), so the user draws over the glyph exactly as
+ * they are already seeing it elsewhere. `image-rendering: pixelated` keeps
+ * neume binarisations legible at zoom-in instead of blurring them. A thin
+ * slate stroke marks the image bounds so the margin zone reads as
+ * "drawable padding" rather than "the image extends here."
  */
 function SplitCanvas({
   glyph,
@@ -355,6 +357,7 @@ function SplitCanvas({
   onPointerUp,
   onDeleteRect,
 }: SplitCanvasProps) {
+  const glyphSrc = useGlyphImageSrc(glyph);
   // Screen pixels per viewBox unit. The labels and delete buttons are
   // authored in *screen* pixels (a constant readable size) and converted
   // to viewBox units via `k = 1 / unitPx`, so they stay the same physical
@@ -407,7 +410,7 @@ function SplitCanvas({
             `e.target !== e.currentTarget` guard then refuses to start a
             drag (you'd only be able to draw from the margin zone). */}
         <image
-          href={glyphDataUri(glyph)}
+          href={glyphSrc}
           x={0}
           y={0}
           width={glyph.ncols}
