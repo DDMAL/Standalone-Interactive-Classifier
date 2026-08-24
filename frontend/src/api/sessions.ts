@@ -195,5 +195,13 @@ export const completeSession = (id: string, selection: ExportSelection) => {
   if (selection.manualNeumes) params.set("manual_neumes", "true");
   if (selection.presetTraining) params.set("preset_training", "true");
   if (selection.uploadedTraining) params.set("uploaded_training", "true");
+  // Embedded in a host app (mothra), the XML is an intermediate artefact:
+  // the host feeds it to its own encoder and still expects the page to be
+  // reopenable afterwards. Finalising would move the session to EXPORT,
+  // which /sessions/lookup treats as not resumable — so a download from
+  // inside the iframe would silently strand every correction in it. The
+  // standalone app keeps the default (finalise on export), where the
+  // download really is the end of the session's life.
+  if (window.parent !== window) params.set("finalize", "false");
   return postForBlob(`/sessions/${id}/complete?${params.toString()}`);
 };
