@@ -85,6 +85,8 @@ npm run build                              # type-check + production build
 
 ## Documentation
 
+- [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) — **start here**: what the code does now, layer by layer, plus the mothra embedding contract
+- [docs/BRANCHES.md](docs/BRANCHES.md) — how `main` (mothra-embedded) and `develop` (standalone deployment) differ, and why
 - [docs/migration_plan.md](docs/migration_plan.md) — full migration strategy, phasing, and risks
 - [docs/KNN_ALGORITHM.md](docs/KNN_ALGORITHM.md) — algorithm spec and invariants
 - [docs/CLAUDE.md](docs/CLAUDE.md) — architecture notes and conventions for AI-assisted development
