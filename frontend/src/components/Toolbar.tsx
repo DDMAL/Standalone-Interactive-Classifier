@@ -302,10 +302,10 @@ function ExportMenu({
 }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  // Default to the common case: the whole annotated page.
+  // Default to the common case: the neumes labelled by hand on this page.
   const [selection, setSelection] = useState<Record<ExportOptionKey, boolean>>({
-    page: true,
-    manualNeumes: false,
+    page: false,
+    manualNeumes: true,
     presetTraining: false,
     uploadedTraining: false,
   });
