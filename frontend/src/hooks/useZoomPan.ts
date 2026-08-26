@@ -21,7 +21,14 @@ export interface UseZoomPan {
   containerRef: React.RefObject<HTMLDivElement>;
   /** Use as `style={{ transform: zp.transform, transformOrigin: "0 0" }}`. */
   transform: string;
-  onWheel: (e: React.WheelEvent<HTMLDivElement>) => void;
+  /**
+   * Native handler, not a React prop: React registers `onWheel` passively at
+   * the root, so `preventDefault` there is a no-op and the wheel's default
+   * scroll still fires. Embedded in an iframe that has no scrollable
+   * document of its own, that default chains out and scrolls the host page
+   * instead. `ZoomPanContainer` attaches this with `{ passive: false }`.
+   */
+  onWheel: (e: WheelEvent) => void;
   zoomIn: () => void;
   zoomOut: () => void;
   reset: () => void;
@@ -81,7 +88,7 @@ export function useZoomPan(): UseZoomPan {
   );
 
   const onWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
+    (e: WheelEvent) => {
       // Trackpad pinch zoom arrives as ctrlKey-wheel; plain wheel pans.
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault();

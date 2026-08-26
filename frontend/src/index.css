@@ -8,6 +8,14 @@ body,
   height: 100%;
 }
 
+/* Embedded in mothra as a full-page iframe, this document has no scroll of
+   its own, so any overscroll from the panes inside chains out and scrolls the
+   host page. Keep it in here. */
+html,
+body {
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
 }
