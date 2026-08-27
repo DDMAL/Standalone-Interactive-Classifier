@@ -734,6 +734,42 @@ def test_complete_returns_xml_and_transitions_to_export(client):
     assert classify_resp.json()["code"] == "state_conflict"
 
 
+def test_deleted_glyph_is_absent_from_a_non_finalizing_export(client):
+    # The contract mothra's deletion flush relies on: a glyph dropped with
+    # DELETE /glyphs/{id} must not come back in the GameraXML the host
+    # exports server-to-server afterwards. IC's own delete affordance is a
+    # UI-side soft delete committed through this endpoint, and mothra never
+    # presses IC's export button — it calls complete() itself — so if the two
+    # ever came apart, every glyph the user deleted would reappear as a neume
+    # in the encoded MEI with nothing to signal it.
+    staging_id = _stage(client, project_id=12, image_id="img-deleted")
+    sid = client.post(
+        "/sessions/from-staging", data={"staging_id": staging_id}
+    ).json()["id"]
+    glyphs = client.get(f"/sessions/{sid}").json()["glyphs"]
+    assert len(glyphs) >= 2, "fixture should have more than one glyph"
+    doomed = glyphs[0]
+    bbox = (
+        f'uly="{doomed["uly"]}" ulx="{doomed["ulx"]}" '
+        f'nrows="{doomed["nrows"]}" ncols="{doomed["ncols"]}"'
+    ).encode()
+
+    before = client.post(f"/sessions/{sid}/complete?page=true&finalize=false")
+    assert before.status_code == 200, before.text
+    assert bbox in before.content
+    assert before.content.count(b"<glyph ") == len(glyphs)
+
+    assert (
+        client.delete(f"/sessions/{sid}/glyphs/{doomed['id']}").status_code
+        == 204
+    )
+
+    after = client.post(f"/sessions/{sid}/complete?page=true&finalize=false")
+    assert after.status_code == 200, after.text
+    assert bbox not in after.content
+    assert after.content.count(b"<glyph ") == len(glyphs) - 1
+
+
 def test_complete_with_finalize_false_keeps_the_session_editable(client):
     # An embedding host (mothra) exports the GameraXML as an *intermediate*
     # artefact — it feeds its encoder and the user still reopens the page to

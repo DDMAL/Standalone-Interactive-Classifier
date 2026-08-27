@@ -1,12 +1,6 @@
-import {
-  type ExportSelection,
-  completeSession,
-  deleteGlyph,
-} from "@/api/sessions";
-import { sessionKey } from "@/hooks/useSession";
+import { type ExportSelection, completeSession } from "@/api/sessions";
+import { commitSoftDeletes } from "@/hooks/useFlushDeletions";
 import { downloadBlob } from "@/lib/download";
-import { useUiStore } from "@/store/uiStore";
-import type { SessionDTO } from "@/types/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 /**
@@ -20,28 +14,17 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
  * Exporting no longer finalises the session — the backend leaves it
  * editable — so we stay on the edit view after the download. The user can
  * keep correcting and export again as many times as they like.
+ *
+ * The commit itself lives in {@link commitSoftDeletes}, shared with the
+ * host-driven flush (see useFlushDeletions): an embedding host exports
+ * server-side and never reaches this button, so it needs the same commit on
+ * its own trigger.
  */
 export function useComplete(sessionId: string) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (selection: ExportSelection) => {
-      const ids = [...useUiStore.getState().deletedGlyphIds];
-      if (ids.length > 0) {
-        await Promise.all(ids.map((id) => deleteGlyph(sessionId, id)));
-        // Prune the committed deletions from the cached session *before*
-        // clearing the UI-side filter. `completeSession` returns the XML
-        // blob, not a fresh SessionDTO, so nothing else drops these glyphs
-        // from the query cache; if we cleared `deletedGlyphIds` while they
-        // still sat in the cache, the grid would resurrect them into their
-        // category sections (the "deleted glyphs come back on export" bug).
-        const deleted = new Set(ids);
-        queryClient.setQueryData<SessionDTO>(sessionKey(sessionId), (old) =>
-          old
-            ? { ...old, glyphs: old.glyphs.filter((g) => !deleted.has(g.id)) }
-            : old,
-        );
-        useUiStore.getState().clearDeleted();
-      }
+      await commitSoftDeletes(queryClient, sessionId);
       return completeSession(sessionId, selection);
     },
     onSuccess: ({ blob, filename }) => {

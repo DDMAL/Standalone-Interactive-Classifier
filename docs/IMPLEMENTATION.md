@@ -578,12 +578,31 @@ Server-to-server, mothra → IC:
 | `ic:session-created` | A session exists (created, or deep-link-resumed). |
 | `ic:auto-export` | The one-click classify-then-export shortcut ran; the host should run its own queue path. |
 | `ic:resume-session` | A row was clicked in the `?manage=1` list. |
+| `ic:deletions-flushed` / `ic:deletions-flush-failed` | Reply to `ic:flush-deletions` below, echoing its `requestId`. |
 
 `postMessage`, host → iframe:
 
 | Message | Effect |
 |---|---|
 | `ic:prefill-training` | Adopt the host's batch-level training selection. |
+| `ic:flush-deletions` | Commit this session's soft-deleted glyphs now (`useFlushDeletions`), then reply. |
+
+**Why the host has to be able to trigger a flush.** Deleting a glyph is a
+UI-side soft delete — the id sits in `uiStore.deletedGlyphIds`, hidden from the
+grid and recoverable from the Deleted section, and nothing reaches the API
+until an export commits it (`commitSoftDeletes`). Standalone that is exactly
+right: the Export button is the only exit. Embedded it is not, because mothra
+never presses that button — it exports server-to-server from its encode step,
+against the *backend's* working set, where every soft-deleted glyph is still
+present. Left alone, each one comes back in the GameraXML and turns into a
+neume in the encoded MEI. Mothra also rebuilds this iframe whenever its
+filmstrip changes page, so the ids are gone by export time; it therefore asks
+for the flush while the frame is still up (before a page change, before
+queueing, and once more before the batch export). The listener is only
+installed when embedded, performs exactly the deletes the Export button would
+have, and answers even on screens with no session open — the auto-classify
+path queues a page without ever entering one, and a host that blocks on the
+reply must still get one.
 
 Three behaviours flip on `window.parent !== window`, and each one matters:
 

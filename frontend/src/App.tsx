@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { SessionResumeList } from "@/components/SessionResumeList";
 import { SessionView } from "@/components/SessionView";
 import { UploadView } from "@/components/UploadView";
+import { useDeletionFlushBridge } from "@/hooks/useFlushDeletions";
 import { useUiStore } from "@/store/uiStore";
 
 // Deep-link params an embedding host (mothra) may pass:
@@ -27,6 +28,13 @@ const manageProjectId = params.get("project_id");
 export default function App() {
   const sessionId = useUiStore((s) => s.sessionId);
   const setSession = useUiStore((s) => s.setSession);
+
+  // Let an embedding host commit this frame's soft-deleted glyphs on demand
+  // (see useDeletionFlushBridge). Mounted here, not in SessionView, so the
+  // host still gets an answer on the screens that have no session open --
+  // notably the auto-classify path, which queues a page without ever
+  // entering one.
+  useDeletionFlushBridge();
 
   useEffect(() => {
     if (deepLinkSessionId && !useUiStore.getState().sessionId) {
