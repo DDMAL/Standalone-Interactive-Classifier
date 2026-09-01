@@ -51,6 +51,17 @@ class GlyphDTO(BaseModel):
     # raw RLE is not sent — the frontend doesn't decode it.
     image_b64: str = Field(..., description="Base64 PNG, ASCII.")
 
+    # Whether this glyph carries a precomputed ssl_embedding or a real-pixel
+    # crop (image_gray_b64) -- i.e. whether the "ssl_fusion" classify backend
+    # can use it as training data. A glyph sourced from a preset without
+    # embeddings, or an uploaded GameraXML file with no companion embeddings/
+    # source image, is silently excluded from that backend's training pool
+    # (see ic_core.ssl_classifier.SSLFusionClassifier.fit) even though it
+    # still counts toward the training-set size shown elsewhere in the UI.
+    has_ssl_features: bool = Field(
+        ..., description="Usable as ssl_fusion training data."
+    )
+
 
 class SessionSummaryDTO(BaseModel):
     """Lightweight session metadata for the resume list (GET /sessions).
@@ -212,6 +223,8 @@ def glyph_to_dto(glyph: Glyph) -> GlyphDTO:
         ncols=glyph.ncols,
         nrows=glyph.nrows,
         image_b64=glyph.to_base64_png(),
+        has_ssl_features=glyph.ssl_embedding is not None
+        or glyph.image_gray_b64 is not None,
     )
 
 

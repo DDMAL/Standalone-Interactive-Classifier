@@ -15,6 +15,21 @@ import { useQuery } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 
+/** Display label for the ssl_fusion backend, sourced from the single shared
+ *  constant so this file can't drift out of sync with it (see the LR/SVM
+ *  mismatch this replaced — the model name was hardcoded in three places
+ *  here and in Toolbar.tsx, one of which was never updated when the
+ *  classifier backend changed from logistic regression to a linear SVM). */
+const SSL_FUSION_LABEL =
+  CLASSIFIER_BACKENDS.find((b) => b.value === "ssl_fusion")?.label ??
+  "Pre-trained + SVM";
+
+/** Strips the on-disk ".xml" extension for display; the raw filename
+ *  (with extension) remains the value used for selection/API calls. */
+function presetDisplayName(filename: string): string {
+  return filename.replace(/\.xml$/i, "");
+}
+
 /** Adds newly-picked files to the existing selection (deduped by name+size)
  *  instead of replacing it — so picking files across multiple dialogs
  *  accumulates, matching what the chip list with per-file removal implies. */
@@ -388,7 +403,10 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
 
             <div>
               <span className="mb-1 block text-xs font-medium text-slate-600">
-                Presets
+                Presets{" "}
+                <span className="font-normal text-slate-400">
+                  — built-in, pre-labelled training sets
+                </span>
               </span>
               {presets.isLoading ? (
                 <span className="text-xs text-slate-400">Loading presets…</span>
@@ -413,7 +431,7 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                         )}
                         title={
                           disabled
-                            ? "No precomputed SSL embeddings — can't be used with the Pre-trained + LR model."
+                            ? `No precomputed SSL embeddings — can't be used with the ${SSL_FUSION_LABEL} model.`
                             : undefined
                         }
                       >
@@ -423,7 +441,9 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
                           disabled={disabled}
                           onChange={(e) => togglePreset(name, e.target.checked)}
                         />
-                        <span className="text-slate-700">{name}</span>
+                        <span className="text-slate-700">
+                          {presetDisplayName(name)}
+                        </span>
                       </label>
                     );
                   })}
@@ -458,8 +478,8 @@ export function UploadView({ stagedId }: UploadViewProps = {}) {
             {sslFusionSelected && trainingFiles.length > 0 && (
               <div className="space-y-2 rounded border border-slate-200 bg-slate-50 p-2">
                 <span className="block text-xs font-medium text-slate-600">
-                  An uploaded GameraXML file only carries a binary mask — the
-                  Pre-trained + LR model needs one of these to use it:
+                  An uploaded GameraXML file only carries a binary mask — the{" "}
+                  {SSL_FUSION_LABEL} model needs one of these to use it:
                 </span>
                 <label className="block">
                   <span className="mb-1 block text-xs font-medium text-slate-600">

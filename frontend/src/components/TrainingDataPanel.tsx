@@ -1,9 +1,15 @@
 import { Button } from "@/components/ui/Button";
+import { CLASSIFIER_BACKENDS } from "@/constants/classifierBackends";
 import { useDeleteTrainingGlyph } from "@/hooks/useDeleteTrainingGlyph";
 import { glyphDataUri } from "@/lib/format";
+import { useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
 import { clsx } from "clsx";
 import { useMemo, useState } from "react";
+
+const SSL_FUSION_LABEL =
+  CLASSIFIER_BACKENDS.find((b) => b.value === "ssl_fusion")?.label ??
+  "Pre-trained + SVM";
 
 interface TrainingDataPanelProps {
   sessionId: string;
@@ -51,6 +57,13 @@ export function TrainingDataPanel({
 }: TrainingDataPanelProps) {
   const groups = useMemo(() => groupByClass(glyphs), [glyphs]);
   const deleteGlyph = useDeleteTrainingGlyph(sessionId);
+  const classifierBackend = useUiStore((s) => s.classifierBackend);
+  const usableCount = useMemo(
+    () => glyphs.filter((g) => g.has_ssl_features).length,
+    [glyphs],
+  );
+  const sslFusionSelected = classifierBackend === "ssl_fusion";
+  const someUnusable = sslFusionSelected && usableCount < glyphs.length;
 
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-slate-200 bg-white">
@@ -63,6 +76,16 @@ export function TrainingDataPanel({
             {glyphs.length.toLocaleString()} glyphs · {groups.length}{" "}
             {groups.length === 1 ? "class" : "classes"}
           </p>
+          {someUnusable && (
+            <p
+              className="mt-0.5 text-xs text-amber-600"
+              title="Glyphs sourced from a preset without precomputed SSL embeddings, or an uploaded GameraXML file with no companion embeddings/source image, can't be used by this backend even though they're part of the training pool shown here."
+            >
+              ⚠ Only {usableCount.toLocaleString()} of{" "}
+              {glyphs.length.toLocaleString()} usable by the {SSL_FUSION_LABEL}{" "}
+              model
+            </p>
+          )}
         </div>
         <Button
           variant="ghost"
@@ -94,6 +117,7 @@ export function TrainingDataPanel({
               glyphs={group.glyphs}
               onDelete={deleteGlyph.mutate}
               deleting={deleteGlyph.isPending}
+              dimUnusable={sslFusionSelected}
             />
           ))
         )}
@@ -106,6 +130,9 @@ interface TrainingClassSectionProps extends ClassGroup {
   onDelete: (glyphId: string) => void;
   /** A delete is in flight; disable the per-tile buttons to avoid races. */
   deleting: boolean;
+  /** Dim tiles lacking SSL features -- only meaningful (and only passed
+   *  true) when the ssl_fusion backend is selected. */
+  dimUnusable: boolean;
 }
 
 function TrainingClassSection({
@@ -113,6 +140,7 @@ function TrainingClassSection({
   glyphs,
   onDelete,
   deleting,
+  dimUnusable,
 }: TrainingClassSectionProps) {
   const [open, setOpen] = useState(false);
 
@@ -148,29 +176,39 @@ function TrainingClassSection({
             gridAutoRows: "64px",
           }}
         >
-          {glyphs.map((glyph) => (
-            <div
-              key={glyph.id}
-              title={className}
-              className="group relative flex items-center justify-center overflow-hidden rounded border border-slate-200 bg-white p-1"
-            >
-              <img
-                src={glyphDataUri(glyph)}
-                alt={className}
-                className="h-full w-full object-contain"
-              />
-              <button
-                type="button"
-                onClick={() => onDelete(glyph.id)}
-                disabled={deleting}
-                title="Delete this training glyph"
-                aria-label={`Delete training glyph ${className}`}
-                className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded-full bg-white/90 text-[10px] leading-none text-red-600 shadow ring-1 ring-red-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 group-hover:flex"
+          {glyphs.map((glyph) => {
+            const unusable = dimUnusable && !glyph.has_ssl_features;
+            return (
+              <div
+                key={glyph.id}
+                title={
+                  unusable
+                    ? `${className} — no crop/embedding, excluded from the ${SSL_FUSION_LABEL} training pool`
+                    : className
+                }
+                className={clsx(
+                  "group relative flex items-center justify-center overflow-hidden rounded border border-slate-200 bg-white p-1",
+                  unusable && "opacity-40",
+                )}
               >
-                ✕
-              </button>
-            </div>
-          ))}
+                <img
+                  src={glyphDataUri(glyph)}
+                  alt={className}
+                  className="h-full w-full object-contain"
+                />
+                <button
+                  type="button"
+                  onClick={() => onDelete(glyph.id)}
+                  disabled={deleting}
+                  title="Delete this training glyph"
+                  aria-label={`Delete training glyph ${className}`}
+                  className="absolute right-0.5 top-0.5 hidden h-4 w-4 items-center justify-center rounded-full bg-white/90 text-[10px] leading-none text-red-600 shadow ring-1 ring-red-200 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 group-hover:flex"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </section>

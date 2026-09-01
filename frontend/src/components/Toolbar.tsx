@@ -218,7 +218,11 @@ export function Toolbar({
                 ? "No training glyphs yet — apply at least one label first"
                 : classifierBackend === "knn" && !isKAvailable(knnK)
                   ? `Needs at least ${knnK} training glyphs (have ${trainingSize})`
-                  : `Re-run classification with the ${classifierBackend === "knn" ? "HC + kNN" : "Pre-trained + LR"} model`
+                  : `Re-run classification with the ${
+                      CLASSIFIER_BACKENDS.find(
+                        (b) => b.value === classifierBackend,
+                      )?.label
+                    } model`
             }
             className="px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 bg-mothra-cyan text-white hover:bg-mothra-cyan-dark rounded"
           >

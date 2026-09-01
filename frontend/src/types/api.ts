@@ -41,6 +41,11 @@ export interface GlyphDTO {
   ncols: number;
   nrows: number;
   image_b64: string;
+  /** Usable as "ssl_fusion" training data (precomputed embedding or a
+   *  real-pixel crop) -- see ic_core.ssl_classifier.SSLFusionClassifier.fit.
+   *  A glyph can count toward the training-set size while still being
+   *  excluded from that backend's actual training pool. */
+  has_ssl_features: boolean;
 }
 
 export interface SessionDTO {
