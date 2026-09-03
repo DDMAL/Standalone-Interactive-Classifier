@@ -36,7 +36,7 @@ export function GlyphGrid({ glyphs }: { glyphs: GlyphDTO[] }) {
   }, [glyphs, deletedGlyphIds]);
 
   return (
-    <div className="min-w-0 flex-1 overflow-auto bg-slate-50 p-2">
+    <div className="min-w-0 flex-1 overflow-auto overscroll-contain bg-slate-50 p-2">
       {glyphs.length === 0 ? (
         <p className="p-4 text-sm text-slate-400">No glyphs in this session.</p>
       ) : (

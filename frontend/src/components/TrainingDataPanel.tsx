@@ -80,7 +80,7 @@ export function TrainingDataPanel({
         </p>
       )}
 
-      <div className="min-h-0 flex-1 overflow-auto p-2">
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain p-2">
         {glyphs.length === 0 ? (
           <p className="p-4 text-sm text-slate-400">
             This session has no training glyphs. Pick a preset or upload a
