@@ -184,7 +184,7 @@ export function ClassTreePanel({ sessionId, session }: ClassTreePanelProps) {
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-1">
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain p-1">
         {tree.length === 0 ? (
           <p className="p-2 text-xs text-slate-400">
             No classes yet — apply a class to a glyph to start populating this
