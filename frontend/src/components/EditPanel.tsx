@@ -1,11 +1,12 @@
 import { ClassNameInput } from "@/components/ClassNameInput";
+import { GlyphImage } from "@/components/GlyphImage";
 import { MultiEditPanel } from "@/components/MultiEditPanel";
 import { SplitDialog } from "@/components/SplitDialog";
 import { Button } from "@/components/ui/Button";
 import { useClassify } from "@/hooks/useClassify";
 import { sessionKey } from "@/hooks/useSession";
 import { useUpdateGlyph } from "@/hooks/useUpdateGlyph";
-import { formatConfidence, glyphDataUri } from "@/lib/format";
+import { formatConfidence } from "@/lib/format";
 import { isEditableTarget, isTypeToFocusKey } from "@/lib/keymap";
 import { isModalOpen, useUiStore } from "@/store/uiStore";
 import { CATEGORY_ORDER, type GlyphCategory, type GlyphDTO } from "@/types/api";
@@ -173,7 +174,7 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
   }, [isNeume]);
 
   return (
-    <aside className="w-72 shrink-0 overflow-auto border-l border-slate-200 bg-white p-4">
+    <aside className="w-72 shrink-0 overflow-auto overscroll-contain border-l border-slate-200 bg-white p-4">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-800">Edit glyph</h2>
         <Button
@@ -186,11 +187,7 @@ function SingleEditor({ sessionId, glyph, classNames }: SingleEditorProps) {
       </div>
 
       <div className="mb-3 flex items-center justify-center rounded border border-slate-200 bg-slate-50 p-3">
-        <img
-          src={glyphDataUri(glyph)}
-          alt={glyph.class_name}
-          className="max-h-32 object-contain"
-        />
+        <GlyphImage glyph={glyph} className="max-h-32 object-contain" />
       </div>
 
       <dl className="mb-4 space-y-1 text-xs text-slate-600">

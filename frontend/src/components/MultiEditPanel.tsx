@@ -171,7 +171,7 @@ export function MultiEditPanel({
   const lastResult = updateGlyphs.data;
 
   return (
-    <aside className="w-72 shrink-0 overflow-auto border-l border-slate-200 bg-white p-4">
+    <aside className="w-72 shrink-0 overflow-auto overscroll-contain border-l border-slate-200 bg-white p-4">
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-slate-800">Multi-edit</h2>
         <Button

@@ -6,6 +6,8 @@ synthetic so the tests stay fast and don't depend on real ingest.
 """
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -499,7 +501,8 @@ def test_complete_freezes_session_against_further_mutation():
 
 
 # ---------------------------------------------------------------------------
-# rebinarize — re-derive masks under a new method, carry labels by id
+# rebinarize — re-derive every mask from the new page mask, keep everything
+# the user built (labels, splits, groups)
 # ---------------------------------------------------------------------------
 
 
@@ -510,6 +513,8 @@ def _make_glyph_with_id(
     class_name: str = UNCLASSIFIED,
     id_state_manual: bool = False,
     confidence: float = 0.0,
+    ulx: int = 0,
+    uly: int = 0,
 ) -> Glyph:
     arr = np.asarray(arr, dtype=bool)
     nrows, ncols = arr.shape
@@ -519,57 +524,189 @@ def _make_glyph_with_id(
         image_rle=array_to_rle(arr),
         ncols=ncols,
         nrows=nrows,
-        ulx=0,
-        uly=0,
+        ulx=ulx,
+        uly=uly,
         id_state_manual=id_state_manual,
         confidence=confidence,
     )
 
 
-def test_rebinarize_swaps_masks_and_carries_labels_by_id():
+def test_rebinarize_reslices_masks_and_keeps_labels():
     # Session as it stands after some labelling: "a" manual, "b" auto.
     old_a = _make_glyph_with_id(
-        "a", np.zeros((2, 2)), class_name="X", id_state_manual=True, confidence=1.0
+        "a", np.zeros((2, 2)), class_name="X", id_state_manual=True,
+        confidence=1.0, ulx=0, uly=0,
     )
     old_b = _make_glyph_with_id(
-        "b", np.zeros((2, 2)), class_name="Y", confidence=0.5
+        "b", np.zeros((2, 2)), class_name="Y", confidence=0.5, ulx=2, uly=0,
     )
     s = Session()
     s.ingest([old_a, old_b])
 
-    # The fresh ingest under a new method: same ids, *different* masks,
-    # all UNCLASSIFIED (as ingest produces).
-    new_a = _make_glyph_with_id("a", np.ones((2, 2)))
-    new_b = _make_glyph_with_id("b", np.ones((2, 2)))
+    # The page under the new method: all foreground.
     new_mask = np.ones((4, 4), dtype=bool)
-    s.rebinarize([new_a, new_b], page_mask=new_mask, method="sauvola")
+    s.rebinarize(page_mask=new_mask, method="sauvola")
 
     by_id = {g.id: g for g in s.glyphs}
-    # Masks are the new ones.
-    assert by_id["a"].image_rle == new_a.image_rle
-    assert by_id["b"].image_rle == new_b.image_rle
-    # Labels carried forward.
+    # Each mask is now the new page mask sliced at that glyph's own bbox.
+    for gid, glyph in by_id.items():
+        expected = new_mask[
+            glyph.uly : glyph.uly + glyph.nrows,
+            glyph.ulx : glyph.ulx + glyph.ncols,
+        ]
+        assert np.array_equal(glyph.to_array(), expected), gid
+    # Labels, manual flags and confidences carry through untouched.
     assert by_id["a"].class_name == "X" and by_id["a"].id_state_manual is True
     assert by_id["b"].class_name == "Y" and by_id["b"].id_state_manual is False
+    assert by_id["b"].confidence == 0.5
     # Method + page mask updated.
     assert s.binarization_method == "sauvola"
     assert s.page_mask is new_mask
 
 
-def test_rebinarize_drops_glyphs_absent_from_base_set():
-    # A grouped/split glyph carries a fresh id not in the detector's base
-    # set, so it falls away when we re-derive from the base annotations.
-    base = _make_glyph_with_id("a", np.zeros((2, 2)), class_name="X")
-    grouped = _make_glyph_with_id("group-1", np.ones((3, 3)), class_name="G")
+def test_rebinarize_keeps_split_children_and_their_labels():
+    # The bug this replaced: split children hold fresh ids that no re-ingest
+    # can produce, so re-deriving the working set from a fresh ingest dropped
+    # them and resurrected the parent the user had split apart.
+    page = np.ones((10, 10), dtype=bool)
+    parent = _make_glyph_with_id("parent", page[0:4, 0:8], ulx=0, uly=0)
     s = Session()
-    s.ingest([base, grouped])
+    s.ingest([parent])
+    s.page_mask = page
 
-    s.rebinarize([_make_glyph_with_id("a", np.ones((2, 2)))], page_mask=None, method="otsu")
+    children = s.manual_split("parent", [(0, 0, 4, 4), (4, 0, 4, 4)])
+    assert len(children) == 2
+    # The user labels one child by hand and leaves the other alone.
+    s.update_glyph(children[0].id, class_name="neume.A", id_state_manual=True)
+
+    new_mask = np.zeros((10, 10), dtype=bool)
+    new_mask[0:4, 0:4] = True  # only the first child's region has ink now
+    s.rebinarize(page_mask=new_mask, method="otsu")
+
+    ids = [g.id for g in s.glyphs]
+    assert "parent" not in ids, "the split parent must not come back"
+    assert ids == [c.id for c in children], "children survive, in order"
+
+    by_id = {g.id: g for g in s.glyphs}
+    kept = by_id[children[0].id]
+    assert kept.class_name == "neume.A" and kept.id_state_manual is True
+    # Masks re-derived from the new page mask, per child bbox.
+    assert kept.to_array().all()
+    assert not by_id[children[1].id].to_array().any()
+
+
+def test_rebinarize_keeps_grouped_glyphs():
+    page = np.ones((10, 10), dtype=bool)
+    a = _make_glyph_with_id("a", page[0:4, 0:4], ulx=0, uly=0)
+    b = _make_glyph_with_id("b", page[0:4, 6:10], ulx=6, uly=0)
+    s = Session()
+    s.ingest([a, b])
+    s.page_mask = page
+
+    grouped = s.manual_group(["a", "b"], "neume.grouped")
+    s.rebinarize(page_mask=np.ones((10, 10), dtype=bool), method="sauvola")
+
+    assert [g.id for g in s.glyphs] == [grouped.id]
+    survivor = s.glyphs[0]
+    assert survivor.class_name == "neume.grouped"
+    assert survivor.id_state_manual is True
+    # Re-sliced over the union bbox, so it spans both members and the gap.
+    assert survivor.ncols == 10 and survivor.nrows == 4
+
+
+def test_rebinarize_reproduces_grouped_masks_pixel_for_pixel():
+    """The invariant the bbox re-slice rests on, pinned on ragged ink.
+
+    ``manual_group`` does *not* copy a page-mask slice — it ORs its members'
+    masks and fills only the pixels in the gaps *between* their bboxes. That
+    it nonetheless comes out identical to ``page_mask[union bbox]`` rests on
+    two properties: every member's own mask is the page mask restricted to
+    its bbox (true of ingested glyphs, of split children, and inductively of
+    nested groups), and the gaps between member bboxes are filled from the
+    page. Re-slicing in :meth:`Session.rebinarize` is correct only while
+    both hold, and dropping the gap fill breaks it — verified by mutation.
+    Uses ragged ink rather than an all-ones page, which satisfies pixel
+    equality trivially and would pass no matter what grouping did.
+    """
+    rng = np.random.default_rng(0)
+    page = rng.random((40, 40)) < 0.5
+
+    def sliced(gid, ulx, uly, ncols, nrows):
+        return _make_glyph_with_id(
+            gid, page[uly : uly + nrows, ulx : ulx + ncols], ulx=ulx, uly=uly
+        )
+
+    # Two members with a gap between them: the gap pixels come from the page,
+    # the rest from the members.
+    s = Session()
+    s.ingest([sliced("a", 0, 0, 10, 10), sliced("b", 20, 0, 10, 10)])
+    s.page_mask = page
+    grouped = s.manual_group(["a", "b"], "neume.grouped")
+
+    s.rebinarize(page_mask=page, method="otsu")
+
+    survivor = next(g for g in s.glyphs if g.id == grouped.id)
+    assert np.array_equal(survivor.to_array(), grouped.to_array())
+
+    # The subtle case: a split that deliberately discards its middle, whose
+    # pieces are then grouped back. The discarded pixels fall *inside* the
+    # resulting union bbox — and grouping's own gap fill restores them, so
+    # the re-slice still matches.
+    s2 = Session()
+    s2.ingest([sliced("p", 0, 0, 30, 10)])
+    s2.page_mask = page
+    kids = s2.manual_split("p", [(0, 0, 10, 10), (20, 0, 10, 10)])
+    regrouped = s2.manual_group([k.id for k in kids], "neume.regrouped")
+
+    s2.rebinarize(page_mask=page, method="otsu")
+
+    survivor2 = next(g for g in s2.glyphs if g.id == regrouped.id)
+    assert np.array_equal(survivor2.to_array(), regrouped.to_array())
+
+
+def test_rebinarize_does_not_resurrect_deleted_glyphs():
+    page = np.ones((6, 6), dtype=bool)
+    s = Session()
+    s.ingest([
+        _make_glyph_with_id("a", page[0:2, 0:2]),
+        _make_glyph_with_id("b", page[0:2, 2:4], ulx=2),
+    ])
+    s.delete_glyph("b")
+
+    s.rebinarize(page_mask=page, method="otsu")
 
     assert [g.id for g in s.glyphs] == ["a"]
+
+
+def test_rebinarize_drops_stale_feature_caches():
+    # The cached feature vector describes the *old* pixels; keeping it would
+    # let the next classify round score a glyph on a mask it no longer has.
+    s = Session()
+    s.ingest([_make_glyph_with_id("a", np.ones((2, 2)))])
+    s.glyphs[0] = replace(
+        s.glyphs[0], feature_vector=np.zeros(3), feature_version="vtest"
+    )
+
+    s.rebinarize(page_mask=np.ones((4, 4), dtype=bool), method="otsu")
+
+    assert s.glyphs[0].feature_vector is None
+    assert s.glyphs[0].feature_version is None
+
+
+def test_rebinarize_is_idempotent_for_edge_clamped_glyphs():
+    # A bbox the detector rounded past the page edge is stored clamped;
+    # re-slicing must not shave it further on each switch.
+    page = np.ones((6, 6), dtype=bool)
+    s = Session()
+    s.ingest([_make_glyph_with_id("edge", page[0:2, 4:6], ulx=4, uly=0)])
+
+    s.rebinarize(page_mask=page, method="otsu")
+    first = (s.glyphs[0].ncols, s.glyphs[0].nrows)
+    s.rebinarize(page_mask=page, method="sauvola")
+    assert (s.glyphs[0].ncols, s.glyphs[0].nrows) == first == (2, 2)
 
 
 def test_rebinarize_requires_classifying_state():
     s = Session()  # still IMPORT
     with pytest.raises(StateTransitionError):
-        s.rebinarize([], page_mask=None, method="global")
+        s.rebinarize(page_mask=np.ones((2, 2), dtype=bool), method="global")

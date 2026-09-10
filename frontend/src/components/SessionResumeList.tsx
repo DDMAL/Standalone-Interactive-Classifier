@@ -39,11 +39,17 @@ interface SessionResumeListProps {
   /** Render as a full-width, always-open management page (mothra's "saved
    * sessions" modal) rather than the collapsible create-screen rail. */
   standalonePage?: boolean;
+  /** Take over what clicking an in-progress session does. Supplied when an
+   * embedding host wants to open the session in its own UI (mothra hands it
+   * to its IC stage) rather than have this list swap itself for a bare
+   * SessionView in place. Omitted → resume in place, as standalone IC does. */
+  onResume?: (session: SessionSummary) => void;
 }
 
 export function SessionResumeList({
   projectId,
   standalonePage = false,
+  onResume,
 }: SessionResumeListProps = {}) {
   const setSession = useUiStore((s) => s.setSession);
   const { data, isLoading, isError } = useSessionList(projectId);
@@ -172,7 +178,9 @@ export function SessionResumeList({
         <SessionGroup
           title="In progress"
           sessions={inProgress}
-          onOpen={(id) => setSession(id, `/sessions/${id}/page`)}
+          onOpen={
+            onResume ?? ((s) => setSession(s.id, `/sessions/${s.id}/page`))
+          }
           onDelete={(s) => setDeleteTarget(s)}
         />
         <SessionGroup
@@ -222,7 +230,7 @@ interface SessionGroupProps {
   sessions: SessionSummary[];
   /** Omitted for read-only groups (e.g. completed sessions), which render
    * their open action disabled. */
-  onOpen?: (id: string) => void;
+  onOpen?: (session: SessionSummary) => void;
   /** Request a delete-confirmation prompt for the given session. */
   onDelete: (session: SessionSummary) => void;
 }
@@ -258,7 +266,7 @@ function SessionGroup({
                 <button
                   type="button"
                   disabled={disabled}
-                  onClick={disabled ? undefined : () => onOpen(s.id)}
+                  onClick={disabled ? undefined : () => onOpen(s)}
                   title={
                     disabled
                       ? "This session is completed and can't be resumed"

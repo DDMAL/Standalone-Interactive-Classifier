@@ -2,7 +2,7 @@ import { usePageImageEl } from "@/hooks/usePageImage";
 import { glyphDataUri } from "@/lib/format";
 import { useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface GlyphImageProps {
   glyph: GlyphDTO;
@@ -85,4 +85,43 @@ function GlyphOriginalCanvas({
       className={className}
     />
   );
+}
+
+/**
+ * The `src`/`href` for one glyph, honouring the same binarized/original
+ * toggle {@link GlyphImage} renders — for consumers that need a URL rather
+ * than a live canvas (an SVG `<image>`, a download link, …).
+ *
+ * In "original" mode the glyph's region is cropped out of the page image onto
+ * an offscreen canvas and exported as a data URI. That export costs a real
+ * encode, so this is for the one-glyph cases (the edit panel, the split
+ * canvas); the grid keeps drawing straight onto a live canvas per tile.
+ *
+ * Returns the binarized mask URI whenever the page image is unavailable or
+ * the crop hasn't been produced yet, so the caller never renders a blank src.
+ */
+export function useGlyphImageSrc(glyph: GlyphDTO): string {
+  const mode = useUiStore((s) => s.glyphImageMode);
+  const pageImg = usePageImageEl();
+  const [original, setOriginal] = useState<string | null>(null);
+  const { ulx, uly, ncols, nrows } = glyph;
+
+  useEffect(() => {
+    if (mode !== "original" || !pageImg) {
+      setOriginal(null);
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = ncols;
+    canvas.height = nrows;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setOriginal(null);
+      return;
+    }
+    ctx.drawImage(pageImg, ulx, uly, ncols, nrows, 0, 0, ncols, nrows);
+    setOriginal(canvas.toDataURL("image/png"));
+  }, [mode, pageImg, ulx, uly, ncols, nrows]);
+
+  return original ?? glyphDataUri(glyph);
 }

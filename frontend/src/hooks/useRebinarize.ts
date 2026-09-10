@@ -4,10 +4,11 @@ import type { BinarizationMethod } from "@/types/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 /**
- * Switch the page's binarisation method. Rebuilds every glyph mask from
- * the retained page + bboxes; manual labels are kept, manual groups/splits
- * reset. The fresh session DTO replaces the cached one so the grid + page
- * overlay re-render under the new masks.
+ * Switch the page's binarisation method. Every glyph mask is re-derived from
+ * the re-binarised page at that glyph's own bbox, so nothing the user built
+ * is lost: manual labels, manual splits and manual groups all survive with
+ * their ids intact. The fresh session DTO replaces the cached one so the grid
+ * + page overlay re-render under the new masks.
  */
 export function useRebinarize(sessionId: string) {
   const queryClient = useQueryClient();

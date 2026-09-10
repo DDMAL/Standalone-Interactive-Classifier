@@ -72,7 +72,7 @@ from ic_api.schemas import (
     glyph_to_dto,
     session_to_dto,
 )
-from ic_api.store import SessionStore, default_store
+from ic_api.store import SessionStore, default_store, store_backend_info
 from ic_core.ingest import (
     AnnotationFormat,
     BinarizationMethod,
@@ -90,6 +90,35 @@ from ic_core.ssl_preset_embeddings import (
 )
 from ic_core.state import Session, StateTransitionError
 
+# ---------------------------------------------------------------------------
+# Starlette 1.x caps each multipart part at 1 MB by default, which is too
+# small for high-res page scans.  FastAPI calls request.form() without a
+# max_part_size argument, so we raise the default here to avoid spurious 413s.
+# Override with the MAX_UPLOAD_BYTES env var when needed.
+# ---------------------------------------------------------------------------
+_MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+
+from starlette import requests as _starlette_requests  # noqa: E402
+
+_orig_get_form = _starlette_requests.Request._get_form
+
+
+async def _patched_get_form(
+    self: _starlette_requests.Request,
+    *,
+    max_files: int | float = 1000,
+    max_fields: int | float = 1000,
+    max_part_size: int = _MAX_UPLOAD_BYTES,
+) -> _starlette_requests.FormData:
+    return await _orig_get_form(
+        self,
+        max_files=max_files,
+        max_fields=max_fields,
+        max_part_size=max_part_size,
+    )
+
+
+_starlette_requests.Request._get_form = _patched_get_form  # type: ignore[method-assign]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -146,6 +175,60 @@ def get_store() -> SessionStore:
 
 
 Store = Annotated[SessionStore, Depends(get_store)]
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
+
+
+@app.get("/healthz")
+def healthz(store: Store) -> dict[str, object]:
+    """Liveness probe that also reports which session store is live.
+
+    The store backend is the difference between "a restart costs a hiccup"
+    and "a restart costs every session in flight": on the in-memory store,
+    an OOM kill or a redeploy drops the whole registry and the frontend's
+    next call fails with ``Unknown session id``. Deployments select the
+    backend purely by whether ``DATABASE_URL`` / ``IC_DATABASE_URL`` is in
+    the environment, which is easy to omit and, until now, invisible from
+    outside the process. Probing this endpoint answers "is this deployment
+    actually persisting sessions?" without shell or log access.
+
+    ``backend`` / ``persistent`` report what the environment *asked for*.
+    Holding a Postgres store proves nothing on its own — it connects
+    lazily, so a typo'd DSN or an unreachable database looks identical to
+    a working one at construction time. ``reachable`` closes that gap by
+    round-tripping the database (``SELECT 1``, bounded by
+    ``db_store.CONNECT_TIMEOUT_SECONDS``): ``true`` means sessions really
+    are being persisted, ``false`` means the deployment believes it
+    configured persistence but hasn't got it, and ``null`` means the
+    backend has nothing to reach (the in-memory store).
+
+    ``status`` stays ``"ok"`` even when the database is unreachable, so
+    wiring this up as a liveness probe can't turn a DB hiccup into a
+    restart loop — the diagnosis belongs in the payload, not the status
+    code. ``sessions`` counts what this process holds in its registry /
+    hot cache.
+    """
+    info = store_backend_info()
+    # Only the Postgres store defines ping(); the in-memory store has no
+    # database to be unreachable, so `reachable` stays null for it.
+    ping = getattr(store, "ping", None)
+    if ping is None:
+        info["reachable"] = None
+    else:
+        try:
+            ping()
+            info["reachable"] = True
+        except Exception as exc:
+            info["reachable"] = False
+            info["error"] = str(exc).strip().splitlines()[0][:200]
+    try:
+        n_sessions: int | None = len(store)  # type: ignore[arg-type]
+    except TypeError:  # a store without __len__ (e.g. a test double)
+        n_sessions = None
+    return {"status": "ok", "store": info, "sessions": n_sessions}
 
 
 # ---------------------------------------------------------------------------
@@ -1131,29 +1214,30 @@ def rebinarize(
 ) -> SessionDTO:
     """Switch the page's binarisation method and rebuild every glyph mask.
 
-    Re-runs ingest on the session's retained page + bboxes under the new
-    method, then carries forward the user's labels by glyph id (see
-    :meth:`ic_core.state.Session.rebinarize`). Manual groups/splits reset;
-    a classify round refreshes auto labels from the new masks.
+    Re-binarises the retained page and hands the new full-page mask to
+    :meth:`ic_core.state.Session.rebinarize`, which re-slices every glyph's
+    own bbox out of it. Everything the user built survives — labels, manual
+    flags, categories, and manual splits and groups — because a glyph's mask
+    is by construction a slice of the page mask at its bbox. Auto labels
+    carry over but are stale under the new pixels, so callers normally chain
+    a classify round (the frontend's toolbar does).
+
+    Only the page image is needed: the bbox document never changes, so
+    re-running ingest could only reproduce the boxes the session already
+    holds — and doing so used to drop split children and grouped glyphs,
+    whose ids no ingest can produce.
     """
     with store.session(session_id) as session:
-        if session.page_bytes is None or session.annotations_bytes is None:
-            # Sessions created without a page+bbox upload (legacy XML import)
+        if session.page_bytes is None:
+            # Sessions created without a page upload (legacy XML import)
             # have nothing to re-binarise from.
             raise ValueError(
-                "This session has no retained page image and bboxes to "
-                "re-binarise; the method can only be changed on sessions "
-                "created from a page upload."
+                "This session has no retained page image to re-binarise; "
+                "the method can only be changed on sessions created from "
+                "a page upload."
             )
-        glyphs = ingest_page(
-            session.page_bytes,
-            session.annotations_bytes,
-            format=session.annotations_format,
-            method=body.method,
-            store_real_crop=True,
-        )
         page_mask = binarize_page(session.page_bytes, method=body.method)
-        session.rebinarize(glyphs, page_mask=page_mask, method=body.method)
+        session.rebinarize(page_mask=page_mask, method=body.method)
         return session_to_dto(session)
 
 
@@ -1409,14 +1493,28 @@ def complete_session(
     manual_neumes: bool = False,
     preset_training: bool = False,
     uploaded_training: bool = False,
+    finalize: bool = True,
 ) -> Response:
     """Stream back the GameraXML export for the session.
 
-    Exporting does **not** finalise the session — it stays in
-    ``CLASSIFYING`` and fully editable, so the user can keep correcting
-    and re-export as many times as they like (and resume the page
-    later). The returned XML is a snapshot of the current working set,
-    the canonical artefact for downstream MEI pipelines.
+    The first call transitions the session from ``CLASSIFYING`` to
+    ``EXPORT`` (idempotent: subsequent calls are no-ops on the state
+    machine). Once in ``EXPORT``, further mutations return 409 but
+    re-export is always allowed. The returned XML is a snapshot of the
+    current working set, the canonical artefact for downstream MEI
+    pipelines.
+
+    ``finalize=false`` exports *without* that transition: the session
+    stays in ``CLASSIFYING``, editable and resumable, and the
+    export-time hygiene (strip transient ``_group``/``_delete`` parts,
+    drop ``UNCLASSIFIED`` training entries) is applied to the exported
+    copy only, leaving the live session untouched. An embedding host
+    that treats the XML as an intermediate artefact rather than an
+    end-of-life one needs this: mothra hands the export to its MEI
+    encoder but still lets the user reopen the page and correct it
+    afterwards, which a terminal ``EXPORT`` session forbids (see
+    :func:`lookup_session` — a completed session is not resumable, so
+    finalising on export silently discards every correction behind it).
 
     The caller picks which sections to fold into a single GameraXML
     document via independent boolean flags (the export screen's
@@ -1443,9 +1541,60 @@ def complete_session(
             "Select at least one section to include in the export."
         )
     with store.session(session_id) as session:
-        selected = _select_export_glyphs(
-            session, page, manual_neumes, preset_training, uploaded_training
-        )
+        if finalize:
+            # Finalise the session (CLASSIFYING → EXPORT) on the first
+            # export. Idempotent: already-EXPORT sessions are a no-op, so
+            # repeated exports work fine. After this call, mutations raise
+            # 409. Session.complete() does the hygiene pass in place.
+            session.complete()
+            page_glyphs = session.glyphs
+            training_glyphs = [
+                g
+                for g in session.training_glyphs
+                if g.class_name != UNCLASSIFIED
+            ]
+        else:
+            # Same hygiene, applied to the *exported* glyphs only, so the
+            # live session is left in CLASSIFYING and fully re-editable.
+            # Identical to _select_export_glyphs's own filtering (see that
+            # function -- shared by export_session_embeddings) so a
+            # finalize=false GameraXML export and a companion
+            # .ssl_embeddings.npz export line up row-for-row.
+            page_glyphs = filter_parts(session.glyphs)
+            training_glyphs = [
+                g
+                for g in filter_parts(session.training_glyphs)
+                if g.class_name != UNCLASSIFIED
+            ]
+        selected: list = []
+        seen: set[str] = set()
+
+        def add(glyphs) -> None:
+            for g in glyphs:
+                if g.id not in seen:
+                    seen.add(g.id)
+                    selected.append(g)
+
+        if page:
+            add(page_glyphs)
+        if manual_neumes:
+            add(
+                g
+                for g in page_glyphs
+                if g.category == CATEGORY_NEUMES and g.id_state_manual
+            )
+        if preset_training:
+            add(
+                g
+                for g in training_glyphs
+                if g.id in session.preset_training_ids
+            )
+        if uploaded_training:
+            add(
+                g
+                for g in training_glyphs
+                if g.id in session.uploaded_training_ids
+            )
         payload = dumps_glyphs(selected)
         # Tag the filename with the chosen sections so a user exporting
         # several variants from one session gets self-describing files.
