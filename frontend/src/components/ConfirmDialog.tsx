@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/Button";
 import { useModalGuard } from "@/hooks/useModalGuard";
+import { forwardOverlayScroll } from "@/lib/overlayScroll";
 import * as Dialog from "@radix-ui/react-dialog";
 import type { ReactNode } from "react";
 
@@ -37,7 +38,10 @@ export function ConfirmDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-900/40 data-[state=open]:animate-in data-[state=closed]:animate-out" />
+        <Dialog.Overlay
+          className="fixed inset-0 z-40 bg-slate-900/40 data-[state=open]:animate-in data-[state=closed]:animate-out"
+          onWheel={forwardOverlayScroll}
+        />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-5 shadow-lg focus:outline-none">
           <Dialog.Title className="text-base font-semibold text-slate-800">
             {title}

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { useModalGuard } from "@/hooks/useModalGuard";
 import { useUpdateGlyphsPerGlyph } from "@/hooks/useUpdateGlyphs";
 import { isEditableTarget } from "@/lib/keymap";
+import { forwardOverlayScroll } from "@/lib/overlayScroll";
 import { type UndoEntry, useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -159,12 +160,15 @@ export function BatchConfirmDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-900/40" />
+        <Dialog.Overlay
+          className="fixed inset-0 z-40 bg-slate-900/40"
+          onWheel={forwardOverlayScroll}
+        />
         <Dialog.Content
           onKeyDown={handleKeyDown}
-          className="fixed left-1/2 top-1/2 z-50 w-[92vw] max-w-3xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-5 shadow-lg focus:outline-none"
+          className="fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[92vw] max-w-3xl -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-slate-200 bg-white p-5 shadow-lg focus:outline-none"
         >
-          <div className="flex items-start justify-between gap-4">
+          <div className="flex shrink-0 items-start justify-between gap-4">
             <div>
               <Dialog.Title className="text-base font-semibold text-slate-800">
                 Confirm {glyphs.length} neume{glyphs.length === 1 ? "" : "s"} in
@@ -202,7 +206,7 @@ export function BatchConfirmDialog({
             </div>
           </div>
 
-          <div className="mt-4 max-h-[55vh] space-y-4 overflow-y-auto rounded border border-slate-100 p-3">
+          <div className="mt-4 min-h-0 flex-1 space-y-4 overflow-y-auto rounded border border-slate-100 p-3">
             {groupedSnapshot.map(([cls, groupGlyphs]) => {
               const isUnclassifiedGroup = cls === "UNCLASSIFIED";
               return (
@@ -259,25 +263,25 @@ export function BatchConfirmDialog({
           </div>
 
           {unclassifiedCount > 0 && (
-            <p className="mt-3 text-xs text-amber-700">
+            <p className="mt-3 shrink-0 text-xs text-amber-700">
               {unclassifiedCount} neume{unclassifiedCount === 1 ? "" : "s"}{" "}
               still UNCLASSIFIED and will be skipped.
             </p>
           )}
 
           {updatePerGlyph.isError && (
-            <p className="mt-2 text-xs text-red-600">
+            <p className="mt-2 shrink-0 text-xs text-red-600">
               {(updatePerGlyph.error as Error)?.message}
             </p>
           )}
           {lastResult && lastResult.failed.length > 0 && (
-            <p className="mt-2 text-xs text-amber-700">
+            <p className="mt-2 shrink-0 text-xs text-amber-700">
               {lastResult.applied} of{" "}
               {lastResult.applied + lastResult.failed.length} applied.
             </p>
           )}
 
-          <div className="mt-4 flex justify-end gap-2 border-t border-slate-200 pt-3">
+          <div className="mt-4 flex shrink-0 justify-end gap-2 border-t border-slate-200 pt-3">
             <Dialog.Close asChild>
               <Button variant="ghost" disabled={pending}>
                 Cancel
