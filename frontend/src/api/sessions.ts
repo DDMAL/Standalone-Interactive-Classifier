@@ -1,4 +1,5 @@
 import { http, postForBlob } from "@/api/client";
+import type { ClassifierBackend } from "@/store/uiStore";
 import type {
   AnnotationFormat,
   BinarizationMethod,
@@ -6,6 +7,7 @@ import type {
   GlyphDTO,
   SessionDTO,
   SessionSummary,
+  TrainingPresetDTO,
 } from "@/types/api";
 
 export interface CreateSessionArgs {
@@ -15,6 +17,13 @@ export interface CreateSessionArgs {
   classNames?: string[];
   /** Uploaded GameraXML (.xml) training-set files; glyphs are concatenated. */
   trainingFiles?: File[];
+  /** Precomputed SSL embeddings (.npz) for a trainingFiles entry, matched by
+   *  filename stem — see POST /sessions. Unlocks the ssl_fusion backend for
+   *  that upload without a live crop. */
+  trainingEmbeddings?: File[];
+  /** Source page image(s) a trainingFiles entry's glyphs were cropped from,
+   *  matched by bbox + mask — an alternative to trainingEmbeddings. */
+  trainingImages?: File[];
   /** Built-in preset filenames (see {@link listTrainingPresets}); concatenated ahead of uploads. */
   trainingPresets?: string[];
   /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
@@ -31,6 +40,12 @@ export function createSession(args: CreateSessionArgs): Promise<SessionDTO> {
   }
   for (const file of args.trainingFiles ?? []) {
     form.append("training_files", file);
+  }
+  for (const file of args.trainingEmbeddings ?? []) {
+    form.append("training_embeddings", file);
+  }
+  for (const file of args.trainingImages ?? []) {
+    form.append("training_images", file);
   }
   if (args.trainingPresets && args.trainingPresets.length > 0) {
     form.append("training_presets", JSON.stringify(args.trainingPresets));
@@ -57,6 +72,12 @@ export interface CreateSessionFromStagingArgs {
   classNames?: string[];
   /** Uploaded GameraXML (.xml) training-set files; glyphs are concatenated. */
   trainingFiles?: File[];
+  /** Precomputed SSL embeddings (.npz) for a trainingFiles entry, matched by
+   *  filename stem — see {@link CreateSessionArgs.trainingEmbeddings}. */
+  trainingEmbeddings?: File[];
+  /** Source page image(s) for a trainingFiles entry's glyphs, matched by
+   *  bbox + mask — see {@link CreateSessionArgs.trainingImages}. */
+  trainingImages?: File[];
   /** Built-in preset filenames (see {@link listTrainingPresets}); concatenated ahead of uploads. */
   trainingPresets?: string[];
   /** Filename of a vocabulary CSV (see {@link listVocabularies}). */
@@ -75,6 +96,12 @@ export function createSessionFromStaging(
   for (const file of args.trainingFiles ?? []) {
     form.append("training_files", file);
   }
+  for (const file of args.trainingEmbeddings ?? []) {
+    form.append("training_embeddings", file);
+  }
+  for (const file of args.trainingImages ?? []) {
+    form.append("training_images", file);
+  }
   if (args.trainingPresets && args.trainingPresets.length > 0) {
     form.append("training_presets", JSON.stringify(args.trainingPresets));
   }
@@ -86,7 +113,7 @@ export function createSessionFromStaging(
 
 /** List the built-in training-set preset filenames under core/data/presets. */
 export const listTrainingPresets = () =>
-  http.get<string[]>("/training-presets");
+  http.get<TrainingPresetDTO[]>("/training-presets");
 
 /** List the vocabulary CSV filenames under core/data/train. */
 export const listVocabularies = () => http.get<string[]>("/vocabularies");
@@ -115,8 +142,11 @@ export const deleteSession = (id: string) => http.delete(`/sessions/${id}`);
 export const clearSessions = () =>
   http.deleteFor<{ deleted: number }>("/sessions");
 
-export const classify = (id: string, k = 3) =>
-  http.post<SessionDTO>(`/sessions/${id}/classify`, { k });
+export const classify = (
+  id: string,
+  k = 3,
+  backend: ClassifierBackend = "knn",
+) => http.post<SessionDTO>(`/sessions/${id}/classify`, { k, backend });
 
 /**
  * Re-binarise the page with a different method and rebuild every glyph
@@ -196,4 +226,23 @@ export const completeSession = (id: string, selection: ExportSelection) => {
   if (selection.presetTraining) params.set("preset_training", "true");
   if (selection.uploadedTraining) params.set("uploaded_training", "true");
   return postForBlob(`/sessions/${id}/complete?${params.toString()}`);
+};
+
+/**
+ * Download a companion SSL embeddings (.npz) file for the same section
+ * selection as {@link completeSession} -- the ssl_fusion backend's
+ * counterpart, letting this exact training set be reused later without a
+ * live crop or model pass (see POST /sessions' training_embeddings).
+ * Unlike completeSession, this doesn't move the session to EXPORT.
+ */
+export const exportSessionEmbeddings = (
+  id: string,
+  selection: ExportSelection,
+) => {
+  const params = new URLSearchParams();
+  if (selection.page) params.set("page", "true");
+  if (selection.manualNeumes) params.set("manual_neumes", "true");
+  if (selection.presetTraining) params.set("preset_training", "true");
+  if (selection.uploadedTraining) params.set("uploaded_training", "true");
+  return postForBlob(`/sessions/${id}/export-embeddings?${params.toString()}`);
 };
