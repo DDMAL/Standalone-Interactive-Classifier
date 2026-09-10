@@ -6,6 +6,7 @@ import { useSplit } from "@/hooks/useSplit";
 import { rectFromAnchor } from "@/lib/bbox";
 import type { Rect } from "@/lib/bbox";
 import { isEditableTarget } from "@/lib/keymap";
+import { forwardOverlayScroll } from "@/lib/overlayScroll";
 import { useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -224,7 +225,10 @@ export function SplitDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-900/40" />
+        <Dialog.Overlay
+          className="fixed inset-0 z-40 bg-slate-900/40"
+          onWheel={forwardOverlayScroll}
+        />
         <Dialog.Content
           onKeyDown={handleKeyDown}
           className="fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-2xl -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-5 shadow-lg focus:outline-none"

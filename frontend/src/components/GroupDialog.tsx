@@ -5,6 +5,7 @@ import { useGroup } from "@/hooks/useGroup";
 import { useModalGuard } from "@/hooks/useModalGuard";
 import { PageImageProvider, usePageImageEl } from "@/hooks/usePageImage";
 import { glyphDataUri } from "@/lib/format";
+import { forwardOverlayScroll } from "@/lib/overlayScroll";
 import { useUiStore } from "@/store/uiStore";
 import type { GlyphDTO } from "@/types/api";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -76,23 +77,31 @@ export function GroupDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-900/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border border-slate-200 bg-white p-5 shadow-lg focus:outline-none">
-          <Dialog.Title className="text-base font-semibold text-slate-800">
+        <Dialog.Overlay
+          className="fixed inset-0 z-40 bg-slate-900/40"
+          onWheel={forwardOverlayScroll}
+        />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 flex max-h-[90vh] w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col rounded-lg border border-slate-200 bg-white p-5 shadow-lg focus:outline-none">
+          <Dialog.Title className="shrink-0 text-base font-semibold text-slate-800">
             Group {glyphs.length} glyphs
           </Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-slate-600">
+          <Dialog.Description className="mt-2 shrink-0 text-sm text-slate-600">
             Merge the selected glyphs into one new manual glyph with the class
             name below. The source glyphs are removed.
           </Dialog.Description>
 
           {/* The preview honours the grid's binarized/original toggle, so it
-              renders glyphs the same way the user is already seeing them. */}
-          <PageImageProvider>
-            <GroupPreview glyphs={glyphs} />
-          </PageImageProvider>
+              renders glyphs the same way the user is already seeing them.
+              min-h-0 + overflow-y-auto: a large multi-selection wraps to many
+              rows, so this is the part that scrolls rather than pushing the
+              form/buttons below the dialog's own max-h-[90vh]. */}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <PageImageProvider>
+              <GroupPreview glyphs={glyphs} />
+            </PageImageProvider>
+          </div>
 
-          <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+          <form onSubmit={handleSubmit} className="mt-4 shrink-0 space-y-3">
             <div>
               <span className="mb-1 block text-xs font-medium text-slate-700">
                 Class name
