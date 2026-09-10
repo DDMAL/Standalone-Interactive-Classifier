@@ -1,11 +1,28 @@
-"""Tests for the Hufnagel preset's companion SSL embeddings.
+"""Tests for the Hufnagel/Square-notation presets' companion SSL embeddings.
 
-Confirms the ``.ssl_embeddings.npz`` file shipped alongside
-``Hufnagel.xml`` is in sync (same length, same document order) with the
-preset it belongs to, and that ``SSLFusionClassifier`` can train on
-preset-sourced glyphs carrying only a precomputed ``ssl_embedding`` (no
-``image_gray_b64``, no live model pass) via
-``ic_core.ssl_preset_embeddings.attach_ssl_embeddings``.
+Confirms each ``.ssl_embeddings.npz`` file is in sync (same length, same
+document order) with the preset it belongs to, and that
+``SSLFusionClassifier`` can train on preset-sourced glyphs carrying only a
+precomputed ``ssl_embedding`` (no ``image_gray_b64``, no live model pass)
+via ``ic_core.ssl_preset_embeddings.attach_ssl_embeddings``.
+
+Both presets were replaced by their author (Yueqiao Zhang) after this
+module was first written -- Hufnagel on 2026-08-05/06 (557 -> 305 glyphs),
+Square notation on 2026-07-15 (as ``Square2.xml``, 144 glyphs, to
+``Square notation training data 05.08.26.xml``, 249 glyphs) -- and the
+embeddings were regenerated to match (see
+``core/scripts/generate_hufnagel_ssl_embeddings.py`` /
+``generate_square2_ssl_embeddings.py`` for the full per-page provenance).
+``PRESET_XML`` / ``SQUARE_XML`` below point at the *current* filenames.
+
+The two "recovers every glyph" tests intentionally check partial, not
+100%, coverage: the regenerated embeddings needed several source pages
+Yueqiao supplied afterwards, which live only in this maintainer's local
+staging area, not in this repo or CI -- so these tests can only exercise
+match_glyphs_to_source_pages against the pages that *are* committed under
+``core/data/train/`` (three of Hufnagel's ten, one of Square notation's
+nine), and assert the exact partial match count those give rather than
+full coverage.
 """
 from __future__ import annotations
 
@@ -28,13 +45,21 @@ from ic_core.ssl_preset_embeddings import (
     match_glyphs_to_source_pages,
 )
 
-PRESET_XML = Path(__file__).parent.parent / "data" / "presets" / "Hufnagel.xml"
+PRESET_XML = (
+    Path(__file__).parent.parent
+    / "data"
+    / "presets"
+    / "Hufnagel training data 06.08.26.xml"
+)
 TRAIN_DIR = Path(__file__).parent.parent / "data" / "train"
 HUFNAGEL_SOURCE_PAGES = [
     TRAIN_DIR / "hufnagel_example_826dd1b4.png",
     TRAIN_DIR / "hufnagel_example_a77ec16f.png",
     TRAIN_DIR / "hufnagel_example_fbed8126.png",
 ]
+# Exact match count for the three pages above against the current (305-glyph)
+# preset -- see the module docstring for why this isn't all 305.
+HUFNAGEL_COMMITTED_PAGES_MATCH_COUNT = 238
 
 
 def test_hufnagel_preset_has_embeddings():
@@ -106,11 +131,13 @@ def test_attach_ssl_embeddings_rejects_non_finite_values():
         attach_ssl_embeddings(glyphs, embeddings)
 
 
-def test_match_glyphs_to_source_pages_recovers_every_hufnagel_glyph():
-    """Same recovery this preset's embeddings were generated from (see
-    core/scripts/generate_hufnagel_ssl_embeddings.py), exercised as the
-    general-purpose path an uploaded (not just preset) GameraXML file
-    would go through if its source pages are supplied alongside it.
+def test_match_glyphs_to_source_pages_recovers_most_hufnagel_glyphs():
+    """Partial-coverage check against only the pages committed in this repo
+    -- see the module docstring. The full 305/305 recovery (using pages
+    supplied outside the repo) is what generate_hufnagel_ssl_embeddings.py
+    actually used to build the committed .ssl_embeddings.npz; this test
+    exercises the same general-purpose path (an uploaded GameraXML file
+    with source pages supplied alongside it) at reduced coverage.
     """
     glyphs = load_glyphs(PRESET_XML)
     pages = [np.array(Image.open(p).convert("L")) for p in HUFNAGEL_SOURCE_PAGES]
@@ -118,8 +145,9 @@ def test_match_glyphs_to_source_pages_recovers_every_hufnagel_glyph():
     matched = match_glyphs_to_source_pages(glyphs, pages)
 
     assert len(matched) == len(glyphs)
-    assert all(g.image_gray_b64 is not None for g in matched)
-    # Doesn't touch identity/labelling.
+    n_recovered = sum(1 for g in matched if g.image_gray_b64 is not None)
+    assert n_recovered == HUFNAGEL_COMMITTED_PAGES_MATCH_COUNT
+    # Doesn't touch identity/labelling, matched or not.
     assert [g.id for g in matched] == [g.id for g in glyphs]
     assert [g.class_name for g in matched] == [g.class_name for g in glyphs]
 
@@ -153,32 +181,44 @@ def test_extract_ssl_embeddings_rejects_glyphs_with_no_features_at_all():
         extract_ssl_embeddings(glyphs, checkpoint=None)
 
 
-SQUARE2_XML = Path(__file__).parent.parent / "data" / "presets" / "Square2.xml"
-SQUARE2_SOURCE_PAGE = (
+SQUARE_XML = (
+    Path(__file__).parent.parent
+    / "data"
+    / "presets"
+    / "Square notation training data 05.08.26.xml"
+)
+SQUARE_SOURCE_PAGE = (
     TRAIN_DIR / "Einsiedeln__Stiftsbibliothek__Codex_611_014r.jpg"
 )
+# Exact match count for the one page above against the current (249-glyph)
+# preset, at the module default binarize_threshold (127) -- see the module
+# docstring. The old Square2.xml preset needed binarize_threshold=110; this
+# replacement preset matches cleanly at the default instead (110 gives 0).
+SQUARE_COMMITTED_PAGE_MATCH_COUNT = 52
 
 
-def test_square2_preset_has_embeddings():
-    assert has_ssl_embeddings(SQUARE2_XML)
+def test_square_preset_has_embeddings():
+    assert has_ssl_embeddings(SQUARE_XML)
 
 
-def test_square2_embeddings_length_matches_preset_glyph_count():
-    glyphs = load_glyphs(SQUARE2_XML)
-    embeddings = load_ssl_embeddings(SQUARE2_XML)
+def test_square_embeddings_length_matches_preset_glyph_count():
+    glyphs = load_glyphs(SQUARE_XML)
+    embeddings = load_ssl_embeddings(SQUARE_XML)
     assert embeddings is not None
     assert embeddings.shape[0] == len(glyphs)
 
 
-def test_match_glyphs_to_source_pages_recovers_every_square2_glyph():
-    """Same recovery this preset's embeddings were generated from (see
-    core/scripts/generate_square2_ssl_embeddings.py) -- confirms the
-    committed Einsiedeln page is still the exact source for every glyph.
+def test_match_glyphs_to_source_pages_recovers_some_square_glyphs():
+    """Partial-coverage check against only the page committed in this repo
+    -- see the module docstring. The full 249/249 recovery (using pages
+    supplied outside the repo) is what generate_square2_ssl_embeddings.py
+    actually used to build the committed .ssl_embeddings.npz.
     """
-    glyphs = load_glyphs(SQUARE2_XML)
-    page = np.array(Image.open(SQUARE2_SOURCE_PAGE).convert("L"))
+    glyphs = load_glyphs(SQUARE_XML)
+    page = np.array(Image.open(SQUARE_SOURCE_PAGE).convert("L"))
 
-    matched = match_glyphs_to_source_pages(glyphs, [page], binarize_threshold=110)
+    matched = match_glyphs_to_source_pages(glyphs, [page])
 
     assert len(matched) == len(glyphs)
-    assert all(g.image_gray_b64 is not None for g in matched)
+    n_recovered = sum(1 for g in matched if g.image_gray_b64 is not None)
+    assert n_recovered == SQUARE_COMMITTED_PAGE_MATCH_COUNT
