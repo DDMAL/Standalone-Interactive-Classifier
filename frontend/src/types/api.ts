@@ -21,6 +21,15 @@ export const CATEGORY_DEFAULT_OPEN: Record<GlyphCategory, boolean> = {
   Staves: false,
 };
 
+/** One entry of GET /training-presets. */
+export interface TrainingPresetDTO {
+  name: string;
+  /** Whether this preset ships precomputed SSL embeddings (see the API's
+   *  ic_core.ssl_preset_embeddings) and can be used as training data for
+   *  the "ssl_fusion" classify backend. */
+  ssl_compatible: boolean;
+}
+
 export interface GlyphDTO {
   id: string;
   class_name: string;
@@ -32,6 +41,11 @@ export interface GlyphDTO {
   ncols: number;
   nrows: number;
   image_b64: string;
+  /** Usable as "ssl_fusion" training data (precomputed embedding or a
+   *  real-pixel crop) -- see ic_core.ssl_classifier.SSLFusionClassifier.fit.
+   *  A glyph can count toward the training-set size while still being
+   *  excluded from that backend's actual training pool. */
+  has_ssl_features: boolean;
 }
 
 export interface SessionDTO {

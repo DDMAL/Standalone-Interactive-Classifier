@@ -51,6 +51,17 @@ class GlyphDTO(BaseModel):
     # raw RLE is not sent — the frontend doesn't decode it.
     image_b64: str = Field(..., description="Base64 PNG, ASCII.")
 
+    # Whether this glyph carries a precomputed ssl_embedding or a real-pixel
+    # crop (image_gray_b64) -- i.e. whether the "ssl_fusion" classify backend
+    # can use it as training data. A glyph sourced from a preset without
+    # embeddings, or an uploaded GameraXML file with no companion embeddings/
+    # source image, is silently excluded from that backend's training pool
+    # (see ic_core.ssl_classifier.SSLFusionClassifier.fit) even though it
+    # still counts toward the training-set size shown elsewhere in the UI.
+    has_ssl_features: bool = Field(
+        ..., description="Usable as ssl_fusion training data."
+    )
+
 
 class SessionSummaryDTO(BaseModel):
     """Lightweight session metadata for the resume list (GET /sessions).
@@ -104,6 +115,21 @@ class SessionDTO(BaseModel):
     )
 
 
+class TrainingPresetDTO(BaseModel):
+    """One entry of GET /training-presets."""
+
+    name: str = Field(..., description="Preset filename, as passed back in training_presets.")
+    ssl_compatible: bool = Field(
+        ...,
+        description=(
+            "Whether this preset ships precomputed SSL embeddings, "
+            "letting it be selected as training data for the 'ssl_fusion' "
+            "classify backend. Presets without embeddings only carry a "
+            "binary mask and cannot be used by that backend."
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Request bodies — write paths
 # ---------------------------------------------------------------------------
@@ -112,7 +138,16 @@ class SessionDTO(BaseModel):
 class ClassifyRequest(BaseModel):
     """POST /sessions/{id}/classify body."""
 
-    k: int = Field(default=3, ge=1, description="Neighbour count; default 3.")
+    k: int = Field(default=3, ge=1, description="Neighbour count; default 3. Ignored when backend='ssl_fusion'.")
+    backend: Literal["knn", "ssl_fusion"] = Field(
+        default="knn",
+        description=(
+            "'knn' (default): handcrafted-feature k-nearest-neighbours "
+            "classifier. 'ssl_fusion': optional SSL+handcrafted fused "
+            "logistic-regression classifier; requires the server to have "
+            "the ssl extra installed and IC_SSL_CHECKPOINT configured."
+        ),
+    )
 
 
 class RebinarizeRequest(BaseModel):
@@ -188,6 +223,8 @@ def glyph_to_dto(glyph: Glyph) -> GlyphDTO:
         ncols=glyph.ncols,
         nrows=glyph.nrows,
         image_b64=glyph.to_base64_png(),
+        has_ssl_features=glyph.ssl_embedding is not None
+        or glyph.image_gray_b64 is not None,
     )
 
 

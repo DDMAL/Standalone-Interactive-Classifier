@@ -1,8 +1,10 @@
 import type { ExportSelection } from "@/api/sessions";
 import { Button } from "@/components/ui/Button";
 import { AlertCircleIcon } from "@/components/ui/icons";
+import { CLASSIFIER_BACKENDS } from "@/constants/classifierBackends";
 import { useClassify } from "@/hooks/useClassify";
 import { useComplete } from "@/hooks/useComplete";
+import { useExportEmbeddings } from "@/hooks/useExportEmbeddings";
 import { useRebinarize } from "@/hooks/useRebinarize";
 import { useUndoApply } from "@/hooks/useUpdateGlyphs";
 import { type GlyphImageMode, useUiStore } from "@/store/uiStore";
@@ -50,12 +52,14 @@ export function Toolbar({
   binarizationMethod,
 }: ToolbarProps) {
   const complete = useComplete(sessionId);
+  const exportEmbeddings = useExportEmbeddings(sessionId);
   const classify = useClassify(sessionId);
   const rebinarize = useRebinarize(sessionId);
   const undoApply = useUndoApply(sessionId);
   const knnK = useUiStore((s) => s.knnK);
   const undoStack = useUiStore((s) => s.undoStack);
   const setKnnK = useUiStore((s) => s.setKnnK);
+  const classifierBackend = useUiStore((s) => s.classifierBackend);
   const glyphImageMode = useUiStore((s) => s.glyphImageMode);
   const setGlyphImageMode = useUiStore((s) => s.setGlyphImageMode);
 
@@ -78,11 +82,12 @@ export function Toolbar({
   // Changing k re-runs the classification stage with the new neighbour
   // count. No-op when the same k is clicked, while a classify is in flight,
   // or when the training set is too small for that k, to avoid
-  // redundant/concurrent/invalid rounds.
+  // redundant/concurrent/invalid rounds. Only meaningful for the "knn"
+  // backend; ssl_fusion ignores k.
   const handleKChange = (k: number) => {
     if (k === knnK || classify.isPending || !isKAvailable(k)) return;
     setKnnK(k);
-    classify.mutate(k);
+    classify.mutate({ k, backend: classifierBackend });
   };
 
   // Switching the method re-binarises the page and rebuilds every glyph
@@ -102,7 +107,9 @@ export function Toolbar({
     if (classify.isPending) return;
     try {
       await rebinarize.mutateAsync(method);
-      if (isKAvailable(knnK)) await classify.mutateAsync(knnK);
+      if (isKAvailable(knnK)) {
+        await classify.mutateAsync({ k: knnK, backend: classifierBackend });
+      }
     } catch {
       // Both mutations surface their own error state; catching here only
       // keeps the rejection from going unhandled.
@@ -167,12 +174,28 @@ export function Toolbar({
         </div>
         <div
           className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
+          title={
+            CLASSIFIER_BACKENDS.find((b) => b.value === classifierBackend)
+              ?.title ??
+            "Chosen on the upload screen before the session started."
+          }
+        >
+          <span className="text-xs font-medium text-slate-600">Model</span>
+          <span className="rounded bg-blue-600 px-2 py-0.5 text-xs font-medium text-white">
+            {
+              CLASSIFIER_BACKENDS.find((b) => b.value === classifierBackend)
+                ?.label
+            }
+          </span>
+        </div>
+        <div
+          className="flex items-center gap-1 rounded border border-slate-200 bg-slate-50 px-2 py-1"
           title="Neighbour count for kNN classification"
         >
           <span className="text-xs font-medium text-slate-600">k</span>
           <div className="flex overflow-hidden rounded border border-slate-300">
             {K_CHOICES.map((k) => {
-              const available = isKAvailable(k);
+              const available = isKAvailable(k) && classifierBackend === "knn";
               return (
                 <button
                   key={k}
@@ -180,9 +203,11 @@ export function Toolbar({
                   onClick={() => handleKChange(k)}
                   disabled={classify.isPending || !available}
                   title={
-                    available
-                      ? undefined
-                      : `Needs at least ${k} training glyphs (have ${trainingSize})`
+                    classifierBackend !== "knn"
+                      ? "k only applies to the HC + kNN backend"
+                      : isKAvailable(k)
+                        ? undefined
+                        : `Needs at least ${k} training glyphs (have ${trainingSize})`
                   }
                   className={clsx(
                     "px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60",
@@ -198,14 +223,24 @@ export function Toolbar({
           </div>
           <button
             type="button"
-            onClick={() => classify.mutate(knnK)}
-            disabled={classify.isPending || !isKAvailable(knnK)}
+            onClick={() =>
+              classify.mutate({ k: knnK, backend: classifierBackend })
+            }
+            disabled={
+              classify.isPending ||
+              (classifierBackend === "knn" && !isKAvailable(knnK)) ||
+              trainingSize === 0
+            }
             title={
               trainingSize === 0
                 ? "No training glyphs yet — apply at least one label first"
-                : !isKAvailable(knnK)
+                : classifierBackend === "knn" && !isKAvailable(knnK)
                   ? `Needs at least ${knnK} training glyphs (have ${trainingSize})`
-                  : "Re-run kNN classification with the current k and training set"
+                  : `Re-run classification with the ${
+                      CLASSIFIER_BACKENDS.find(
+                        (b) => b.value === classifierBackend,
+                      )?.label
+                    } model`
             }
             className="px-2 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 bg-mothra-cyan text-white hover:bg-mothra-cyan-dark rounded"
           >
@@ -218,6 +253,15 @@ export function Toolbar({
             {trainingSize.toLocaleString()} training glyphs
           </span>
           {trainingSize < SMALL_TRAINING_THRESHOLD && <SmallTrainingWarning />}
+          {classify.isError && (
+            <span
+              className="flex items-center gap-1 text-xs text-red-600"
+              title={(classify.error as Error)?.message}
+            >
+              <AlertCircleIcon className="h-3.5 w-3.5" />
+              Classify failed
+            </span>
+          )}
         </div>
         <Button
           variant="secondary"
@@ -233,11 +277,14 @@ export function Toolbar({
         </Button>
         <ExportMenu
           pending={complete.isPending}
+          embeddingsPending={exportEmbeddings.isPending}
+          showEmbeddingsExport={classifierBackend === "ssl_fusion"}
           pageCount={glyphCount}
           manualNeumeCount={manualNeumeCount}
           presetTrainingCount={presetTrainingCount}
           uploadedTrainingCount={uploadedTrainingCount}
           onExport={(selection) => complete.mutate(selection)}
+          onExportEmbeddings={(selection) => exportEmbeddings.mutate(selection)}
         />
       </div>
     </header>
@@ -274,11 +321,15 @@ function SmallTrainingWarning() {
 
 interface ExportMenuProps {
   pending: boolean;
+  embeddingsPending: boolean;
+  /** Only the ssl_fusion backend produces SSL embeddings worth exporting. */
+  showEmbeddingsExport: boolean;
   pageCount: number;
   manualNeumeCount: number;
   presetTrainingCount: number;
   uploadedTrainingCount: number;
   onExport: (selection: ExportSelection) => void;
+  onExportEmbeddings: (selection: ExportSelection) => void;
 }
 
 // The four sections the export can fold into one GameraXML. `key` matches the
@@ -294,11 +345,14 @@ type ExportOptionKey = keyof ExportSelection;
  */
 function ExportMenu({
   pending,
+  embeddingsPending,
+  showEmbeddingsExport,
   pageCount,
   manualNeumeCount,
   presetTrainingCount,
   uploadedTrainingCount,
   onExport,
+  onExportEmbeddings,
 }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -379,6 +433,12 @@ function ExportMenu({
     onExport(effective);
   };
 
+  const handleExportEmbeddings = () => {
+    if (!anySelected) return;
+    setOpen(false);
+    onExportEmbeddings(effective);
+  };
+
   return (
     <div ref={ref} className="relative">
       <Button onClick={() => setOpen((v) => !v)} disabled={pending}>
@@ -420,7 +480,7 @@ function ExportMenu({
               );
             })}
           </div>
-          <div className="border-t border-slate-100 p-2">
+          <div className="space-y-1 border-t border-slate-100 p-2">
             <Button
               className="w-full"
               onClick={handleExport}
@@ -433,6 +493,23 @@ function ExportMenu({
             >
               Export selected
             </Button>
+            {showEmbeddingsExport && (
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={handleExportEmbeddings}
+                disabled={!anySelected || embeddingsPending}
+                title={
+                  anySelected
+                    ? "Download a companion .ssl_embeddings.npz for these same sections, so this training set can be re-used with ssl_fusion later without a live crop or model pass."
+                    : "Select at least one section to export"
+                }
+              >
+                {embeddingsPending
+                  ? "Exporting embeddings…"
+                  : "Export embeddings (.npz)"}
+              </Button>
+            )}
           </div>
         </div>
       )}
