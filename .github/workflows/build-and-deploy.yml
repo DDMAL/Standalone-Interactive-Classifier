@@ -79,4 +79,4 @@ jobs:
         run: |
           kubectl -n interactive-classifier set image deployment/ic \
             ic=${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.sha_tag }}
-          kubectl -n interactive-classifier rollout status deployment/ic --timeout=180s
+          kubectl -n interactive-classifier rollout status deployment/ic --timeout=300s
