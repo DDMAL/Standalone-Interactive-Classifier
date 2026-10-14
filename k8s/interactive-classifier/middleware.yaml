@@ -1,0 +1,37 @@
+# Request-body size limit for the Interactive Classifier.
+#
+# Traefik does not cap request bodies by default (maxRequestBodyBytes: 0 means
+# unlimited), so this middleware *imposes* an explicit 64 MiB ceiling rather
+# than raising an existing one. Page-scan uploads are multi-MB multipart
+# bodies; 64 MiB leaves headroom for a high-res scan plus its paired bbox JSON
+# and any GameraXML training uploads in the same request.
+#
+# Referenced from ingress.yaml via the annotation
+#   traefik.ingress.kubernetes.io/router.middlewares:
+#     interactive-classifier-ic-body-limit@kubernetescrd
+# The `<namespace>-<name>@kubernetescrd` form is required — a bare name does
+# not resolve.
+#
+# API group note: traefik.io/v1alpha1 covers Traefik v3 and v2.11+. On older
+# Traefik v2 the group is traefik.containo.us/v1alpha1; check with
+#   kubectl get crd | grep -i traefik
+# before rolling this out, because `kubectl apply` fails the whole deploy step
+# if the kind does not resolve.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: ic-body-limit
+  namespace: interactive-classifier
+  labels:
+    app: ic
+spec:
+  buffering:
+    # Reject anything larger than 64 MiB with a 413 at the edge.
+    maxRequestBodyBytes: 67108864
+    # Bodies above this are spooled to a temp file in the Traefik pod instead
+    # of held in memory. 4 MiB keeps a typical page scan in memory while
+    # stopping a 64 MiB upload from becoming 64 MiB of Traefik heap.
+    memRequestBodyBytes: 4194304
+    # maxResponseBodyBytes is deliberately left unset (0 = unlimited): the app
+    # streams page images and GameraXML exports back through this router, and
+    # capping responses here would truncate them with a 500.
