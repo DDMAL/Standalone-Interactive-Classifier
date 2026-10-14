@@ -24,7 +24,8 @@ jobs:
       - name: Compute image tags
         id: vars
         run: |
-          branch="${GITHUB_REF_NAME}"
+          # Image tags can't contain '/', so feature/foo becomes feature-foo.
+          branch="${GITHUB_REF_NAME//\//-}"
           sha_short="$(git rev-parse --short HEAD)"
           echo "sha_tag=${branch}-${sha_short}" >> "$GITHUB_OUTPUT"
           echo "latest_tag=${branch}-latest" >> "$GITHUB_OUTPUT"
