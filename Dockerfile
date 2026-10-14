@@ -43,6 +43,10 @@ COPY api/ ./api/
 
 WORKDIR /app/api
 # Install into the project venv from the committed lockfile, excluding dev deps.
+# UV_COMPILE_BYTECODE precompiles the venv's .pyc files at build time. Without
+# it, every container start compiles numpy/scipy/scikit-image on first import,
+# which on a 500m-CPU pod took ~50s and tripped the k8s liveness probe.
+ENV UV_COMPILE_BYTECODE=1
 RUN uv sync --frozen --no-dev
 
 # Drop the built frontend where main.py expects it. This dir is gitignored;
