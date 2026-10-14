@@ -53,10 +53,16 @@ spec:
               port: 8000
             initialDelaySeconds: 20
             periodSeconds: 15
+          # Sized from 15d of Prometheus data + a local per-action benchmark
+          # (2026-10-14): idle ~1-10m CPU and 70-195Mi; each user action bursts
+          # to 1.5-3.7 cores for <1s (numpy), which a 500m limit throttled 3-5x.
+          # Memory peaks ~240Mi on the 4MB sample page, more for larger pages
+          # (uploads allowed up to 64MiB), and an OOM kill drops every
+          # in-memory session, so the memory limit keeps wide headroom.
           resources:
             requests:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 100m
+              memory: 256Mi
             limits:
-              cpu: 500m
+              cpu: "2"
               memory: 1Gi
