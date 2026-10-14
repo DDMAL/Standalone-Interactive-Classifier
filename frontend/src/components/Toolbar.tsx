@@ -53,6 +53,10 @@ export function Toolbar({
   const classify = useClassify(sessionId);
   const rebinarize = useRebinarize(sessionId);
   const undoApply = useUndoApply(sessionId);
+  const clearSession = useUiStore((s) => s.clearSession);
+  // Standalone only: embedded in a host (mothra), the host owns navigation
+  // between pages, so the home / new-session shortcuts are hidden.
+  const standalone = window.parent === window;
   const knnK = useUiStore((s) => s.knnK);
   const undoStack = useUiStore((s) => s.undoStack);
   const setKnnK = useUiStore((s) => s.setKnnK);
@@ -112,6 +116,16 @@ export function Toolbar({
   return (
     <header className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-2">
       <div className="flex items-baseline gap-3">
+        {standalone && (
+          <button
+            type="button"
+            onClick={() => clearSession()}
+            title="Return to the main page"
+            className="font-semibold text-slate-800 transition-colors hover:text-mothra-cyan"
+          >
+            Interactive Classifier
+          </button>
+        )}
         <span className="text-sm text-slate-500">{glyphCount} glyphs</span>
       </div>
       <div className="flex items-center gap-2">
@@ -231,6 +245,11 @@ export function Toolbar({
         >
           {undoApply.isPending ? "Undoing…" : "Undo"}
         </Button>
+        {standalone && (
+          <Button variant="ghost" onClick={() => clearSession()}>
+            New session
+          </Button>
+        )}
         <ExportMenu
           pending={complete.isPending}
           pageCount={glyphCount}
@@ -302,10 +321,14 @@ function ExportMenu({
 }: ExportMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  // Default to the common case: the whole annotated page.
+  // Embedded in a host (mothra), export leaves the session editable; standalone,
+  // it finalises it (see useComplete). Drives the wording and default only.
+  const embedded = window.parent !== window;
+  // Default to the common case: embedded, the whole annotated page; standalone,
+  // the neumes labelled by hand on this page.
   const [selection, setSelection] = useState<Record<ExportOptionKey, boolean>>({
-    page: true,
-    manualNeumes: false,
+    page: embedded,
+    manualNeumes: !embedded,
     presetTraining: false,
     uploadedTraining: false,
   });
@@ -382,7 +405,7 @@ function ExportMenu({
   return (
     <div ref={ref} className="relative">
       <Button onClick={() => setOpen((v) => !v)} disabled={pending}>
-        {pending ? "Exporting…" : "Export ▾"}
+        {pending ? "Exporting…" : embedded ? "Export ▾" : "Complete & Export ▾"}
       </Button>
       {open && (
         <div className="absolute right-0 z-10 mt-1 w-80 overflow-hidden rounded border border-slate-200 bg-white shadow-lg">

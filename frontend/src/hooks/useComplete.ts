@@ -1,6 +1,7 @@
 import { type ExportSelection, completeSession } from "@/api/sessions";
 import { commitSoftDeletes } from "@/hooks/useFlushDeletions";
 import { downloadBlob } from "@/lib/download";
+import { useUiStore } from "@/store/uiStore";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 /**
@@ -11,9 +12,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
  * Pass an {@link ExportSelection} to choose which sections (page, manual
  * neumes, preset/uploaded training) get folded into the exported XML.
  *
- * Exporting no longer finalises the session — the backend leaves it
- * editable — so we stay on the edit view after the download. The user can
- * keep correcting and export again as many times as they like.
+ * What happens after the download depends on where we run:
+ * - Embedded in a host (mothra), the export does not finalise the session
+ *   (`completeSession` sends `finalize=false`), so we stay on the edit view
+ *   and the user can keep correcting and export again.
+ * - Standalone, exporting moves the session into the terminal, read-only
+ *   EXPORT state, so we clear the session and drop back to the main page
+ *   rather than leaving the user on an edit view that can only 409.
  *
  * The commit itself lives in {@link commitSoftDeletes}, shared with the
  * host-driven flush (see useFlushDeletions): an embedding host exports
@@ -29,6 +34,7 @@ export function useComplete(sessionId: string) {
     },
     onSuccess: ({ blob, filename }) => {
       downloadBlob(blob, filename);
+      if (window.parent === window) useUiStore.getState().clearSession();
     },
   });
 }
