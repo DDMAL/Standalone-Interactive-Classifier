@@ -19,6 +19,7 @@ spec:
         - name: ghcr-pull-secret
       containers:
         - name: ic
+          # CI (build-and-deploy.yml) pins the exact develop-<sha> tag at deploy time.
           image: ghcr.io/ddmal/interactive-classifier:develop-latest
           imagePullPolicy: IfNotPresent
           ports:

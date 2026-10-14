@@ -72,11 +72,18 @@ jobs:
           printf '%s' "$KUBECONFIG_CONTENT" > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
 
-      - name: Apply manifests
-        run: kubectl apply -f k8s/interactive-classifier/
-
-      - name: Roll out freshly built image
+      - name: Deploy freshly built image
+        env:
+          IMAGE: ${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.sha_tag }}
         run: |
-          kubectl -n interactive-classifier set image deployment/ic \
-            ic=${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.sha_tag }}
+          # Render the manifests with the exact image pinned, so the apply
+          # creates a single rollout revision on this build. A separate
+          # `set image` after applying the develop-latest manifest made two
+          # revisions per deploy; `rollout undo` then landed on develop-latest.
+          rendered="$(mktemp -d)"
+          cp k8s/interactive-classifier/*.yaml "$rendered/"
+          sed -i "s|image: ${IMAGE_NAME}:.*|image: ${IMAGE}|" "$rendered/deployment.yaml"
+          grep -qF "image: ${IMAGE}" "$rendered/deployment.yaml" \
+            || { echo "failed to pin image in deployment.yaml" >&2; exit 1; }
+          kubectl apply -f "$rendered/"
           kubectl -n interactive-classifier rollout status deployment/ic --timeout=300s
