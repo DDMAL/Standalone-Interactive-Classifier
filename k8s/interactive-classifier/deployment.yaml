@@ -33,6 +33,15 @@ spec:
             # default resolved from the repo layout; pinned here explicitly).
             - name: IC_TRAIN_DIR
               value: /app/core/data/train
+          # Cold starts (importing numpy/scipy/scikit-image) have taken ~44-51s
+          # on this cluster's nodes, past the liveness window. Until this probe
+          # succeeds the liveness/readiness probes are held off, so a slow start
+          # can't trigger a restart loop. Allows up to 30 x 5s = 150s.
+          startupProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             tcpSocket:
               port: 8000
